@@ -12,6 +12,7 @@ import {
 } from "../types"; // Using types defined earlier
 import "../App.css"; // Ensure global styles are applied
 import { invoke } from "@tauri-apps/api/tauri"; // Corrected import path for Tauri v2
+import { formatSlidesForClipboard } from "../utils/slideUtils"; // Added import
 
 // Mock Data (can be moved to a separate file or fetched from backend later)
 const mockPlaylistsData: Playlist[] = [
@@ -144,6 +145,7 @@ const MainApplicationPage: React.FC = () => {
   );
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [copyStatusMain, setCopyStatusMain] = useState<string>(""); // Added state for feedback
   // Use the more complete mockTemplatesForMainPage or fetch/get from a shared store
   const [templates, setTemplates] = useState<Template[]>(() => {
     const savedTemplates = localStorage.getItem("proassist-templates");
@@ -400,6 +402,25 @@ const MainApplicationPage: React.FC = () => {
     // how text is split and joined during edit; more sophisticated handling could be added if needed.
   };
 
+  const handleCopyToClipboardMain = async () => {
+    if (currentPlaylistItem && currentPlaylistItem.slides.length > 0) {
+      const formattedText = formatSlidesForClipboard(
+        currentPlaylistItem.slides
+      );
+      try {
+        await navigator.clipboard.writeText(formattedText);
+        setCopyStatusMain("Copied!");
+        setTimeout(() => setCopyStatusMain(""), 2000); // Clear feedback after 2s
+      } catch (err) {
+        console.error("Failed to copy slides: ", err);
+        setCopyStatusMain("Failed to copy.");
+        setTimeout(() => setCopyStatusMain(""), 2000);
+      }
+    } else {
+      alert("No slides to copy.");
+    }
+  };
+
   const handleImportFromModal = (
     itemName: string,
     templateName: string,
@@ -519,6 +540,31 @@ const MainApplicationPage: React.FC = () => {
             >
               ➕
             </button>
+            {currentPlaylistItem && currentPlaylistItem.slides.length > 0 && (
+              <button
+                onClick={handleCopyToClipboardMain}
+                title="Copy all slides in this item to clipboard"
+                style={{
+                  marginLeft: "10px",
+                  padding: "5px 10px",
+                  fontSize: "0.8em",
+                }} // Basic styling
+                className="secondary" // Assuming you have a secondary button style
+              >
+                📋 Copy Slides
+              </button>
+            )}
+            {copyStatusMain && (
+              <span
+                style={{
+                  marginLeft: "5px",
+                  fontSize: "0.8em",
+                  color: "var(--app-primary-color)",
+                }}
+              >
+                {copyStatusMain}
+              </span>
+            )}
           </div>
         </div>
         <div style={{ padding: "20px", flexGrow: 1, overflowY: "auto" }}>

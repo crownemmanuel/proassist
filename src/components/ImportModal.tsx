@@ -8,6 +8,7 @@ import {
 } from "../types";
 import { getAppSettings } from "../utils/aiConfig";
 import { generateSlidesFromText } from "../services/aiService";
+import { formatSlidesForClipboard } from "../utils/slideUtils";
 import "../App.css"; // Ensure global styles are applied
 
 const MAX_PREVIEW_SLIDES = 10;
@@ -46,6 +47,7 @@ const ImportModal: React.FC<ImportModalProps> = ({
   >([]);
   const [isLoading, setIsLoading] = useState(false); // Generic loading for AI or file reading
   const [appSettings, setAppSettings] = useState<AppSettings>(getAppSettings());
+  const [copyFeedback, setCopyFeedback] = useState<string>(""); // Added state for feedback
 
   useEffect(() => {
     if (isOpen) {
@@ -59,6 +61,7 @@ const ImportModal: React.FC<ImportModalProps> = ({
       setProcessedSlidesForImport([]);
       setIsLoading(false);
       setAppSettings(getAppSettings());
+      setCopyFeedback(""); // Reset feedback
     }
   }, [isOpen, templates]);
 
@@ -181,6 +184,23 @@ const ImportModal: React.FC<ImportModalProps> = ({
     }
     onImport(itemName, selectedTemplateName, processedSlidesForImport);
     onClose();
+  };
+
+  const handleCopyToClipboard = async () => {
+    if (processedSlidesForImport.length === 0) {
+      alert("No processed slides to copy.");
+      return;
+    }
+    const formattedText = formatSlidesForClipboard(processedSlidesForImport);
+    try {
+      await navigator.clipboard.writeText(formattedText);
+      setCopyFeedback("Copied!");
+      setTimeout(() => setCopyFeedback(""), 2000); // Clear feedback after 2s
+    } catch (err) {
+      console.error("Failed to copy text: ", err);
+      setCopyFeedback("Failed to copy.");
+      setTimeout(() => setCopyFeedback(""), 2000);
+    }
   };
 
   if (!isOpen) return null;
@@ -358,6 +378,37 @@ const ImportModal: React.FC<ImportModalProps> = ({
           )}
         </div>
 
+        {/* Add Copy to Clipboard button and feedback here */}
+        {processedSlidesForImport.length > 0 && (
+          <div
+            style={{
+              marginTop: "10px",
+              marginBottom: "15px",
+              display: "flex",
+              alignItems: "center",
+            }}
+          >
+            <button
+              onClick={handleCopyToClipboard}
+              disabled={isLoading}
+              style={{ fontSize: "0.9em", padding: "5px 10px" }}
+            >
+              Copy All ({processedSlidesForImport.length}) to Clipboard
+            </button>
+            {copyFeedback && (
+              <span
+                style={{
+                  marginLeft: "10px",
+                  fontSize: "0.9em",
+                  color: "var(--app-primary-color)",
+                }}
+              >
+                {copyFeedback}
+              </span>
+            )}
+          </div>
+        )}
+
         <div className="modal-actions">
           <button onClick={onClose} disabled={isLoading}>
             Cancel
@@ -367,7 +418,7 @@ const ImportModal: React.FC<ImportModalProps> = ({
             className="primary"
             disabled={!canImport}
           >
-            Import to Playlist
+            Import to Playlist ({processedSlidesForImport.length} slides)
           </button>
         </div>
       </div>
