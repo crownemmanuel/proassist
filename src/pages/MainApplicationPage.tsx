@@ -8,6 +8,7 @@ import {
   Slide,
   Template,
   TemplateType,
+  LayoutType,
 } from "../types"; // Using types defined earlier
 import "../App.css"; // Ensure global styles are applied
 import { invoke } from "@tauri-apps/api/core"; // Corrected import path for Tauri v2
@@ -302,6 +303,103 @@ const MainApplicationPage: React.FC = () => {
     // This function focuses on the side effect (writing to files).
   };
 
+  const handleAddSlide = (layout: LayoutType) => {
+    if (!selectedPlaylistId || !selectedItemId) {
+      alert("Please select a playlist and an item within it to add a slide.");
+      return;
+    }
+    const newSlide: Slide = {
+      id: `slide-${Date.now()}`,
+      text: "New Slide", // Default text
+      layout: layout,
+      order: (currentPlaylistItem?.slides.length || 0) + 1,
+    };
+
+    setPlaylists((prevPlaylists) =>
+      prevPlaylists.map((p) => {
+        if (p.id === selectedPlaylistId) {
+          return {
+            ...p,
+            items: p.items.map((item) => {
+              if (item.id === selectedItemId) {
+                return {
+                  ...item,
+                  slides: [...item.slides, newSlide],
+                };
+              }
+              return item;
+            }),
+          };
+        }
+        return p;
+      })
+    );
+    // Optionally, you might want to auto-select the new slide for editing
+    // This would require passing setEditingSlideId and setEditingLines down or a callback
+  };
+
+  const handleDeleteSlide = (slideIdToDelete: string) => {
+    if (!selectedPlaylistId || !selectedItemId) {
+      alert("Cannot delete slide: No playlist or item selected.");
+      return;
+    }
+    setPlaylists((prevPlaylists) =>
+      prevPlaylists.map((p) => {
+        if (p.id === selectedPlaylistId) {
+          return {
+            ...p,
+            items: p.items.map((item) => {
+              if (item.id === selectedItemId) {
+                return {
+                  ...item,
+                  slides: item.slides
+                    .filter((s) => s.id !== slideIdToDelete)
+                    .map((s, index) => ({ ...s, order: index + 1 })), // Re-order remaining slides
+                };
+              }
+              return item;
+            }),
+          };
+        }
+        return p;
+      })
+    );
+  };
+
+  const handleChangeSlideLayout = (
+    slideIdToChange: string,
+    newLayout: LayoutType
+  ) => {
+    if (!selectedPlaylistId || !selectedItemId) {
+      alert("Cannot change slide layout: No playlist or item selected.");
+      return;
+    }
+    setPlaylists((prevPlaylists) =>
+      prevPlaylists.map((p) => {
+        if (p.id === selectedPlaylistId) {
+          return {
+            ...p,
+            items: p.items.map((item) => {
+              if (item.id === selectedItemId) {
+                return {
+                  ...item,
+                  slides: item.slides.map((s) =>
+                    s.id === slideIdToChange ? { ...s, layout: newLayout } : s
+                  ),
+                };
+              }
+              return item;
+            }),
+          };
+        }
+        return p;
+      })
+    );
+    // After changing layout, if the user edits, SlideDisplayArea's handleEdit will pick up the new layout
+    // and adjust the number of editing fields. Text truncation/addition if lines change is implicitly handled by
+    // how text is split and joined during edit; more sophisticated handling could be added if needed.
+  };
+
   const handleImportComplete = (
     newPlaylistItemTitle: string,
     importedSlides: Slide[],
@@ -424,6 +522,9 @@ const MainApplicationPage: React.FC = () => {
             onMakeSlideLive={(slide) =>
               handleMakeSlideLive(slide, currentPlaylistItem)
             }
+            onAddSlide={handleAddSlide}
+            onDeleteSlide={handleDeleteSlide}
+            onChangeSlideLayout={handleChangeSlideLayout}
           />
         </div>
       </div>

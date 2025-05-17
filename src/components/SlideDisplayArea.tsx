@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { PlaylistItem, Slide, LayoutType } from "../types";
 import "../App.css"; // Ensure global styles are applied
+import ContextMenu from "./ContextMenu"; // Import the new component
 
 const MAX_LINES_FOR_EDIT = 6;
 
@@ -8,22 +9,42 @@ interface SlideDisplayAreaProps {
   playlistItem: PlaylistItem | undefined;
   onUpdateSlide: (slideId: string, newText: string) => void;
   onMakeSlideLive: (slide: Slide) => void;
+  onAddSlide: (layout: LayoutType) => void;
+  onDeleteSlide: (slideId: string) => void;
+  onChangeSlideLayout: (slideId: string, newLayout: LayoutType) => void; // New prop
+}
+
+interface ContextMenuState {
+  isOpen: boolean;
+  x: number;
+  y: number;
+  slideId: string | null;
 }
 
 const SlideDisplayArea: React.FC<SlideDisplayAreaProps> = ({
   playlistItem,
   onUpdateSlide,
   onMakeSlideLive,
+  onAddSlide,
+  onDeleteSlide,
+  onChangeSlideLayout, // New prop
 }) => {
   const [editingSlideId, setEditingSlideId] = useState<string | null>(null);
   // editText is now used as a temporary holder if needed, or can be removed if editingLines is sufficient
   // For simplicity, we'll manage lines directly.
   const [editingLines, setEditingLines] = useState<string[]>([]);
   const [liveSlideId, setLiveSlideId] = useState<string | null>(null);
+  const [contextMenu, setContextMenu] = useState<ContextMenuState>({
+    isOpen: false,
+    x: 0,
+    y: 0,
+    slideId: null,
+  });
 
   useEffect(() => {
     setEditingSlideId(null);
     setEditingLines([]);
+    setContextMenu({ isOpen: false, x: 0, y: 0, slideId: null }); // Close context menu on item change
   }, [playlistItem]);
 
   const getLayoutText = (layout: LayoutType): string => {
@@ -86,6 +107,7 @@ const SlideDisplayArea: React.FC<SlideDisplayAreaProps> = ({
         .fill("")
         .map((_, i) => currentLines[i] || "")
     );
+    closeContextMenu(); // Close context menu when edit starts
   };
 
   const handleEditingLineChange = (index: number, value: string) => {
@@ -118,6 +140,56 @@ const SlideDisplayArea: React.FC<SlideDisplayAreaProps> = ({
     onMakeSlideLive(slide);
     setLiveSlideId(slide.id);
   };
+
+  const handleRightClick = (event: React.MouseEvent, slideId: string) => {
+    event.preventDefault();
+    setContextMenu({
+      isOpen: true,
+      x: event.clientX,
+      y: event.clientY,
+      slideId,
+    });
+  };
+
+  const closeContextMenu = () => {
+    setContextMenu({ isOpen: false, x: 0, y: 0, slideId: null });
+  };
+
+  const currentEditingSlide = playlistItem?.slides.find(
+    (s) => s.id === editingSlideId
+  );
+  const currentContextMenuSlide = playlistItem?.slides.find(
+    (s) => s.id === contextMenu.slideId
+  );
+
+  const allLayoutOptions: LayoutType[] = [
+    "one-line",
+    "two-line",
+    "three-line",
+    "four-line",
+    "five-line",
+    "six-line",
+  ];
+
+  const contextMenuItems = currentContextMenuSlide
+    ? [
+        { label: "Edit", onClick: () => handleEdit(currentContextMenuSlide) },
+        {
+          label: "Delete",
+          onClick: () => onDeleteSlide(currentContextMenuSlide.id),
+        },
+        { isSeparator: true },
+        { label: "Change Layout To", disabled: true }, // Submenu header (not interactive)
+        ...allLayoutOptions.map((layout) => ({
+          label: `  ${getLayoutText(layout)}${
+            currentContextMenuSlide.layout === layout ? " ✓" : ""
+          }`,
+          onClick: () =>
+            onChangeSlideLayout(currentContextMenuSlide.id, layout),
+          disabled: currentContextMenuSlide.layout === layout,
+        })),
+      ]
+    : [];
 
   // Simple text area styling, can be moved to CSS if not already there
   // Individual input styling can also be added to App.css
@@ -157,6 +229,7 @@ const SlideDisplayArea: React.FC<SlideDisplayAreaProps> = ({
             className={`slide-item-card ${
               liveSlideId === slide.id ? "live" : ""
             }`}
+            onContextMenu={(e) => handleRightClick(e, slide.id)} // Added context menu handler
           >
             <div className="slide-layout-badge">
               {getLayoutText(slide.layout)}
@@ -175,6 +248,7 @@ const SlideDisplayArea: React.FC<SlideDisplayAreaProps> = ({
                     }
                     placeholder={`Line ${index + 1}`}
                     style={singleInputStyle}
+                    autoFocus={index === 0} // Auto-focus first line on edit
                   />
                 ))}
                 <div style={{ display: "flex", gap: "10px", marginTop: "5px" }}>
@@ -215,11 +289,40 @@ const SlideDisplayArea: React.FC<SlideDisplayAreaProps> = ({
                   >
                     {liveSlideId === slide.id ? "● Live" : "Go Live"}
                   </button>
+                  <button
+                    onClick={() => onDeleteSlide(slide.id)}
+                    style={{
+                      backgroundColor: "var(--app-button-hover-bg-color)",
+                    }}
+                    title="Delete Slide"
+                  >
+                    🗑️ Delete
+                  </button>
                 </div>
               </div>
             )}
           </div>
         ))}
+      {playlistItem && (
+        <div
+          style={{
+            marginTop: "20px",
+            borderTop: "1px solid var(--app-border-color)",
+            paddingTop: "20px",
+          }}
+        >
+          <button onClick={() => onAddSlide("one-line")} className="primary">
+            ➕ Add New Slide (1-Line)
+          </button>
+        </div>
+      )}
+      <ContextMenu
+        isOpen={contextMenu.isOpen}
+        x={contextMenu.x}
+        y={contextMenu.y}
+        menuItems={contextMenuItems}
+        onClose={closeContextMenu}
+      />
     </div>
   );
 };
