@@ -5,8 +5,8 @@ import "../App.css"; // Ensure global styles are applied
 interface SettingsListProps {
   templates: Template[];
   selectedTemplateId: string | null;
-  onSelectTemplate: (templateId: string) => void;
-  onAddTemplate: (newTemplate: Omit<Template, "id">) => void;
+  onSelectTemplate: (template: Template) => void;
+  onAddTemplate: (newTemplateData: Omit<Template, "id">) => void;
   onDeleteTemplate: (templateId: string) => void;
 }
 
@@ -17,38 +17,63 @@ const SettingsList: React.FC<SettingsListProps> = ({
   onAddTemplate,
   onDeleteTemplate,
 }) => {
-  // For a simplified add form (can be expanded into a modal or separate component)
-  const [showAddForm, setShowAddForm] = useState(false);
-  const [newTemplateName, setNewTemplateName] = useState("");
-  const [newTemplateType, setNewTemplateType] =
-    useState<TemplateType>("Simple");
-  const [newTemplateColor, setNewTemplateColor] = useState("#cccccc"); // Default color for new template
+  // State for the "Add New Template" form inline in the list
+  const [isAdding, setIsAdding] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newType, setNewType] = useState<TemplateType>("text");
+  const [newColor, setNewColor] = useState("#ffffff");
+  const [newAvailableLayouts, setNewAvailableLayouts] = useState<LayoutType[]>(
+    []
+  );
+  const [newAIPrompt, setNewAIPrompt] = useState("");
+  const [newProcessWithAI, setNewProcessWithAI] = useState(false);
+  const [newOutputPath, setNewOutputPath] = useState("");
+  const [newOutputPrefix, setNewOutputPrefix] = useState("");
 
-  const handleInitiateAdd = () => {
-    setShowAddForm(true);
-  };
+  const allLayoutTypes: LayoutType[] = [
+    "one-line",
+    "two-line",
+    "three-line",
+    "four-line",
+    "five-line",
+    "six-line",
+  ];
 
-  const handleCancelAdd = () => {
-    setShowAddForm(false);
-    setNewTemplateName("");
-    setNewTemplateType("Simple");
-    setNewTemplateColor("#cccccc");
-  };
-
-  const handleAddTemplateClick = () => {
-    if (!newTemplateName.trim()) {
-      alert("Please enter a template name.");
+  const handleAddNewTemplate = () => {
+    if (!newName.trim() || !newOutputPath.trim() || !newOutputPrefix.trim()) {
+      alert("Template name, output path, and output prefix are required.");
       return;
     }
-    const newTemp: Omit<Template, "id"> = {
-      name: newTemplateName.trim(),
-      color: newTemplateColor,
-      type: newTemplateType,
-      logic: "", // Default logic based on type
-      availableLayouts: ["one-line"], // Default layout
-    };
-    onAddTemplate(newTemp);
-    handleCancelAdd(); // Reset form
+    // Call the prop with the new template data object
+    onAddTemplate({
+      name: newName,
+      type: newType,
+      color: newColor,
+      availableLayouts: newAvailableLayouts,
+      aiPrompt: newAIPrompt,
+      processWithAI: newProcessWithAI,
+      logic: "", // Default logic, can be expanded in SettingsDetail
+      outputPath: newOutputPath,
+      outputFileNamePrefix: newOutputPrefix,
+    });
+    // Reset form and hide
+    setIsAdding(false);
+    setNewName("");
+    setNewType("text");
+    setNewColor("#ffffff");
+    setNewAvailableLayouts([]);
+    setNewAIPrompt("");
+    setNewProcessWithAI(false);
+    setNewOutputPath("");
+    setNewOutputPrefix("");
+  };
+
+  const toggleLayout = (layout: LayoutType) => {
+    setNewAvailableLayouts((prev) =>
+      prev.includes(layout)
+        ? prev.filter((l) => l !== layout)
+        : [...prev, layout]
+    );
   };
 
   return (
@@ -62,62 +87,120 @@ const SettingsList: React.FC<SettingsListProps> = ({
         }}
       >
         <h4>Templates</h4>
-        {!showAddForm && (
-          <button onClick={handleInitiateAdd} title="Add new template">
-            +
+        {!isAdding && (
+          <button
+            onClick={() => setIsAdding(true)}
+            style={{ width: "100%", marginTop: "10px" }}
+          >
+            ＋ Add New Template
           </button>
         )}
       </div>
 
-      {showAddForm && (
+      {isAdding && (
         <div
+          className="add-template-form"
           style={{
-            border: "1px solid var(--app-border-color)",
-            padding: "15px",
-            marginBottom: "15px",
-            borderRadius: "4px",
+            marginTop: "15px",
+            borderTop: "1px solid var(--app-border-color)",
+            paddingTop: "15px",
           }}
         >
-          <h5 style={{ marginTop: 0, marginBottom: "10px" }}>
-            Add New Template
-          </h5>
+          <h4>New Template Details</h4>
           <input
             type="text"
             placeholder="Template Name"
-            value={newTemplateName}
-            onChange={(e) => setNewTemplateName(e.target.value)}
-            style={{ marginBottom: "10px" }}
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
           />
           <select
-            value={newTemplateType}
-            onChange={(e) => setNewTemplateType(e.target.value as TemplateType)}
-            style={{ marginBottom: "10px" }}
+            value={newType}
+            onChange={(e) => setNewType(e.target.value as TemplateType)}
           >
-            <option value="Simple">Simple</option>
-            <option value="Regex">Regex</option>
-            <option value="JavaScript Formula">JavaScript Formula</option>
-            <option value="AI Powered">AI Powered</option>
+            <option value="text">Text</option>
+            <option value="image">Image</option>
+            <option value="video">Video</option>
           </select>
-          <div style={{ marginBottom: "15px" }}>
-            <label
-              htmlFor="newTemplateColor"
-              style={{ marginRight: "5px", fontSize: "0.9em" }}
+          <label
+            htmlFor="template-color"
+            style={{ display: "block", marginTop: "5px" }}
+          >
+            Color:
+          </label>
+          <input
+            type="color"
+            id="template-color"
+            value={newColor}
+            onChange={(e) => setNewColor(e.target.value)}
+            style={{ marginLeft: "5px" }}
+          />
+          <div style={{ margin: "10px 0" }}>
+            <label>Available Layouts:</label>
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                gap: "5px",
+                marginTop: "5px",
+              }}
             >
-              Color:
-            </label>
+              {allLayoutTypes.map((layout) => (
+                <button
+                  key={layout}
+                  onClick={() => toggleLayout(layout)}
+                  className={
+                    newAvailableLayouts.includes(layout)
+                      ? "chip-selected"
+                      : "chip"
+                  }
+                  style={{ fontSize: "0.8em", padding: "3px 6px" }}
+                >
+                  {layout.replace("-line", "")}
+                </button>
+              ))}
+            </div>
+          </div>
+          <input
+            type="text"
+            placeholder="Output Path (e.g., /Users/path/to/folder)"
+            value={newOutputPath}
+            onChange={(e) => setNewOutputPath(e.target.value)}
+            title="Full path to the directory where files will be saved."
+          />
+          <input
+            type="text"
+            placeholder="Output File Name Prefix (e.g., SongTitle)"
+            value={newOutputPrefix}
+            onChange={(e) => setNewOutputPrefix(e.target.value)}
+            title="Prefix for the filenames, e.g., 'SongTitle' results in SongTitle1.txt, SongTitle2.txt"
+          />
+          <div>
             <input
-              type="color"
-              id="newTemplateColor"
-              value={newTemplateColor}
-              onChange={(e) => setNewTemplateColor(e.target.value)}
+              type="checkbox"
+              id="process-with-ai"
+              checked={newProcessWithAI}
+              onChange={(e) => setNewProcessWithAI(e.target.checked)}
             />
+            <label htmlFor="process-with-ai" style={{ marginLeft: "5px" }}>
+              Process with AI
+            </label>
           </div>
-          <div style={{ display: "flex", justifyContent: "space-between" }}>
-            <button onClick={handleAddTemplateClick} className="primary">
-              Add Template
-            </button>
-            <button onClick={handleCancelAdd}>Cancel</button>
-          </div>
+          {newProcessWithAI && (
+            <textarea
+              placeholder="AI Prompt (e.g., Summarize this text for a lower third)"
+              value={newAIPrompt}
+              onChange={(e) => setNewAIPrompt(e.target.value)}
+              rows={3}
+            />
+          )}
+          <button
+            onClick={handleAddNewTemplate}
+            className="primary"
+            style={{ marginRight: "5px" }}
+          >
+            Save Template
+          </button>
+          <button onClick={() => setIsAdding(false)}>Cancel</button>
         </div>
       )}
 
@@ -130,7 +213,7 @@ const SettingsList: React.FC<SettingsListProps> = ({
           borderRadius: "4px",
         }}
       >
-        {templates.length === 0 && !showAddForm && (
+        {templates.length === 0 && !isAdding && (
           <li
             className="list-item"
             style={{ color: "var(--app-text-color-secondary)" }}
@@ -141,7 +224,7 @@ const SettingsList: React.FC<SettingsListProps> = ({
         {templates.map((template) => (
           <li
             key={template.id}
-            onClick={() => onSelectTemplate(template.id)}
+            onClick={() => onSelectTemplate(template)}
             className={`list-item ${
               template.id === selectedTemplateId ? "selected" : ""
             }`}

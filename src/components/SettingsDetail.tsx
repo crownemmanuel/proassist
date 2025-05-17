@@ -1,31 +1,11 @@
 import React, { useState, useEffect } from "react";
-import {
-  Template,
-  TemplateType,
-  LayoutType,
-  AIPoweredTemplate,
-} from "../types";
+import { Template, TemplateType, LayoutType } from "../types";
 import "../App.css";
 
 interface SettingsDetailProps {
-  template: Template | AIPoweredTemplate;
-  onSave: (updatedTemplate: Template | AIPoweredTemplate) => void;
+  template: Template;
+  onSave: (template: Template) => void;
 }
-
-const allLayoutTypes: LayoutType[] = [
-  "one-line",
-  "two-line",
-  "three-line",
-  "four-line",
-  "five-line",
-  "six-line",
-];
-const allTemplateTypes: TemplateType[] = [
-  "Simple",
-  "Regex",
-  "JavaScript Formula",
-  "AI Powered",
-];
 
 const SettingsDetail: React.FC<SettingsDetailProps> = ({
   template,
@@ -34,51 +14,64 @@ const SettingsDetail: React.FC<SettingsDetailProps> = ({
   const [name, setName] = useState(template.name);
   const [color, setColor] = useState(template.color);
   const [type, setType] = useState<TemplateType>(template.type);
-  const [logic, setLogic] = useState(template.logic);
+  const [logic, setLogic] = useState(template.logic || "");
   const [availableLayouts, setAvailableLayouts] = useState<LayoutType[]>(
-    template.availableLayouts
+    template.availableLayouts || []
   );
-  const [promptText, setPromptText] = useState(
-    template.type === "AI Powered" ? (template as AIPoweredTemplate).prompt : ""
+  const [aiPrompt, setAiPrompt] = useState(template.aiPrompt || "");
+  const [processWithAI, setProcessWithAI] = useState(
+    template.processWithAI || false
   );
   const [outputPath, setOutputPath] = useState(template.outputPath || "");
   const [outputFileNamePrefix, setOutputFileNamePrefix] = useState(
     template.outputFileNamePrefix || ""
   );
 
+  const allLayoutTypes: LayoutType[] = [
+    "one-line",
+    "two-line",
+    "three-line",
+    "four-line",
+    "five-line",
+    "six-line",
+  ];
+
   useEffect(() => {
-    setName(template.name);
-    setColor(template.color);
-    setType(template.type);
-    setLogic(template.logic);
-    setAvailableLayouts(template.availableLayouts);
-    if (template.type === "AI Powered") {
-      setPromptText((template as AIPoweredTemplate).prompt || "");
-    } else {
-      setPromptText("");
+    if (template) {
+      setName(template.name);
+      setColor(template.color);
+      setType(template.type);
+      setLogic(template.logic || "");
+      setAvailableLayouts(template.availableLayouts || []);
+      setAiPrompt(template.aiPrompt || "");
+      setProcessWithAI(template.processWithAI || false);
+      setOutputPath(template.outputPath || "");
+      setOutputFileNamePrefix(template.outputFileNamePrefix || "");
     }
-    setOutputPath(template.outputPath || "");
-    setOutputFileNamePrefix(template.outputFileNamePrefix || "");
   }, [template]);
 
   const handleSave = () => {
-    let updatedTemplate: Template | AIPoweredTemplate = {
+    if (!name.trim() || !outputPath.trim() || !outputFileNamePrefix.trim()) {
+      alert(
+        "Template name, output path and output file name prefix are required."
+      );
+      return;
+    }
+    onSave({
       ...template,
       name,
       color,
       type,
       logic,
       availableLayouts,
+      aiPrompt,
+      processWithAI,
       outputPath,
       outputFileNamePrefix,
-    };
-    if (type === "AI Powered") {
-      (updatedTemplate as AIPoweredTemplate).prompt = promptText;
-    }
-    onSave(updatedTemplate);
+    });
   };
 
-  const handleLayoutToggle = (layout: LayoutType) => {
+  const toggleLayout = (layout: LayoutType) => {
     setAvailableLayouts((prev) =>
       prev.includes(layout)
         ? prev.filter((l) => l !== layout)
@@ -86,191 +79,132 @@ const SettingsDetail: React.FC<SettingsDetailProps> = ({
     );
   };
 
-  const getLogicInputLabel = () => {
-    switch (type) {
-      case "Simple":
-        return "Description (e.g., Line Break, Paragraph Break)";
-      case "Regex":
-        return "Regular Expression";
-      case "JavaScript Formula":
-        return "JavaScript Code Snippet";
-      case "AI Powered":
-        return "Base Prompt for AI (Content Grouping Instructions)";
-      default:
-        return "Logic/Configuration";
-    }
-  };
-
-  const formRowStyle: React.CSSProperties = { marginBottom: "15px" };
-  const labelStyle: React.CSSProperties = {
-    display: "block",
-    marginBottom: "5px",
-    fontWeight: 500,
-    color: "var(--app-text-color-secondary)",
-  };
-
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target;
-    if (name === "outputPath") {
-      setOutputPath(value);
-    } else if (name === "outputFileNamePrefix") {
-      setOutputFileNamePrefix(value);
-    }
-  };
-
   return (
-    <div>
-      <h3
-        style={{
-          marginTop: 0,
-          borderBottom: "1px solid var(--app-border-color)",
-          paddingBottom: "10px",
-          marginBottom: "20px",
-        }}
-      >
-        Edit Template:{" "}
-        <span style={{ color: "var(--app-primary-color)" }}>
-          {template.name}
-        </span>
-      </h3>
-      <div style={formRowStyle}>
-        <label htmlFor="templateName" style={labelStyle}>
-          Name:
-        </label>
+    <div className="settings-detail-form">
+      <h3>Edit Template: {template.name}</h3>
+      <div className="form-group">
+        <label htmlFor="template-name">Name:</label>
         <input
           type="text"
-          id="templateName"
+          id="template-name"
           value={name}
           onChange={(e) => setName(e.target.value)}
         />
       </div>
-
-      <div style={formRowStyle}>
-        <label htmlFor="templateColor" style={labelStyle}>
-          Color:
-        </label>
+      <div className="form-group">
+        <label htmlFor="template-color">Color:</label>
         <input
           type="color"
-          id="templateColor"
+          id="template-color"
           value={color}
           onChange={(e) => setColor(e.target.value)}
         />
       </div>
-
-      <div style={formRowStyle}>
-        <label htmlFor="templateType" style={labelStyle}>
-          Template Type:
-        </label>
+      <div className="form-group">
+        <label htmlFor="template-type">Type:</label>
         <select
-          id="templateType"
+          id="template-type"
           value={type}
           onChange={(e) => setType(e.target.value as TemplateType)}
         >
-          {allTemplateTypes.map((tt) => (
-            <option key={tt} value={tt}>
-              {tt}
-            </option>
-          ))}
+          <option value="text">Text</option>
+          <option value="image">Image</option>
+          <option value="video">Video</option>
         </select>
       </div>
-
-      <div style={formRowStyle}>
-        <label htmlFor="templateLogic" style={labelStyle}>
-          {getLogicInputLabel()}:
-        </label>
-        {type === "JavaScript Formula" ||
-        type === "Regex" ||
-        type === "AI Powered" ? (
-          <textarea
-            id="templateLogic"
-            value={logic}
-            onChange={(e) => setLogic(e.target.value)}
-            rows={5}
-            style={{ fontFamily: "monospace" }}
-            placeholder={getLogicInputLabel()}
-          />
-        ) : (
-          <input
-            type="text"
-            id="templateLogic"
-            value={logic}
-            onChange={(e) => setLogic(e.target.value)}
-            placeholder={getLogicInputLabel()}
-          />
-        )}
+      <div className="form-group">
+        <label>Available Layouts:</label>
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            gap: "5px",
+            marginTop: "5px",
+          }}
+        >
+          {allLayoutTypes.map((layout) => (
+            <button
+              key={layout}
+              onClick={() => toggleLayout(layout)}
+              className={
+                availableLayouts.includes(layout) ? "chip-selected" : "chip"
+              }
+              style={{ fontSize: "0.8em", padding: "3px 6px" }}
+            >
+              {layout
+                .replace("-line", "")
+                .replace("-", " ")
+                .replace(/\b\w/g, (l) => l.toUpperCase())}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="form-group">
+        <label htmlFor="template-logic">Logic/Notes:</label>
+        <textarea
+          id="template-logic"
+          value={logic}
+          onChange={(e) => setLogic(e.target.value)}
+          placeholder="Enter template logic (e.g., regex, script path) or notes"
+          rows={3}
+        />
       </div>
 
-      {type === "AI Powered" && (
-        <div style={formRowStyle}>
-          <label htmlFor="aiPrompt" style={labelStyle}>
-            AI Prompt (Specific Instructions for Layout/Splitting):
-          </label>
+      {/* AI Processing Fields */}
+      <div className="form-group">
+        <label
+          htmlFor="template-process-ai"
+          style={{ display: "flex", alignItems: "center" }}
+        >
+          <input
+            type="checkbox"
+            id="template-process-ai"
+            checked={processWithAI}
+            onChange={(e) => setProcessWithAI(e.target.checked)}
+            style={{ marginRight: "8px" }}
+          />
+          Process with AI
+        </label>
+      </div>
+
+      {processWithAI && (
+        <div className="form-group">
+          <label htmlFor="template-ai-prompt">AI Prompt:</label>
           <textarea
-            id="aiPrompt"
-            value={promptText}
-            onChange={(e) => setPromptText(e.target.value)}
+            id="template-ai-prompt"
+            value={aiPrompt}
+            onChange={(e) => setAiPrompt(e.target.value)}
+            placeholder="Enter the prompt for the AI to process the input text."
             rows={4}
-            placeholder="e.g., Group related thoughts into slides. Use two-line layouts for headings. Split sections by '---'."
           />
         </div>
       )}
 
-      <div style={formRowStyle}>
-        <label style={labelStyle}>Available Slide Layouts:</label>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "10px" }}>
-          {allLayoutTypes.map((layout) => (
-            <label
-              key={layout}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                cursor: "pointer",
-              }}
-            >
-              <input
-                type="checkbox"
-                checked={availableLayouts.includes(layout)}
-                onChange={() => handleLayoutToggle(layout)}
-                style={{ marginRight: "5px", width: "auto" }}
-              />
-              {layout}
-            </label>
-          ))}
-        </div>
-      </div>
-
-      <div style={formRowStyle}>
-        <label htmlFor="outputPath" style={labelStyle}>
-          Output Path:
-        </label>
+      <div className="form-group">
+        <label htmlFor="template-output-path">Output Path:</label>
         <input
           type="text"
-          id="outputPath"
-          name="outputPath"
+          id="template-output-path"
           value={outputPath}
-          onChange={handleChange}
-          placeholder="e.g., /Users/name/SlidesOutput/"
+          onChange={(e) => setOutputPath(e.target.value)}
+          placeholder="e.g., /Users/youruser/ProPresenterOutput/Sermon"
         />
       </div>
-
-      <div style={formRowStyle}>
-        <label htmlFor="outputFileNamePrefix" style={labelStyle}>
-          Output File Name Prefix:
-        </label>
+      <div className="form-group">
+        <label htmlFor="template-output-prefix">Output File Name Prefix:</label>
         <input
           type="text"
-          id="outputFileNamePrefix"
-          name="outputFileNamePrefix"
+          id="template-output-prefix"
           value={outputFileNamePrefix}
-          onChange={handleChange}
-          placeholder="e.g., sermon_slide_"
+          onChange={(e) => setOutputFileNamePrefix(e.target.value)}
+          placeholder="e.g., SermonNote"
         />
       </div>
 
       <button
         onClick={handleSave}
         className="primary"
-        style={{ padding: "10px 20px", marginTop: "10px" }}
+        style={{ marginTop: "15px" }}
       >
         Save Template
       </button>

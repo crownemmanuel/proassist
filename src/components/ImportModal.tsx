@@ -1,346 +1,378 @@
-import React, { useState, useEffect } from "react";
-import { Template, LayoutType, PlaylistItem, Slide } from "../types";
+import React, { useState, useEffect, useCallback } from "react";
+import {
+  Template,
+  LayoutType,
+  PlaylistItem,
+  Slide,
+  AppSettings,
+} from "../types";
+import { getAppSettings } from "../utils/aiConfig";
+import { generateSlidesFromText } from "../services/aiService";
 import "../App.css"; // Ensure global styles are applied
+
+const MAX_PREVIEW_SLIDES = 10;
+
+// Define a type for the preview slide structure, omitting the id
+interface PreviewSlide extends Pick<Slide, "text" | "layout"> {
+  order: number; // Order for preview sorting
+}
 
 interface ImportModalProps {
   isOpen: boolean;
   onClose: () => void;
-  templates: Template[]; // To select a template for parsing
-  onImportComplete: (
-    newPlaylistItemTitle: string,
-    slides: Slide[],
+  onImport: (
+    itemName: string,
     templateName: string,
-    templateColor: string
+    slides: Pick<Slide, "text" | "layout">[]
   ) => void;
+  templates: Template[];
 }
 
 const ImportModal: React.FC<ImportModalProps> = ({
   isOpen,
   onClose,
+  onImport,
   templates,
-  onImportComplete,
 }) => {
-  const [inputText, setInputText] = useState("");
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [selectedTemplateId, setSelectedTemplateId] = useState<string>("");
-  const [playlistItemTitle, setPlaylistItemTitle] = useState("Imported Item"); // User can name the new playlist item
-  const [parsedSlidesPreview, setParsedSlidesPreview] = useState<Slide[]>([]);
-  const [showPreview, setShowPreview] = useState(false);
+  const [itemName, setItemName] = useState("");
+  const [selectedTemplateName, setSelectedTemplateName] = useState("");
+  const [currentInputText, setCurrentInputText] = useState(""); // Stores the text from paste/upload for processing
+  const [pastedText, setPastedText] = useState("");
+  const [fileName, setFileName] = useState("");
+  const [importMethod, setImportMethod] = useState<"paste" | "upload">("paste");
+  const [previewSlides, setPreviewSlides] = useState<PreviewSlide[]>([]);
+  const [processedSlidesForImport, setProcessedSlidesForImport] = useState<
+    Pick<Slide, "text" | "layout">[]
+  >([]);
+  const [isLoading, setIsLoading] = useState(false); // Generic loading for AI or file reading
+  const [appSettings, setAppSettings] = useState<AppSettings>(getAppSettings());
 
   useEffect(() => {
-    if (isOpen && templates.length > 0 && !selectedTemplateId) {
-      setSelectedTemplateId(templates[0].id);
+    if (isOpen) {
+      setItemName("New Imported Item");
+      setSelectedTemplateName(templates.length > 0 ? templates[0].name : "");
+      setCurrentInputText("");
+      setPastedText("");
+      setFileName("");
+      setImportMethod("paste");
+      setPreviewSlides([]);
+      setProcessedSlidesForImport([]);
+      setIsLoading(false);
+      setAppSettings(getAppSettings());
     }
-    if (!isOpen) {
-      // Reset state when modal closes
-      setShowPreview(false);
-      setParsedSlidesPreview([]);
-    }
-  }, [isOpen, templates, selectedTemplateId]);
+  }, [isOpen, templates]);
 
-  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    if (event.target.files && event.target.files[0]) {
-      setSelectedFile(event.target.files[0]);
-      setInputText(""); // Clear text input if file is selected
-      setShowPreview(false);
-    }
-  };
+  const getSelectedTemplate = useCallback(() => {
+    return templates.find((t) => t.name === selectedTemplateName);
+  }, [templates, selectedTemplateName]);
 
-  const handleTextPaste = (
-    event: React.ClipboardEvent<HTMLTextAreaElement>
-  ) => {
-    // Optionally, could directly set inputText from paste here
-    // setInputText(event.clipboardData.getData('text'));
-  };
-
-  const runParsingLogic = (
-    textToProcess: string,
-    template: Template
-  ): Slide[] => {
-    // TODO: Implement full parsing logic based on selectedTemplate.type
-    console.log(
-      `Processing with template: ${template.name} (${template.type})`
-    );
-    console.log(`Logic: ${template.logic}`);
-    console.log(`Available Layouts: ${template.availableLayouts.join(", ")}`);
-
-    // Simple split by double newline as a basic example
-    const rawSlides = textToProcess.split(/\n\s*\n/);
-    return rawSlides.map((text, index) => ({
-      id: `imported-slide-${Date.now()}-${index}`,
-      text: text.trim(),
-      layout: template.availableLayouts[0] || "one-line",
-      order: index + 1,
-    }));
-  };
-
-  const handlePreview = async () => {
-    let textToProcess = inputText;
-    if (selectedFile) {
-      textToProcess = await selectedFile.text();
-    }
-    if (!textToProcess.trim()) {
-      alert("No content to preview.");
+  const handleProcessText = async () => {
+    if (!currentInputText.trim() || !selectedTemplateName) {
+      alert("Please provide text and select a template before processing.");
       return;
     }
-    const selectedTemplate = templates.find((t) => t.id === selectedTemplateId);
-    if (!selectedTemplate) {
-      alert("Please select a template.");
+    const template = getSelectedTemplate();
+    if (!template) {
+      alert("Selected template not found.");
       return;
     }
-    const slides = runParsingLogic(textToProcess, selectedTemplate);
-    setParsedSlidesPreview(slides);
-    setShowPreview(true);
-  };
 
-  const handleSaveToPlaylist = () => {
-    if (!parsedSlidesPreview.length && !showPreview) {
+    setIsLoading(true);
+    setPreviewSlides([]); // Clear previous preview
+    setProcessedSlidesForImport([]); // Clear previous full results
+    let generatedSlides: Pick<Slide, "text" | "layout">[] = [];
+    try {
+      if (template.processWithAI && template.aiPrompt) {
+        generatedSlides = await generateSlidesFromText(
+          currentInputText,
+          template,
+          appSettings
+        );
+      } else {
+        generatedSlides = parseTextBasic(currentInputText, template);
+      }
+      setPreviewSlides(
+        generatedSlides
+          .map((s, i) => ({ ...s, order: i }))
+          .slice(0, MAX_PREVIEW_SLIDES)
+      );
+      setProcessedSlidesForImport(generatedSlides); // Store all generated slides for import
+      if (generatedSlides.length === 0) {
+        alert(
+          "Processing complete, but no slides were generated. Check input or template logic."
+        );
+      }
+    } catch (error) {
+      console.error("Error during slide generation:", error);
       alert(
-        "Please preview the import first or ensure there is content to save."
+        `Processing failed: ${
+          error instanceof Error ? error.message : String(error)
+        }.`
       );
-      // Optionally, could call handlePreview here first if content exists
-      return;
+    } finally {
+      setIsLoading(false);
     }
-    // If preview wasn't explicitly clicked but content and template are valid, parse again.
-    // This path might be hit if user fills form and directly clicks "Save to Playlist"
-    let slidesToSave = parsedSlidesPreview;
-    if (!showPreview) {
-      let textToProcess = inputText;
-      // We need to re-read file if it was selected and not yet parsed into preview
-      // However, selectedFile.text() is async, this flow needs careful thought for UX.
-      // For now, assume if preview not shown, text input is the source or file already read to inputText.
-      if (selectedFile && !inputText) {
-        // This case is tricky, ideally preview is mandatory
-        alert("File selected but not previewed. Please preview first.");
-        return;
-      }
-      const selectedTemplate = templates.find(
-        (t) => t.id === selectedTemplateId
-      );
-      if (!selectedTemplate || !textToProcess.trim()) {
-        alert("Missing content or template for saving.");
-        return;
-      }
-      slidesToSave = runParsingLogic(textToProcess, selectedTemplate);
-    }
-
-    if (!slidesToSave.length) {
-      alert("No slides were generated to save.");
-      return;
-    }
-
-    const finalTemplate = templates.find((t) => t.id === selectedTemplateId)!; // Should exist if we got here
-    onImportComplete(
-      playlistItemTitle,
-      slidesToSave,
-      finalTemplate.name,
-      finalTemplate.color
-    );
-    handleModalClose();
   };
 
-  const handleModalClose = () => {
-    setInputText("");
-    setSelectedFile(null);
-    setPlaylistItemTitle("Imported Item");
-    if (templates.length > 0) setSelectedTemplateId(templates[0].id);
-    setShowPreview(false);
-    setParsedSlidesPreview([]);
+  const parseTextBasic = (
+    text: string,
+    template: Template
+  ): Pick<Slide, "text" | "layout">[] => {
+    const defaultLayout =
+      template.availableLayouts.length > 0
+        ? template.availableLayouts[0]
+        : "one-line";
+    const lines = text.split(/\n\s*\n/);
+    return lines
+      .map((lineText) => ({
+        text: lineText.trim(),
+        layout: defaultLayout,
+      }))
+      .filter((slide) => slide.text.length > 0);
+  };
+
+  const handleFileChange = async (
+    event: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      setFileName(file.name);
+      setImportMethod("upload");
+      setIsLoading(true);
+      setPreviewSlides([]);
+      setProcessedSlidesForImport([]);
+      try {
+        const text = await file.text();
+        setCurrentInputText(text);
+      } catch (error) {
+        console.error("Error reading file:", error);
+        alert("Failed to read file.");
+        setCurrentInputText("");
+        setFileName("");
+      } finally {
+        setIsLoading(false);
+      }
+    } else {
+      setFileName("");
+      setCurrentInputText("");
+      setPreviewSlides([]);
+      setProcessedSlidesForImport([]);
+    }
+  };
+
+  const handlePasteChange = (event: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setPastedText(event.target.value);
+    setCurrentInputText(event.target.value);
+    setPreviewSlides([]);
+    setProcessedSlidesForImport([]);
+  };
+
+  const handleSubmit = () => {
+    // No longer async, uses already processed slides
+    if (!itemName.trim() || !selectedTemplateName) {
+      alert("Please provide an item name and select a template.");
+      return;
+    }
+    if (processedSlidesForImport.length === 0) {
+      alert(
+        "No slides have been processed or generated. Please process the text first."
+      );
+      return;
+    }
+    onImport(itemName, selectedTemplateName, processedSlidesForImport);
     onClose();
   };
 
   if (!isOpen) return null;
 
-  const labelStyle: React.CSSProperties = {
-    display: "block",
-    marginBottom: "5px",
-    fontWeight: 500,
-    color: "var(--app-text-color-secondary)",
-  };
-  const formRowStyle: React.CSSProperties = { marginBottom: "15px" };
+  const selectedTemplateDetails = getSelectedTemplate();
+  const canProcess =
+    !!currentInputText.trim() && !!selectedTemplateName && !isLoading;
+  const canImport =
+    !!itemName.trim() && processedSlidesForImport.length > 0 && !isLoading;
 
   return (
-    <div style={modalOverlayStyle}>
-      <div style={modalContentStyle}>
-        <h2
-          style={{
-            marginTop: 0,
-            borderBottom: "1px solid var(--app-border-color)",
-            paddingBottom: "10px",
-            marginBottom: "20px",
-          }}
-        >
-          Import Content
-        </h2>
-
-        <div style={formRowStyle}>
-          <label htmlFor="playlistItemTitle" style={labelStyle}>
-            New Item Title:
-          </label>
+    <div className="modal-overlay">
+      <div className="modal-content">
+        <h2>Import to Playlist</h2>
+        <div className="form-group">
+          <label htmlFor="itemName">Item Name:</label>
           <input
             type="text"
-            id="playlistItemTitle"
-            value={playlistItemTitle}
-            onChange={(e) => setPlaylistItemTitle(e.target.value)}
+            id="itemName"
+            value={itemName}
+            onChange={(e) => setItemName(e.target.value)}
+            placeholder="e.g., Song Title, Sermon Topic"
+            disabled={isLoading}
           />
         </div>
-
-        <div style={formRowStyle}>
-          <label htmlFor="templateSelect" style={labelStyle}>
-            Select Template:
-          </label>
+        <div className="form-group">
+          <label htmlFor="templateSelect">Template:</label>
           <select
             id="templateSelect"
-            value={selectedTemplateId}
+            value={selectedTemplateName}
             onChange={(e) => {
-              setSelectedTemplateId(e.target.value);
-              setShowPreview(false);
+              setSelectedTemplateName(e.target.value);
+              setPreviewSlides([]);
+              setProcessedSlidesForImport([]);
             }}
-            disabled={templates.length === 0}
+            disabled={isLoading || templates.length === 0}
           >
-            {templates.length === 0 && <option>No templates available</option>}
             {templates.map((template) => (
-              <option key={template.id} value={template.id}>
-                {template.name} ({template.type})
+              <option key={template.id} value={template.name}>
+                {template.name}
               </option>
             ))}
           </select>
+          {selectedTemplateDetails?.processWithAI && (
+            <span
+              style={{
+                fontSize: "0.8em",
+                marginLeft: "10px",
+                color: "var(--app-primary-color)",
+              }}
+            >
+              ✨ AI Powered
+            </span>
+          )}
         </div>
 
-        <div style={formRowStyle}>
-          <label htmlFor="fileInput" style={labelStyle}>
-            Upload File (.txt):
-          </label>
-          <input
-            type="file"
-            id="fileInput"
-            accept=".txt"
-            onChange={handleFileChange}
-          />
-        </div>
-
-        <div style={{ ...formRowStyle, marginBottom: "5px" }}>
-          <label htmlFor="textInput" style={labelStyle}>
-            Or Paste Text:
-          </label>
-        </div>
-        <textarea
-          id="textInput"
-          rows={6}
-          value={inputText}
-          onChange={(e) => {
-            setInputText(e.target.value);
-            if (selectedFile) setSelectedFile(null);
-            setShowPreview(false);
-          }}
-          onPaste={handleTextPaste}
-          placeholder="Paste your text content here..."
-          disabled={!!selectedFile}
-          style={{ marginBottom: "10px" }}
-        />
-
-        {showPreview && parsedSlidesPreview.length > 0 && (
-          <div
-            style={{
-              maxHeight: "150px",
-              overflowY: "auto",
-              border: "1px solid var(--app-border-color)",
-              padding: "10px",
-              marginBottom: "15px",
-              borderRadius: "4px",
+        <div style={{ display: "flex", marginBottom: "15px" }}>
+          <button
+            onClick={() => {
+              setImportMethod("paste");
+              setCurrentInputText(pastedText);
+              setFileName("");
+              setPreviewSlides([]);
+              setProcessedSlidesForImport([]);
             }}
+            className={importMethod === "paste" ? "active" : ""}
+            style={{ marginRight: "10px" }}
+            disabled={isLoading}
           >
-            <h5 style={{ marginTop: 0, marginBottom: "5px" }}>
-              Preview ({parsedSlidesPreview.length} slides):
-            </h5>
-            {parsedSlidesPreview.map((slide) => (
-              <div
-                key={slide.id}
-                style={{
-                  fontSize: "0.85em",
-                  padding: "3px 0",
-                  borderBottom: "1px dashed var(--app-border-color)",
-                }}
-              >
-                <strong>Layout: {slide.layout}</strong> -{" "}
-                {slide.text.substring(0, 100)}
-                {slide.text.length > 100 ? "..." : ""}
-              </div>
-            ))}
+            Paste Text
+          </button>
+          <button
+            onClick={() => {
+              setImportMethod("upload");
+              setCurrentInputText("");
+              setPastedText("");
+              setPreviewSlides([]);
+              setProcessedSlidesForImport([]);
+            }}
+            className={importMethod === "upload" ? "active" : ""}
+            disabled={isLoading}
+          >
+            Upload .txt File
+          </button>
+        </div>
+
+        {importMethod === "paste" && (
+          <div className="form-group">
+            <label htmlFor="pasteText">Paste Text Below:</label>
+            <textarea
+              id="pasteText"
+              rows={6}
+              value={pastedText}
+              onChange={handlePasteChange}
+              placeholder="Paste your content here."
+              disabled={isLoading}
+            />
           </div>
         )}
-        {showPreview && parsedSlidesPreview.length === 0 && (
-          <p
-            style={{
-              color: "var(--app-text-color-secondary)",
-              fontSize: "0.9em",
-              marginBottom: "15px",
-            }}
-          >
-            No slides generated from the input with the selected template.
-          </p>
+
+        {importMethod === "upload" && (
+          <div className="form-group">
+            <label htmlFor="fileUpload">Upload .txt File:</label>
+            <input
+              type="file"
+              id="fileUpload"
+              accept=".txt"
+              onChange={handleFileChange}
+              disabled={isLoading}
+            />
+            {fileName && (
+              <p style={{ fontSize: "0.9em", marginTop: "5px" }}>
+                Selected: {fileName}
+              </p>
+            )}
+          </div>
         )}
 
         <div
           style={{
-            marginTop: "20px",
-            textAlign: "right",
-            display: "flex",
-            justifyContent: "flex-end",
-            gap: "10px",
+            marginBottom: "15px",
+            borderTop: "1px solid var(--app-border-color)",
+            paddingTop: "15px",
           }}
         >
           <button
-            onClick={handlePreview}
-            disabled={
-              (!inputText.trim() && !selectedFile) || !selectedTemplateId
-            }
+            onClick={handleProcessText}
+            disabled={!canProcess}
+            className="primary"
           >
-            Preview
+            {isLoading && selectedTemplateDetails?.processWithAI
+              ? "✨ Processing with AI..."
+              : isLoading
+              ? "Processing..."
+              : "Process Text"}
+          </button>
+        </div>
+
+        <h4>
+          Preview (Up to {MAX_PREVIEW_SLIDES} Slides)
+          {isLoading &&
+            selectedTemplateDetails?.processWithAI &&
+            "(✨ AI Processing...)"}
+          {isLoading &&
+            !selectedTemplateDetails?.processWithAI &&
+            "(Processing...)"}
+        </h4>
+        <div className="import-preview-area">
+          {previewSlides.length > 0 ? (
+            previewSlides.map(
+              (
+                slide,
+                index // Use index as key for preview items
+              ) => (
+                <div key={index} className="preview-slide-item">
+                  <strong>
+                    {slide.layout
+                      .replace(/-line$/, "")
+                      .replace("-", " ")
+                      .replace(/\b\w/g, (l) => l.toUpperCase())}
+                    :
+                  </strong>
+                  {slide.text.length > 70
+                    ? slide.text.substring(0, 70) + "..."
+                    : slide.text}
+                </div>
+              )
+            )
+          ) : (
+            <p style={{ color: "var(--app-text-color-secondary)" }}>
+              {currentInputText.trim()
+                ? "Click 'Process Text' to generate preview."
+                : "Provide text via paste or upload."}
+            </p>
+          )}
+        </div>
+
+        <div className="modal-actions">
+          <button onClick={onClose} disabled={isLoading}>
+            Cancel
           </button>
           <button
-            onClick={handleSaveToPlaylist}
+            onClick={handleSubmit}
             className="primary"
-            disabled={
-              !selectedTemplateId ||
-              (!showPreview && !inputText.trim() && !selectedFile) ||
-              (showPreview && !parsedSlidesPreview.length)
-            }
+            disabled={!canImport}
           >
-            Save to Playlist
+            Import to Playlist
           </button>
-          <button onClick={handleModalClose}>Cancel</button>
         </div>
       </div>
     </div>
   );
-};
-
-// Modal styles (modalOverlayStyle, modalContentStyle) should be defined in App.css or inherited.
-// For now, I will copy them here and ensure they are dark-mode friendly.
-
-const modalOverlayStyle: React.CSSProperties = {
-  position: "fixed",
-  top: 0,
-  left: 0,
-  right: 0,
-  bottom: 0,
-  backgroundColor: "var(--app-modal-overlay-bg)", // Using CSS Variable
-  display: "flex",
-  justifyContent: "center",
-  alignItems: "center",
-  zIndex: 1000,
-};
-
-const modalContentStyle: React.CSSProperties = {
-  background: "var(--app-bg-color)",
-  color: "var(--app-text-color)",
-  padding: "25px",
-  borderRadius: "8px",
-  width: "90%",
-  maxWidth: "700px",
-  border: "1px solid var(--app-border-color)",
-  boxShadow: "0 5px 15px rgba(0,0,0,0.3)",
 };
 
 export default ImportModal;

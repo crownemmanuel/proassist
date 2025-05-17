@@ -6,11 +6,7 @@ export type LayoutType =
   | "five-line"
   | "six-line";
 
-export type TemplateType =
-  | "Simple"
-  | "Regex"
-  | "JavaScript Formula"
-  | "AI Powered";
+export type TemplateType = "text" | "image" | "video";
 
 export interface Slide {
   id: string;
@@ -39,25 +35,30 @@ export interface Template {
   name: string;
   color: string;
   type: TemplateType;
-  logic: string; // Regex string, JS code, or AI prompt
-  availableLayouts: LayoutType[]; // Layouts this template can produce/assign
-  prompt?: string; // Optional, for AI Powered templates
-  outputPath: string; // New: Path to save generated files
-  outputFileNamePrefix: string; // New: Prefix for generated file names
-}
-
-// Example for AI Powered template logic (could be part of a more specific type)
-export interface AIPoweredTemplate extends Template {
-  type: "AI Powered";
-  prompt: string; // The base prompt
+  logic?: string; // Could be a path to a script, regex, or other rules
+  availableLayouts: LayoutType[];
+  aiPrompt?: string; // User-defined prompt for AI processing
+  processWithAI?: boolean; // If true, use AI for slide generation
+  outputPath: string;
+  outputFileNamePrefix: string;
 }
 
 export interface AppSettings {
-  templates: Template[];
-  // other global settings
+  theme: "light" | "dark";
+  openAIConfig?: AIServiceConfig; // Stores API key for OpenAI
+  geminiConfig?: AIServiceConfig; // Stores API key for Gemini
+  defaultAIProvider?: AIProvider; // User's preferred default AI if multiple are configured
+  // Other global settings can be added here
 }
 
 export interface ProPresenterData {
   liveSlideText: string;
   // Potentially other fields ProPresenter needs
+}
+
+export type AIProvider = "openai" | "gemini" | null;
+
+export interface AIServiceConfig {
+  // provider: AIProvider; // Redundant if keys are specific e.g. openAIAPIKey
+  apiKey: string;
 }

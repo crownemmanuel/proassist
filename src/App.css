@@ -581,3 +581,121 @@ body.theme-light .template-badge {
   font-weight: bold;
   text-transform: uppercase;
 }
+
+/* Modal Styles */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: var(--app-modal-overlay-bg);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000; /* Ensure it's on top */
+}
+
+.modal-content {
+  background: var(--app-bg-color);
+  color: var(--app-text-color);
+  padding: 25px;
+  border-radius: 8px;
+  width: 90%;
+  max-width: 700px; /* Or your preferred max-width */
+  border: 1px solid var(--app-border-color);
+  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+  /* Add styles for internal scrolling if content overflows */
+  max-height: 90vh; /* Limit height to 90% of viewport height */
+  display: flex;
+  flex-direction: column;
+}
+
+/* Make the preview area within the modal scrollable if needed */
+.import-preview-area {
+  flex-grow: 1; /* Allows this area to take up available space */
+  overflow-y: auto; /* Adds scrollbar if content exceeds height */
+  min-height: 100px; /* Ensure it has some minimum height */
+  max-height: 300px; /* Adjust as needed, or a percentage of modal height */
+  border: 1px solid var(--app-border-color);
+  border-radius: 4px;
+  padding: 10px;
+  margin-top: 10px;
+  margin-bottom: 15px;
+  background-color: var(
+    --app-input-bg-color
+  ); /* Match input background for consistency */
+}
+
+.preview-slide-item {
+  padding: 5px 0;
+  border-bottom: 1px dashed var(--app-border-color);
+  font-size: 0.9em;
+}
+.preview-slide-item:last-child {
+  border-bottom: none;
+}
+
+.modal-actions {
+  margin-top: auto; /* Pushes actions to the bottom */
+  padding-top: 15px; /* Space above buttons */
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  border-top: 1px solid var(--app-border-color); /* Separator line */
+}
+
+/* Ensures that the settings detail form sections have consistent spacing */
+.settings-form-section {
+  margin-bottom: 25px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--app-border-color);
+}
+.settings-form-section:last-child {
+  border-bottom: none;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+.settings-form-section h3 {
+  margin-top: 0;
+  margin-bottom: 15px;
+  color: var(--app-text-color);
+}
+.settings-detail-form .form-group,
+.add-template-form .form-group,
+.settings-form-section .form-group {
+  margin-bottom: 15px;
+}
+.settings-detail-form label,
+.add-template-form label,
+.settings-form-section label {
+  display: block;
+  margin-bottom: 5px;
+  font-weight: 500;
+  color: var(--app-text-color-secondary);
+}
+.settings-detail-form .chip,
+.add-template-form .chip {
+  background-color: var(--app-button-bg-color);
+  color: var(--app-button-text-color);
+  padding: 5px 10px;
+  border-radius: 16px;
+  border: 1px solid var(--app-border-color);
+  cursor: pointer;
+  transition: background-color 0.2s, color 0.2s, border-color 0.2s;
+  font-size: 0.85em;
+}
+.settings-detail-form .chip:hover,
+.add-template-form .chip:hover {
+  background-color: var(--app-button-hover-bg-color);
+}
+.settings-detail-form .chip-selected,
+.add-template-form .chip-selected {
+  background-color: var(--app-primary-color);
+  color: white;
+  border-color: var(--app-primary-color);
+  padding: 5px 10px;
+  border-radius: 16px;
+  cursor: pointer;
+  font-size: 0.85em;
+}

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import SettingsList from "../components/SettingsList";
 import SettingsDetail from "../components/SettingsDetail";
 import { Template, AppSettings, TemplateType, LayoutType } from "../types";
+import AISettingsForm from "../components/AISettingsForm";
 import "../App.css"; // Ensure global styles are applied
 
 // Mock initial settings data
@@ -54,6 +55,8 @@ const initialAppSettings: AppSettings = {
   templates: mockTemplatesData,
 };
 
+type SettingsView = "templates" | "aiConfiguration";
+
 const SettingsPage: React.FC = () => {
   const [templates, setTemplates] = useState<Template[]>(() => {
     const savedTemplates = localStorage.getItem("proassist-templates");
@@ -62,6 +65,7 @@ const SettingsPage: React.FC = () => {
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(
     templates.length > 0 ? templates[0].id : null
   );
+  const [currentView, setCurrentView] = useState<SettingsView>("templates");
 
   useEffect(() => {
     localStorage.setItem("proassist-templates", JSON.stringify(templates));
@@ -149,22 +153,41 @@ const SettingsPage: React.FC = () => {
   return (
     <div style={pageLayoutStyle}>
       <div style={leftColumnStyle}>
-        <SettingsList
-          templates={templates}
-          selectedTemplateId={selectedTemplateId}
-          onSelectTemplate={handleSelectTemplate}
-          onAddTemplate={handleAddTemplate}
-          onDeleteTemplate={handleDeleteTemplate}
-        />
+        <div className="settings-nav-pane">
+          <button
+            onClick={() => setCurrentView("templates")}
+            className={currentView === "templates" ? "active" : ""}
+            style={{ marginRight: "10px", marginBottom: "10px" }}
+          >
+            Manage Templates
+          </button>
+          <button
+            onClick={() => setCurrentView("aiConfiguration")}
+            className={currentView === "aiConfiguration" ? "active" : ""}
+            style={{ marginBottom: "10px" }}
+          >
+            AI Configuration
+          </button>
+        </div>
+        {currentView === "templates" && (
+          <SettingsList
+            templates={templates}
+            selectedTemplateId={selectedTemplateId}
+            onSelectTemplate={handleSelectTemplate}
+            onAddTemplate={handleAddTemplate}
+            onDeleteTemplate={handleDeleteTemplate}
+          />
+        )}
       </div>
       <div style={rightColumnStyle}>
-        {selectedTemplate ? (
+        {currentView === "templates" && selectedTemplate && (
           <SettingsDetail
-            key={selectedTemplate.id} // Ensure re-render when template changes
+            key={selectedTemplate.id}
             template={selectedTemplate}
             onSave={handleSaveTemplate}
           />
-        ) : (
+        )}
+        {currentView === "templates" && !selectedTemplate && (
           <p
             style={{
               color: "var(--app-text-color-secondary)",
@@ -175,6 +198,7 @@ const SettingsPage: React.FC = () => {
             Select a template to view or edit its details, or add a new one.
           </p>
         )}
+        {currentView === "aiConfiguration" && <AISettingsForm />}
       </div>
     </div>
   );

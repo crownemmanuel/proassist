@@ -11,7 +11,7 @@ import {
   LayoutType,
 } from "../types"; // Using types defined earlier
 import "../App.css"; // Ensure global styles are applied
-import { invoke } from "@tauri-apps/api/core"; // Corrected import path for Tauri v2
+import { invoke } from "@tauri-apps/api/tauri"; // Corrected import path for Tauri v2
 
 // Mock Data (can be moved to a separate file or fetched from backend later)
 const mockPlaylistsData: Playlist[] = [
@@ -98,42 +98,42 @@ const mockTemplatesForMainPage: Template[] = [
     id: "tpl1",
     name: "Simple Line Break",
     color: "#4CAF50",
-    type: "Simple",
-    logic: "Line Break",
+    type: "text",
     availableLayouts: ["one-line", "two-line"],
     outputPath: "/tmp/proassist/output/simple/",
     outputFileNamePrefix: "simple_slide_",
+    processWithAI: false,
   },
   {
     id: "tpl2",
     name: "Sermon Regex",
     color: "#2196F3",
-    type: "Regex",
-    logic: "/^VERSE\\s*(\\d+[:\\d,-]*)\\s*([\\s\\S]*?)(?=\\n\\n|$)/gm",
+    type: "text",
     availableLayouts: ["one-line", "two-line", "three-line"],
     outputPath: "/tmp/proassist/output/sermon/",
     outputFileNamePrefix: "sermon_note_",
+    processWithAI: false,
   },
   {
     id: "tpl3",
     name: "JS Scripture Splitter",
     color: "#FFC107",
-    type: "JavaScript Formula",
-    logic: '// Example JS: item.text.split("\\\\n---\\\\n");',
+    type: "text",
     availableLayouts: ["one-line", "two-line"],
     outputPath: "/tmp/proassist/output/scripture/",
     outputFileNamePrefix: "scripture_passage_",
+    processWithAI: false,
   },
   {
     id: "tpl4",
     name: "AI Verse Grouping",
     color: "#E91E63",
-    type: "AI Powered",
-    logic: "Group verses into thematic slides...",
+    type: "text",
     availableLayouts: ["one-line", "two-line", "three-line", "four-line"],
-    prompt: "Create slides for the following text...",
+    aiPrompt: "Create slides for the following text...",
     outputPath: "/tmp/proassist/output/ai_verses/",
     outputFileNamePrefix: "ai_verse_slide_",
+    processWithAI: true,
   },
 ];
 
@@ -400,23 +400,38 @@ const MainApplicationPage: React.FC = () => {
     // how text is split and joined during edit; more sophisticated handling could be added if needed.
   };
 
-  const handleImportComplete = (
-    newPlaylistItemTitle: string,
-    importedSlides: Slide[],
-    templateNameUsed: string,
-    templateColorUsed: string
+  const handleImportFromModal = (
+    itemName: string,
+    templateName: string,
+    slidesFromModal: Pick<Slide, "text" | "layout">[]
   ) => {
     if (!selectedPlaylistId) {
       alert("No playlist selected to add the imported item to.");
       return;
     }
+
+    const selectedTemplate = templates.find((t) => t.name === templateName);
+    if (!selectedTemplate) {
+      alert(`Template "${templateName}" not found. Cannot import.`);
+      setIsImportModalOpen(false);
+      return;
+    }
+    const templateColorUsed = selectedTemplate.color || "#808080";
+
+    const fullSlides: Slide[] = slidesFromModal.map((slideData, index) => ({
+      ...slideData,
+      id: `slide-${Date.now()}-${index}`,
+      order: index + 1,
+    }));
+
     const newPlaylistItem: PlaylistItem = {
       id: `item-${Date.now()}`,
-      title: newPlaylistItemTitle,
-      slides: importedSlides,
-      templateName: templateNameUsed,
+      title: itemName,
+      slides: fullSlides,
+      templateName: templateName,
       templateColor: templateColorUsed,
     };
+
     setPlaylists((prevPlaylists) =>
       prevPlaylists.map((p) => {
         if (p.id === selectedPlaylistId) {
@@ -425,7 +440,7 @@ const MainApplicationPage: React.FC = () => {
         return p;
       })
     );
-    setSelectedItemId(newPlaylistItem.id); // Select the newly imported item
+    setSelectedItemId(newPlaylistItem.id);
     setIsImportModalOpen(false);
   };
 
@@ -532,7 +547,7 @@ const MainApplicationPage: React.FC = () => {
         isOpen={isImportModalOpen}
         onClose={() => setIsImportModalOpen(false)}
         templates={templates}
-        onImportComplete={handleImportComplete}
+        onImport={handleImportFromModal}
       />
     </div>
   );
