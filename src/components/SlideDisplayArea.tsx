@@ -74,34 +74,46 @@ const SlideDisplayArea: React.FC<SlideDisplayAreaProps> = ({
 
   const handleEdit = (slide: Slide) => {
     setEditingSlideId(slide.id);
-    // Determine number of input fields based on slide.layout or MAX_LINES_FOR_EDIT
-    let numFields = 1;
-    switch (slide.layout) {
-      case "one-line":
-        numFields = 1;
-        break;
-      case "two-line":
-        numFields = 2;
-        break;
-      case "three-line":
-        numFields = 3;
-        break;
-      case "four-line":
-        numFields = 4;
-        break;
-      case "five-line":
-        numFields = 5;
-        break;
-      case "six-line":
-        numFields = 6;
-        break;
-      default: {
-        const actualLines = slide.text.split("\n").length;
-        numFields = Math.max(1, Math.min(actualLines, MAX_LINES_FOR_EDIT));
-      }
-    }
 
     const currentLines = slide.text.split("\n");
+    const actualLinesCount = currentLines.length;
+
+    let minLinesForLayout: number;
+    switch (slide.layout) {
+      case "one-line":
+        minLinesForLayout = 1;
+        break;
+      case "two-line":
+        minLinesForLayout = 2;
+        break;
+      case "three-line":
+        minLinesForLayout = 3;
+        break;
+      case "four-line":
+        minLinesForLayout = 4;
+        break;
+      case "five-line":
+        minLinesForLayout = 5;
+        break;
+      case "six-line":
+        minLinesForLayout = 6;
+        break;
+      default:
+        // Fallback for any layout string not explicitly handled.
+        // This ensures we always have a sensible minimum, defaulting to 1.
+        // const _exhaustiveCheck: never = slide.layout; // For type checking if all cases are handled
+        minLinesForLayout = 1;
+    }
+
+    // Determine the number of input fields:
+    // Show at least the number of lines implied by minLinesForLayout.
+    // If actualLinesCount is greater, show that many, up to MAX_LINES_FOR_EDIT.
+    // If actualLinesCount is less, still show minLinesForLayout (padded with empty strings if they are edited).
+    const numFields = Math.min(
+      Math.max(minLinesForLayout, actualLinesCount),
+      MAX_LINES_FOR_EDIT
+    );
+
     setEditingLines(
       Array(numFields)
         .fill("")
@@ -311,9 +323,28 @@ const SlideDisplayArea: React.FC<SlideDisplayAreaProps> = ({
             paddingTop: "20px",
           }}
         >
-          <button onClick={() => onAddSlide("one-line")} className="primary">
-            ➕ Add New Slide (1-Line)
-          </button>
+          <h5
+            style={{
+              marginTop: 0,
+              marginBottom: "10px",
+              color: "var(--app-text-color-secondary)",
+            }}
+          >
+            Add New Slide:
+          </h5>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "10px" }}>
+            {allLayoutOptions.map((layout) => (
+              <button
+                key={layout}
+                onClick={() => onAddSlide(layout)}
+                // className="primary" // Use default button style or a specific one for these
+                title={`Add ${getLayoutText(layout)} Slide`}
+                style={{ fontSize: "0.85em", padding: "0.5em 0.8em" }}
+              >
+                ➕ {getLayoutText(layout)}
+              </button>
+            ))}
+          </div>
         </div>
       )}
       <ContextMenu
