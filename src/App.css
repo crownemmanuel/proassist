@@ -1,0 +1,583 @@
+.logo.vite:hover {
+  filter: drop-shadow(0 0 2em #747bff);
+}
+
+.logo.react:hover {
+  filter: drop-shadow(0 0 2em #61dafb);
+}
+
+/* Base variables (defaults to dark theme) */
+:root {
+  --font-sans: Inter, Avenir, Helvetica, Arial, sans-serif;
+
+  /* Dark Theme Colors */
+  --app-bg-color: #252526;
+  --app-text-color: #cccccc;
+  --app-text-color-secondary: #999999;
+  --app-primary-color: #007acc; /* Blue for primary actions */
+  --app-live-indicator-color: #4caf50; /* Green for live status */
+  --app-live-indicator-glow: color-mix(
+    in srgb,
+    var(--app-live-indicator-color) 30%,
+    transparent
+  );
+  --app-border-color: #3c3c3c;
+  --app-input-bg-color: #3c3c3c;
+  --app-input-text-color: #cccccc;
+  --app-button-bg-color: #3c3c3c;
+  --app-button-text-color: #ffffff;
+  --app-button-hover-bg-color: #4f4f4f;
+  --app-list-item-hover-bg: #333333;
+  --app-list-item-selected-bg: #005f9e; /* Default selected item (e.g., settings list) */
+  --app-list-item-selected-text: #ffffff;
+  --app-header-bg: #333333;
+  --app-modal-overlay-bg: rgba(0, 0, 0, 0.65);
+
+  /* New colors based on mockup */
+  --app-playlist-header-bg: #1e1e1e; /* Darker header for playlist sections */
+  --app-playlist-selected-bg: #2a9d8f; /* Light green for selected playlist */
+  --app-playlist-selected-text: #ffffff;
+  --app-playlist-item-selected-bg: #28182d; /* Updated Darker purple */
+  --app-playlist-item-selected-text: #ffffff;
+  --app-slide-layout-badge-bg: #264653; /* Teal/dark cyan for slide layout badge */
+  --app-slide-layout-badge-text: #ffffff;
+
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: 1.5;
+  font-weight: 400;
+
+  color: var(--app-text-color);
+  background-color: var(--app-bg-color);
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-text-size-adjust: 100%;
+}
+
+/* Light Theme Override */
+body.theme-light {
+  --app-bg-color: #f4f4f5; /* Light gray */
+  --app-text-color: #18181b; /* Nearly black */
+  --app-text-color-secondary: #52525b; /* Darker gray */
+  --app-primary-color: #0067ab; /* Slightly adjusted blue for light bg */
+  --app-live-indicator-color: #40916c; /* Slightly darker green for light theme, or keep as #4CAF50 */
+  --app-live-indicator-glow: color-mix(
+    in srgb,
+    var(--app-live-indicator-color) 25%,
+    transparent
+  );
+  --app-border-color: #d4d4d8; /* Lighter border */
+  --app-input-bg-color: #ffffff;
+  --app-input-text-color: #18181b;
+  --app-button-bg-color: #e4e4e7;
+  --app-button-text-color: #18181b;
+  --app-button-hover-bg-color: #d4d4d8;
+  --app-list-item-hover-bg: #e9e9ed;
+  --app-list-item-selected-bg: #007acc; /* Default selected item */
+  --app-list-item-selected-text: #ffffff;
+  --app-header-bg: #e9e9ed; /* Light header */
+  --app-modal-overlay-bg: rgba(0, 0, 0, 0.4);
+
+  /* New colors for light theme */
+  --app-playlist-header-bg: #e0e0e0;
+  --app-playlist-selected-bg: #70c1b3;
+  --app-playlist-selected-text: #000000;
+  --app-playlist-item-selected-bg: #a08cb0; /* Lighter variant for light theme, derived from #28182d */
+  --app-playlist-item-selected-text: #ffffff; /* White text might still work, or adjust to #000000 if needed */
+  --app-slide-layout-badge-bg: #5a9aab;
+  --app-slide-layout-badge-text: #ffffff;
+
+  color: var(--app-text-color);
+  background-color: var(--app-bg-color);
+}
+
+body {
+  margin: 0;
+  color: var(--app-text-color); /* Ensure body picks up themed text color */
+  background-color: var(
+    --app-bg-color
+  ); /* Ensure body picks up themed bg color */
+  min-height: 100vh;
+}
+
+/* Global link styles */
+a {
+  font-weight: 500;
+  color: var(--app-primary-color);
+  text-decoration: none;
+  transition: color 0.15s ease-in-out;
+}
+a:hover {
+  filter: brightness(1.2);
+  text-decoration: underline;
+}
+
+/* Global input and button styles */
+input[type="text"],
+input[type="password"],
+input[type="email"],
+input[type="number"],
+input[type="search"],
+input[type="url"],
+input[type="tel"],
+input[type="color"],
+input[type="file"],
+textarea,
+select {
+  border-radius: 6px; /* Slightly more rounded for a softer look */
+  border: 1px solid var(--app-border-color);
+  padding: 0.7em 1em; /* Increased padding */
+  font-size: 0.9em;
+  font-family: inherit;
+  color: var(--app-input-text-color);
+  background-color: var(--app-input-bg-color);
+  transition: border-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out,
+    background-color 0.2s ease-in-out;
+  box-sizing: border-box;
+  width: 100%;
+}
+input[type="text"]:focus,
+input[type="password"]:focus,
+input[type="email"]:focus,
+input[type="number"]:focus,
+input[type="search"]:focus,
+input[type="url"]:focus,
+input[type="tel"]:focus,
+input[type="color"]:focus,
+input[type="file"]:focus,
+textarea:focus,
+select:focus {
+  outline: none;
+  border-color: var(--app-primary-color);
+  /* A slightly more prominent focus ring */
+  box-shadow: 0 0 0 3px
+    color-mix(in srgb, var(--app-primary-color) 30%, transparent);
+}
+input[type="color"] {
+  padding: 0.4em 0.6em;
+  min-height: calc(0.9em + 1.4em + 2px); /* Match height of other inputs */
+  min-width: 70px;
+  width: auto;
+}
+input[type="file"] {
+  padding: 0.4em 0.8em; /* Specific padding for file input */
+}
+
+select {
+  appearance: none; /* Remove native dropdown arrow */
+  background-image: 
+      /* Custom arrow (SVG or Unicode) - Dark theme */ url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23cccccc' width='18px' height='18px'%3E%3Cpath d='M7 10l5 5 5-5z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.7em center;
+  background-size: 1.2em;
+  padding-right: 2.5em; /* Make space for the arrow */
+}
+body.theme-light select {
+  /* Custom arrow (SVG or Unicode) - Light theme */
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%2318181b' width='18px' height='18px'%3E%3Cpath d='M7 10l5 5 5-5z'/%3E%3C/svg%3E");
+}
+
+button {
+  border-radius: 6px;
+  border: 1px solid var(--app-border-color);
+  padding: 0.7em 1.3em; /* Increased padding */
+  font-size: 0.9em;
+  font-weight: 500;
+  font-family: inherit;
+  color: var(--app-button-text-color);
+  background-color: var(--app-button-bg-color);
+  cursor: pointer;
+  transition: background-color 0.2s ease-in-out, border-color 0.2s ease-in-out,
+    transform 0.1s ease;
+  text-align: center;
+}
+button:hover {
+  background-color: var(--app-button-hover-bg-color);
+  /* border-color: var(--app-primary-color); */ /* Can make it too busy */
+  transform: translateY(-1px);
+}
+button:active {
+  transform: translateY(0px);
+  filter: brightness(0.95);
+}
+button:disabled {
+  background-color: color-mix(
+    in srgb,
+    var(--app-button-bg-color) 50%,
+    var(--app-bg-color)
+  );
+  color: var(--app-text-color-secondary);
+  cursor: not-allowed;
+  border-color: color-mix(
+    in srgb,
+    var(--app-border-color) 50%,
+    var(--app-bg-color)
+  );
+  transform: none;
+}
+
+/* Primary button style */
+button.primary {
+  background-color: var(--app-primary-color);
+  color: white; /* Usually white for primary buttons */
+  border-color: var(--app-primary-color);
+}
+button.primary:hover {
+  background-color: color-mix(in srgb, var(--app-primary-color) 90%, black);
+  border-color: color-mix(in srgb, var(--app-primary-color) 90%, black);
+}
+body.theme-light button.primary:hover {
+  background-color: color-mix(in srgb, var(--app-primary-color) 90%, white);
+  border-color: color-mix(in srgb, var(--app-primary-color) 90%, white);
+}
+button.primary:disabled {
+  background-color: color-mix(
+    in srgb,
+    var(--app-primary-color) 50%,
+    var(--app-bg-color)
+  );
+  color: var(--app-text-color-secondary);
+  border-color: color-mix(
+    in srgb,
+    var(--app-primary-color) 50%,
+    var(--app-bg-color)
+  );
+}
+
+/* Table styles */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9em;
+}
+thead th {
+  background-color: var(--app-header-bg);
+  color: var(--app-text-color);
+  padding: 12px 15px; /* Increased padding */
+  text-align: left;
+  border-bottom: 2px solid var(--app-border-color);
+  font-weight: 500;
+}
+tbody td {
+  padding: 12px 15px; /* Increased padding */
+  border-bottom: 1px solid var(--app-border-color);
+  vertical-align: top;
+}
+tbody tr:hover {
+  background-color: var(--app-list-item-hover-bg);
+}
+
+/* Utility for list items */
+.list-item {
+  padding: 12px 15px; /* Increased padding */
+  cursor: pointer;
+  border-bottom: 1px solid var(--app-border-color);
+  transition: background-color 0.15s ease-in-out, color 0.15s ease-in-out;
+  display: flex; /* For icon alignment if added later */
+  justify-content: space-between; /* For content and actions/icons */
+  align-items: center;
+}
+.list-item:last-child {
+  border-bottom: none; /* Remove border for last item if inside a bordered container */
+}
+.list-item:hover {
+  background-color: var(--app-list-item-hover-bg);
+}
+.list-item.selected {
+  background-color: var(--app-list-item-selected-bg);
+  color: var(--app-list-item-selected-text);
+  font-weight: 500;
+}
+.list-item.selected:hover {
+  background-color: color-mix(
+    in srgb,
+    var(--app-list-item-selected-bg) 90%,
+    black
+  );
+}
+body.theme-light .list-item.selected:hover {
+  background-color: color-mix(
+    in srgb,
+    var(--app-list-item-selected-bg) 90%,
+    white
+  );
+}
+
+/* General layout helpers */
+.container {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background-color: var(
+    --app-bg-color
+  ); /* Ensure container also has the theme bg */
+}
+
+/* Specific component tweaks (can be moved to component CSS if it grows) */
+/* Example: Main application navigation */
+.app-nav {
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--app-border-color);
+  background-color: var(--app-header-bg);
+  display: flex;
+  align-items: center; /* Vertically align items in nav */
+  gap: 15px;
+}
+
+/* Cleanup old Tauri template styles if not needed */
+.logo,
+.logo.vite:hover,
+.logo.react:hover,
+.logo.tauri:hover,
+.row,
+#greet-input {
+  /* display: none; */ /* Uncomment if you want to completely hide them */
+  /* Or ensure they are styled compatibly if kept for any reason */
+}
+
+/* For the round purple import button in MainApplicationPage.tsx */
+.import-button-round-purple {
+  background-color: #6f42c1; /* A nice shade of purple */
+  color: white;
+  border-radius: 50%; /* Make it round */
+  width: 38px; /* Adjust size as needed */
+  height: 38px; /* Adjust size as needed */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.3em; /* Adjust icon size */
+  padding: 0;
+  border: none;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2); /* Subtle shadow */
+}
+.import-button-round-purple:hover {
+  background-color: #5a32a3; /* Darker purple on hover */
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.25);
+}
+.import-button-round-purple:disabled {
+  background-color: color-mix(in srgb, #6f42c1 40%, var(--app-bg-color));
+  color: var(--app-text-color-secondary);
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+/* For grey navigation action buttons in App.tsx */
+.nav-action-button {
+  background-color: var(--app-button-bg-color);
+  color: var(--app-button-text-color);
+  border: 1px solid transparent; /* Make border match for consistent height, or var(--app-border-color) */
+  padding: 0.4em 0.5em;
+  border-radius: 6px;
+  text-decoration: none;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-width: 60px; /* Ensure buttons have some width */
+  text-align: center;
+  font-weight: 500;
+  transition: background-color 0.2s ease-in-out, transform 0.1s ease;
+}
+.nav-action-button:hover {
+  background-color: var(--app-button-hover-bg-color);
+  text-decoration: none;
+  transform: translateY(-1px);
+}
+.nav-action-button .icon {
+  font-size: 1.6em; /* Icon size */
+  line-height: 1; /* Prevent extra space from icon font */
+}
+.nav-action-button .text {
+  font-size: 0.75em; /* Text size */
+  line-height: 1.2;
+}
+
+/* Theme toggle button specific style to blend with nav-action-buttons */
+.theme-toggle-button {
+  background-color: var(--app-button-bg-color);
+  color: var(--app-button-text-color);
+  border: 1px solid transparent;
+  padding: 0.6em; /* Slightly larger padding for icon-only */
+  border-radius: 6px;
+  font-size: 1.4em; /* Icon size */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  margin-left: auto; /* Pushes to the right */
+  transition: background-color 0.2s ease-in-out, transform 0.1s ease;
+}
+.theme-toggle-button:hover {
+  background-color: var(--app-button-hover-bg-color);
+  transform: translateY(-1px);
+}
+
+/* Styling for individual slides in SlideDisplayArea.tsx */
+.slide-item-card {
+  position: relative; /* For positioning the layout badge */
+  background-color: var(
+    --app-header-bg
+  ); /* Slightly darker than main bg, or choose a specific color */
+  border: 1px solid var(--app-border-color);
+  border-radius: 6px;
+  padding: 15px;
+  margin-bottom: 15px; /* Space between slides */
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  transition: box-shadow 0.2s ease-in-out, transform 0.2s ease-in-out;
+}
+
+.slide-item-card:hover {
+  /* Optional: subtle hover effect */
+  /* box-shadow: 0 4px 8px rgba(0,0,0,0.15); */
+  /* transform: translateY(-1px); */
+}
+
+.slide-item-card.live {
+  border: 3px solid var(--app-live-indicator-color); /* Overall green border */
+  /* border-left is implicitly covered by the overall border, but if specific emphasis is needed, it can be thicker or styled differently */
+  /* border-left: 4px solid var(--app-live-indicator-color); */ /* Highlight for live slide */
+  box-shadow: 0 0 12px var(--app-live-indicator-glow); /* Green glow */
+}
+
+body.theme-light .slide-item-card {
+  background-color: #ffffff; /* White cards on light theme */
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.07);
+}
+
+body.theme-light .slide-item-card.live {
+  /* Ensure light theme also uses the green variables for consistency if desired */
+  border-color: var(--app-live-indicator-color);
+  box-shadow: 0 0 12px var(--app-live-indicator-glow);
+}
+
+/* New style for the active Live button */
+button.live-active {
+  background-color: var(--app-live-indicator-color);
+  color: white; /* Text color for the green button */
+  border-color: var(--app-live-indicator-color);
+}
+button.live-active:hover {
+  background-color: color-mix(
+    in srgb,
+    var(--app-live-indicator-color) 90%,
+    black
+  );
+  border-color: color-mix(in srgb, var(--app-live-indicator-color) 90%, black);
+}
+body.theme-light button.live-active:hover {
+  background-color: color-mix(
+    in srgb,
+    var(--app-live-indicator-color) 90%,
+    white
+  );
+  border-color: color-mix(in srgb, var(--app-live-indicator-color) 90%, white);
+}
+button.live-active:disabled {
+  /* Although it might not be disabled when live, good to have */
+  background-color: color-mix(
+    in srgb,
+    var(--app-live-indicator-color) 50%,
+    var(--app-bg-color)
+  );
+  color: var(--app-text-color-secondary);
+  border-color: color-mix(
+    in srgb,
+    var(--app-live-indicator-color) 50%,
+    var(--app-bg-color)
+  );
+}
+
+/* New styles for Playlist Pane */
+.playlist-section-header {
+  background-color: var(--app-playlist-header-bg);
+  color: var(--app-text-color);
+  padding: 8px 12px;
+  margin-top: 15px;
+  margin-bottom: 5px;
+  font-size: 0.9em;
+  font-weight: bold;
+  text-transform: uppercase;
+  border-radius: 4px 4px 0 0;
+}
+.playlist-section-header:first-child {
+  margin-top: 0;
+}
+
+.list-item.playlist-selected {
+  background-color: var(--app-playlist-selected-bg);
+  color: var(--app-playlist-selected-text);
+  font-weight: 500;
+}
+.list-item.playlist-selected:hover {
+  background-color: color-mix(
+    in srgb,
+    var(--app-playlist-selected-bg) 90%,
+    black
+  );
+}
+body.theme-light .list-item.playlist-selected {
+  color: var(--app-playlist-selected-text); /* Ensure text color is set */
+}
+body.theme-light .list-item.playlist-selected:hover {
+  background-color: color-mix(
+    in srgb,
+    var(--app-playlist-selected-bg) 90%,
+    white
+  );
+}
+
+.list-item.playlist-item-selected {
+  /* For items in 'Current Playlist' */
+  background-color: var(--app-playlist-item-selected-bg);
+  color: var(--app-playlist-item-selected-text);
+  font-weight: 500;
+}
+.list-item.playlist-item-selected:hover {
+  background-color: color-mix(
+    in srgb,
+    var(--app-playlist-item-selected-bg) 90%,
+    black
+  );
+}
+body.theme-light .list-item.playlist-item-selected {
+  color: var(--app-playlist-item-selected-text); /* Ensure text color is set */
+}
+body.theme-light .list-item.playlist-item-selected:hover {
+  background-color: color-mix(
+    in srgb,
+    var(--app-playlist-item-selected-bg) 90%,
+    white
+  );
+}
+
+.template-badge {
+  padding: 3px 8px;
+  border-radius: 12px; /* More rounded */
+  font-size: 0.75em;
+  font-weight: 500;
+  color: white; /* Default text, assuming dark badge bg */
+  text-shadow: 1px 1px 1px rgba(0, 0, 0, 0.2);
+}
+body.theme-light .template-badge {
+  color: black; /* Default for light theme, assuming light badge bg */
+  text-shadow: none;
+}
+
+.slide-layout-badge {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background-color: var(--app-slide-layout-badge-bg);
+  color: var(--app-slide-layout-badge-text);
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 0.75em;
+  font-weight: bold;
+  text-transform: uppercase;
+}
