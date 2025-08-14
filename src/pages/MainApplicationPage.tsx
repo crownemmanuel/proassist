@@ -4,7 +4,7 @@ import SlideDisplayArea from "../components/SlideDisplayArea";
 import ImportModal from "../components/ImportModal";
 import { Playlist, PlaylistItem, Slide, Template, LayoutType } from "../types"; // Using types defined earlier
 import "../App.css"; // Ensure global styles are applied
-import { invoke } from "@tauri-apps/api/tauri"; // invoke API compatible with your installed @tauri-apps/api version
+import { invoke } from "@tauri-apps/api/core"; // Tauri v2 invoke entry
 import Toast from "../components/Toast";
 import { formatSlidesForClipboard } from "../utils/slideUtils"; // Added import
 
@@ -233,12 +233,28 @@ const MainApplicationPage: React.FC = () => {
       return;
     }
 
-    // Find the template used by this playlistItem
-    // This assumes playlistItem.templateName is reliable for lookup.
-    // A more robust way would be storing templateId in PlaylistItem.
-    const template = templates.find(
+    // Find the template used by this playlistItem using the latest saved settings
+    // Prefer fresh data from localStorage so changes in Settings apply immediately
+    let latestTemplates: Template[] | null = null;
+    try {
+      const raw = localStorage.getItem("proassist-templates");
+      latestTemplates = raw ? (JSON.parse(raw) as Template[]) : null;
+    } catch (_) {
+      latestTemplates = null;
+    }
+    const templatesSource =
+      latestTemplates && latestTemplates.length > 0
+        ? latestTemplates
+        : templates;
+    let template = templatesSource.find(
       (t) => t.name === playlistItem.templateName
     );
+    // Fallback: try to match by color if name mismatch
+    if (!template && (playlistItem as any).templateColor) {
+      template = templatesSource.find(
+        (t) => t.color === (playlistItem as any).templateColor
+      );
+    }
 
     if (!template) {
       console.error(
@@ -298,20 +314,24 @@ const MainApplicationPage: React.FC = () => {
         }${i + 1}.txt`;
 
         console.log(`Writing to file: ${filePath}, Content: "${lineContent}"`);
-        await invoke("write_text_to_file", { filePath, content: lineContent });
+        await invoke("write_text_to_file", {
+          filePath: filePath,
+          content: lineContent,
+        });
         // UNCOMMENT THE INVOKE CALL above once your Tauri backend command 'write_text_to_file' is ready.
         // Ensure your Tauri command creates directories if they don't exist or handles errors appropriately.
       }
-      setToastType("success");
-      setToastMessage(
-        `Live: wrote ${linesToWrite} line${linesToWrite === 1 ? "" : "s"} to ${
-          template.outputPath
-        }`
-      );
+      // Success: no toast per UX request
     } catch (error) {
       console.error("Failed to write slide content to file(s):", error);
       setToastType("error");
-      setToastMessage("Error: failed to write slide content to files.");
+      const details =
+        error instanceof Error
+          ? error.message
+          : typeof error === "string"
+          ? error
+          : JSON.stringify(error);
+      setToastMessage(`Error writing files: ${details}`);
     }
     // Note: The visual feedback (setting liveSlideId in SlideDisplayArea) is handled locally in that component.
     // This function focuses on the side effect (writing to files).
@@ -381,6 +401,23 @@ const MainApplicationPage: React.FC = () => {
         return p;
       })
     );
+  };
+
+  const handleDeletePlaylistItem = (itemIdToDelete: string) => {
+    if (!selectedPlaylistId) return;
+    if (!window.confirm("Delete this playlist item?")) return;
+    setPlaylists((prev) =>
+      prev.map((p) => {
+        if (p.id !== selectedPlaylistId) return p;
+        return {
+          ...p,
+          items: p.items.filter((it) => it.id !== itemIdToDelete),
+        };
+      })
+    );
+    if (selectedItemId === itemIdToDelete) {
+      setSelectedItemId(null);
+    }
   };
 
   const handleChangeSlideLayout = (
@@ -527,6 +564,7 @@ const MainApplicationPage: React.FC = () => {
           selectedItemId={selectedItemId}
           onSelectPlaylistItem={handleSelectPlaylistItem}
           onDeletePlaylist={handleDeletePlaylist}
+          onDeletePlaylistItem={handleDeletePlaylistItem}
         />
       </div>
       <div style={rightColumnStyle}>
@@ -615,6 +653,8 @@ const MainApplicationPage: React.FC = () => {
         message={toastMessage}
         type={toastType}
         visible={toastMessage.length > 0}
+        autoHide={toastType !== "error"}
+        durationMs={2500}
         onClose={() => setToastMessage("")}
       />
     </div>

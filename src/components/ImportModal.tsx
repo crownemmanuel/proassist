@@ -324,6 +324,7 @@ const ImportModal: React.FC<ImportModalProps> = ({
             onClick={handleProcessText}
             disabled={!canProcess}
             className="primary"
+            type="button"
           >
             {isLoading && selectedTemplateDetails?.processWithAI
               ? "✨ Processing with AI..."

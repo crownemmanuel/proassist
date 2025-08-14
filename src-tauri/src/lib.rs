@@ -17,8 +17,12 @@ fn write_text_to_file(file_path: String, content: String) -> Result<(), String> 
             create_dir_all(parent_dir).map_err(|e| e.to_string())?;
         }
     }
-    let mut file = File::create(file_path).map_err(|e| e.to_string())?;
-    file.write_all(content.as_bytes()).map_err(|e| e.to_string())?;
+    let mut file = File::create(&file_path).map_err(|e| {
+        format!("create_failed:{}:{}", file_path, e)
+    })?;
+    file
+        .write_all(content.as_bytes())
+        .map_err(|e| format!("write_failed:{}:{}", file_path, e))?;
     Ok(())
 }
 
