@@ -1,7 +1,9 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import PlaylistPane from "../components/PlaylistPane";
 import SlideDisplayArea from "../components/SlideDisplayArea";
 import ImportModal from "../components/ImportModal";
+import RenameModal from "../components/RenameModal";
+import ConfirmDialog from "../components/ConfirmDialog";
 import { Playlist, PlaylistItem, Slide, Template, LayoutType } from "../types"; // Using types defined earlier
 import "../App.css"; // Ensure global styles are applied
 import { invoke } from "@tauri-apps/api/core"; // Tauri v2 core invoke
@@ -134,13 +136,32 @@ const mockTemplatesForMainPage: Template[] = [
 ];
 
 const MainApplicationPage: React.FC = () => {
-  const [playlists, setPlaylists] = useState<Playlist[]>(mockPlaylistsData);
+  const [playlists, setPlaylists] = useState<Playlist[]>(() => {
+    try {
+      const saved = localStorage.getItem("proassist-playlists");
+      return saved ? (JSON.parse(saved) as Playlist[]) : mockPlaylistsData;
+    } catch {
+      return mockPlaylistsData;
+    }
+  });
   const [selectedPlaylistId, setSelectedPlaylistId] = useState<string | null>(
     mockPlaylistsData.length > 0 ? mockPlaylistsData[0].id : null
   );
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [copyStatusMain, setCopyStatusMain] = useState<string>(""); // Added state for feedback
+  const [isRenameOpen, setIsRenameOpen] = useState(false);
+  const [renameInitialName, setRenameInitialName] = useState("");
+  const [renameTarget, setRenameTarget] = useState<
+    | { type: "playlist"; id: string }
+    | { type: "item"; playlistId: string; id: string }
+    | null
+  >(null);
+  const [pendingDelete, setPendingDelete] = useState<
+    | { type: "playlist"; id: string; name: string }
+    | { type: "item"; playlistId: string; id: string; name: string }
+    | null
+  >(null);
   // Use the more complete mockTemplatesForMainPage or fetch/get from a shared store
   const [templates] = useState<Template[]>(() => {
     const savedTemplates = localStorage.getItem("proassist-templates");
@@ -149,6 +170,15 @@ const MainApplicationPage: React.FC = () => {
       : mockTemplatesForMainPage; // Use the more detailed one
   });
 
+  // Persist playlists to localStorage whenever they change
+  useEffect(() => {
+    try {
+      localStorage.setItem("proassist-playlists", JSON.stringify(playlists));
+    } catch (err) {
+      console.error("Failed to save playlists:", err);
+    }
+  }, [playlists]);
+
   const handleSelectPlaylist = (playlistId: string) => {
     setSelectedPlaylistId(playlistId);
     setSelectedItemId(null);
@@ -156,6 +186,91 @@ const MainApplicationPage: React.FC = () => {
 
   const handleSelectPlaylistItem = (itemId: string) => {
     setSelectedItemId(itemId);
+  };
+
+  const handleOpenRenameSelectedPlaylist = () => {
+    if (!currentPlaylist) return;
+    setRenameTarget({ type: "playlist", id: currentPlaylist.id });
+    setRenameInitialName(currentPlaylist.name);
+    setIsRenameOpen(true);
+  };
+
+  const handleOpenRenameSelectedItem = () => {
+    if (!currentPlaylist || !currentPlaylistItem) return;
+    setRenameTarget({
+      type: "item",
+      playlistId: currentPlaylist.id,
+      id: currentPlaylistItem.id,
+    });
+    setRenameInitialName(currentPlaylistItem.title);
+    setIsRenameOpen(true);
+  };
+
+  const handleRename = (newName: string) => {
+    if (!renameTarget) return;
+    if (renameTarget.type === "playlist") {
+      setPlaylists((prev) =>
+        prev.map((p) =>
+          p.id === renameTarget.id ? { ...p, name: newName } : p
+        )
+      );
+    } else if (renameTarget.type === "item") {
+      setPlaylists((prev) =>
+        prev.map((p) => {
+          if (p.id !== renameTarget.playlistId) return p;
+          return {
+            ...p,
+            items: p.items.map((it) =>
+              it.id === renameTarget.id ? { ...it, title: newName } : it
+            ),
+          };
+        })
+      );
+    }
+    setIsRenameOpen(false);
+    setRenameTarget(null);
+  };
+
+  const handleDeleteSelectedPlaylist = () => {
+    if (!currentPlaylist) return;
+    setPendingDelete({
+      type: "playlist",
+      id: currentPlaylist.id,
+      name: currentPlaylist.name,
+    });
+  };
+
+  const handleDeleteSelectedItem = () => {
+    if (!currentPlaylist || !currentPlaylistItem) return;
+    setPendingDelete({
+      type: "item",
+      playlistId: currentPlaylist.id,
+      id: currentPlaylistItem.id,
+      name: currentPlaylistItem.title,
+    });
+  };
+
+  const performPendingDelete = () => {
+    if (!pendingDelete) return;
+    if (pendingDelete.type === "playlist") {
+      const id = pendingDelete.id;
+      setPlaylists((prev) => prev.filter((p) => p.id !== id));
+      const remaining = playlists.filter((p) => p.id !== id);
+      setSelectedPlaylistId(remaining.length ? remaining[0].id : null);
+      setSelectedItemId(null);
+    } else if (pendingDelete.type === "item") {
+      setPlaylists((prev) =>
+        prev.map((p) => {
+          if (p.id !== pendingDelete.playlistId) return p;
+          return {
+            ...p,
+            items: p.items.filter((it) => it.id !== pendingDelete.id),
+          };
+        })
+      );
+      setSelectedItemId(null);
+    }
+    setPendingDelete(null);
   };
 
   const currentPlaylist = playlists.find((p) => p.id === selectedPlaylistId);
@@ -510,15 +625,57 @@ const MainApplicationPage: React.FC = () => {
       </div>
       <div style={rightColumnStyle}>
         <div style={rightColumnHeaderStyle}>
-          <h3 style={{ margin: 0, fontWeight: 500 }}>
-            {currentPlaylist
-              ? `${
-                  currentPlaylistItem
-                    ? currentPlaylistItem.title
-                    : currentPlaylist.name
-                }`
-              : "Select a Playlist"}
-          </h3>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <h3 style={{ margin: 0, fontWeight: 500 }}>
+              {currentPlaylist
+                ? `${
+                    currentPlaylistItem
+                      ? currentPlaylistItem.title
+                      : currentPlaylist.name
+                  }`
+                : "Select a Playlist"}
+            </h3>
+            {currentPlaylist && !currentPlaylistItem && (
+              <button
+                onClick={handleOpenRenameSelectedPlaylist}
+                className="secondary"
+                title="Rename playlist"
+                style={{ padding: "4px 8px", fontSize: "0.8em" }}
+              >
+                ✏️ Edit
+              </button>
+            )}
+            {currentPlaylist && !currentPlaylistItem && (
+              <button
+                onClick={handleDeleteSelectedPlaylist}
+                className="secondary"
+                title="Delete playlist"
+                style={{ padding: "4px 8px", fontSize: "0.8em" }}
+              >
+                🗑️ Delete
+              </button>
+            )}
+            {currentPlaylist && currentPlaylistItem && (
+              <button
+                onClick={handleOpenRenameSelectedItem}
+                className="secondary"
+                title="Rename item"
+                style={{ padding: "4px 8px", fontSize: "0.8em" }}
+              >
+                ✏️ Edit
+              </button>
+            )}
+            {currentPlaylist && currentPlaylistItem && (
+              <button
+                onClick={handleDeleteSelectedItem}
+                className="secondary"
+                title="Delete item"
+                style={{ padding: "4px 8px", fontSize: "0.8em" }}
+              >
+                🗑️ Delete
+              </button>
+            )}
+          </div>
           <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
             <span style={{ fontWeight: 500, fontSize: "0.9em" }}>Import</span>
             <button
@@ -589,6 +746,32 @@ const MainApplicationPage: React.FC = () => {
         onClose={() => setIsImportModalOpen(false)}
         templates={templates}
         onImport={handleImportFromModal}
+      />
+      <RenameModal
+        isOpen={isRenameOpen}
+        onClose={() => setIsRenameOpen(false)}
+        onRename={handleRename}
+        currentName={renameInitialName}
+        title={
+          renameTarget?.type === "item" ? "Rename Item" : "Rename Playlist"
+        }
+      />
+      <ConfirmDialog
+        isOpen={!!pendingDelete}
+        title={
+          pendingDelete?.type === "item" ? "Delete Item" : "Delete Playlist"
+        }
+        message={
+          pendingDelete
+            ? pendingDelete.type === "item"
+              ? `Are you sure you want to delete item "${pendingDelete.name}"?`
+              : `Are you sure you want to delete playlist "${pendingDelete.name}" and all its items?`
+            : ""
+        }
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        onConfirm={performPendingDelete}
+        onCancel={() => setPendingDelete(null)}
       />
     </div>
   );
