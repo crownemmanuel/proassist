@@ -11,6 +11,7 @@ interface PlaylistPaneProps {
   onSelectPlaylistItem: (itemId: string) => void;
   onDeletePlaylist?: (playlistId: string) => void;
   onDeletePlaylistItem?: (itemId: string) => void;
+  onRenamePlaylist?: (playlistId: string, newName: string) => void;
 }
 
 const PlaylistPane: React.FC<PlaylistPaneProps> = ({
@@ -22,6 +23,7 @@ const PlaylistPane: React.FC<PlaylistPaneProps> = ({
   onSelectPlaylistItem,
   onDeletePlaylist,
   onDeletePlaylistItem,
+  onRenamePlaylist,
 }) => {
   const [newPlaylistName, setNewPlaylistName] = useState("");
 
@@ -77,6 +79,12 @@ const PlaylistPane: React.FC<PlaylistPaneProps> = ({
           <li
             key={playlist.id}
             onClick={() => onSelectPlaylist(playlist.id)}
+            onDoubleClick={() => {
+              const newName = prompt("Rename playlist:", playlist.name);
+              if (newName && newName.trim() && onRenamePlaylist) {
+                onRenamePlaylist(playlist.id, newName.trim());
+              }
+            }}
             className={`list-item ${
               playlist.id === selectedPlaylistId ? "playlist-selected" : ""
             }`}
@@ -105,16 +113,15 @@ const PlaylistPane: React.FC<PlaylistPaneProps> = ({
               <button
                 title="Delete playlist"
                 className="icon-button"
+                type="button"
                 style={{ padding: "4px", fontSize: "1em" }}
+                onMouseDown={(e) => {
+                  e.stopPropagation();
+                  e.preventDefault();
+                }}
                 onClick={(e) => {
                   e.stopPropagation();
-                  if (
-                    window.confirm(
-                      `Delete playlist "${playlist.name}" and all its items?`
-                    )
-                  ) {
-                    onDeletePlaylist(playlist.id);
-                  }
+                  onDeletePlaylist(playlist.id);
                 }}
               >
                 🗑️
@@ -191,15 +198,13 @@ const PlaylistPane: React.FC<PlaylistPaneProps> = ({
                     title="Delete item"
                     type="button"
                     style={{ zIndex: 1 }}
-                    onMouseDown={(e) => e.stopPropagation()}
+                    onMouseDown={(e) => {
+                      e.stopPropagation();
+                      e.preventDefault();
+                    }}
                     onClick={(e) => {
                       e.stopPropagation();
-                      const ok = window.confirm(
-                        `Delete item \"${item.title}\" from playlist?`
-                      );
-                      if (ok) {
-                        onDeletePlaylistItem(item.id);
-                      }
+                      onDeletePlaylistItem(item.id);
                     }}
                     aria-label={`Delete ${item.title}`}
                   >
