@@ -469,10 +469,7 @@ const MainApplicationPage: React.FC = () => {
         // UNCOMMENT THE INVOKE CALL above once your Tauri backend command 'write_text_to_file' is ready.
         // Ensure your Tauri command creates directories if they don't exist or handles errors appropriately.
       }
-      // Optionally, provide user feedback on success
-      alert(
-        `Slide content for "${slide.id}" (up to ${linesToWrite} lines) has been processed for live output.`
-      );
+      // Success: no UI notification required
     } catch (error) {
       console.error("Failed to write slide content to file(s):", error);
       alert("Error making slide live. Check console for details.");
