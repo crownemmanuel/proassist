@@ -375,6 +375,17 @@ body.theme-light .list-item.selected:hover {
   border: none;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2); /* Subtle shadow */
 }
+
+/* Purple accent button for important actions near inputs */
+.button-purple {
+  background-color: #6f42c1;
+  color: #fff;
+  border: 1px solid #6f42c1;
+}
+.button-purple:hover {
+  background-color: #5a32a3;
+  border-color: #5a32a3;
+}
 .import-button-round-purple:hover {
   background-color: #5a32a3; /* Darker purple on hover */
   transform: translateY(-1px);

@@ -1,10 +1,16 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import SettingsList from "../components/SettingsList";
 import SettingsDetail from "../components/SettingsDetail";
 import { Template, TemplateType } from "../types";
 import AISettingsForm from "../components/AISettingsForm";
 import Toast from "../components/Toast";
 import "../App.css"; // Ensure global styles are applied
+import {
+  exportAllTemplatesToFile,
+  exportSingleTemplateToFile,
+  parseTemplatesFromJsonFile,
+  generateTemplateId,
+} from "../utils/templateIO";
 
 // Mock initial settings data
 const mockTemplatesData: Template[] = [
@@ -73,6 +79,7 @@ const SettingsPage: React.FC = () => {
     templates.length > 0 ? templates[0].id : null
   );
   const [currentView, setCurrentView] = useState<SettingsView>("templates");
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     localStorage.setItem("proassist-templates", JSON.stringify(templates));
@@ -146,6 +153,63 @@ const SettingsPage: React.FC = () => {
     console.log("Deleted template:", idToDelete);
   };
 
+  const handleClickImport = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleImportFileChange = async (
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const imported = await parseTemplatesFromJsonFile(file);
+      setTemplates((prev) => {
+        const existingIds = new Set(prev.map((t) => t.id));
+        const existingNames = new Set(prev.map((t) => t.name.toLowerCase()));
+        const merged: Template[] = [...prev];
+        for (const tpl of imported) {
+          let newTemplate = { ...tpl } as Template;
+          if (!newTemplate.id || existingIds.has(newTemplate.id)) {
+            newTemplate.id = generateTemplateId();
+          }
+          if (existingNames.has(newTemplate.name.toLowerCase())) {
+            const base = newTemplate.name.replace(
+              / \(Imported(?: \d+)?\)$/i,
+              ""
+            );
+            let candidate = `${base} (Imported)`;
+            let counter = 2;
+            while (
+              merged.some(
+                (x) => x.name.toLowerCase() === candidate.toLowerCase()
+              )
+            ) {
+              candidate = `${base} (Imported ${counter})`;
+              counter++;
+            }
+            newTemplate.name = candidate;
+          }
+          merged.push(newTemplate);
+          existingIds.add(newTemplate.id);
+          existingNames.add(newTemplate.name.toLowerCase());
+        }
+        return merged;
+      });
+      setToastType("success");
+      setToastMessage(
+        `Imported ${imported.length} template${imported.length > 1 ? "s" : ""}`
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setToastType("error");
+      setToastMessage(`Import failed: ${msg}`);
+    } finally {
+      // reset input so selecting the same file again will trigger onChange
+      if (e.target) e.target.value = "";
+    }
+  };
+
   const selectedTemplate = templates.find((t) => t.id === selectedTemplateId);
 
   // Style objects using CSS variables (similar to MainApplicationPage)
@@ -197,23 +261,85 @@ const SettingsPage: React.FC = () => {
         )}
       </div>
       <div style={rightColumnStyle}>
-        {currentView === "templates" && selectedTemplate && (
-          <SettingsDetail
-            key={selectedTemplate.id}
-            template={selectedTemplate}
-            onSave={handleSaveTemplate}
-          />
-        )}
-        {currentView === "templates" && !selectedTemplate && (
-          <p
-            style={{
-              color: "var(--app-text-color-secondary)",
-              textAlign: "center",
-              paddingTop: "30px",
-            }}
-          >
-            Select a template to view or edit its details, or add a new one.
-          </p>
+        {currentView === "templates" && (
+          <>
+            <div
+              style={{
+                display: "flex",
+                gap: "8px",
+                justifyContent: "flex-end",
+                marginBottom: "10px",
+              }}
+            >
+              <button
+                onClick={async () => {
+                  const result = await exportAllTemplatesToFile(templates);
+                  if (result.status === "saved") {
+                    setToastType("success");
+                    setToastMessage("Templates exported");
+                  } else if (result.status === "fallback") {
+                    setToastType("success");
+                    setToastMessage("Templates downloaded");
+                  }
+                }}
+                className="secondary"
+                title="Export all templates to JSON"
+              >
+                Export All
+              </button>
+              <button
+                onClick={async () => {
+                  if (!selectedTemplate) return;
+                  const result = await exportSingleTemplateToFile(
+                    selectedTemplate
+                  );
+                  if (result.status === "saved") {
+                    setToastType("success");
+                    setToastMessage("Template exported");
+                  } else if (result.status === "fallback") {
+                    setToastType("success");
+                    setToastMessage("Template downloaded");
+                  }
+                }}
+                className="secondary"
+                disabled={!selectedTemplate}
+                title="Export the selected template to JSON"
+              >
+                Export Selected
+              </button>
+              <button
+                onClick={handleClickImport}
+                className="primary"
+                title="Import templates from JSON"
+              >
+                Import...
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".json,application/json"
+                onChange={handleImportFileChange}
+                style={{ display: "none" }}
+              />
+            </div>
+            {selectedTemplate ? (
+              <SettingsDetail
+                key={selectedTemplate.id}
+                template={selectedTemplate}
+                onSave={handleSaveTemplate}
+              />
+            ) : (
+              <p
+                style={{
+                  color: "var(--app-text-color-secondary)",
+                  textAlign: "center",
+                  paddingTop: "30px",
+                }}
+              >
+                Select a template to view or edit its details, or add a new one.
+              </p>
+            )}
+          </>
         )}
         {currentView === "aiConfiguration" && <AISettingsForm />}
       </div>

@@ -26,6 +26,8 @@ fn write_text_to_file(file_path: String, content: String) -> Result<(), String> 
 
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
         .invoke_handler(tauri::generate_handler![
             greet,
             write_text_to_file

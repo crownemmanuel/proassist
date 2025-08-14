@@ -10,6 +10,7 @@ import {
   GEMINI_MODELS,
 } from "../types";
 import "../App.css";
+import WriteLogicModal from "./WriteLogicModal";
 
 interface SettingsDetailProps {
   template: Template;
@@ -41,6 +42,7 @@ const SettingsDetail: React.FC<SettingsDetailProps> = ({
   const [aiModel, setAiModel] = useState<
     OpenAIModelType | GeminiModelType | string | undefined
   >(template.aiModel);
+  const [isWriteModalOpen, setIsWriteModalOpen] = useState(false);
 
   const allLayoutTypes: LayoutType[] = [
     "one-line",
@@ -159,14 +161,41 @@ const SettingsDetail: React.FC<SettingsDetailProps> = ({
         </div>
       </div>
       <div className="form-group">
-        <label htmlFor="template-logic">Logic/Notes:</label>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+          }}
+        >
+          <label htmlFor="template-logic" style={{ marginBottom: 4 }}>
+            Logic/Notes:
+          </label>
+          <button
+            className="button-purple"
+            onClick={() => setIsWriteModalOpen(true)}
+          >
+            Write with AI
+          </button>
+        </div>
         <textarea
           id="template-logic"
           value={logic}
           onChange={(e) => setLogic(e.target.value)}
-          placeholder="Enter template logic (e.g., regex, script path) or notes"
-          rows={3}
+          placeholder="Enter JavaScript or /regex/flags to split/process text (optional)"
+          rows={4}
         />
+        <div
+          style={{
+            fontSize: "0.85em",
+            color: "var(--app-text-color-secondary)",
+            marginTop: 6,
+          }}
+        >
+          Tip: Provide a JavaScript snippet that returns an array of strings or{" "}
+          {"{ text, layout }"} items, or a regex in the form{" "}
+          <code>/pattern/flags</code>. Left empty to use basic paragraph split.
+        </div>
       </div>
 
       {/* AI Processing Fields */}
@@ -184,7 +213,23 @@ const SettingsDetail: React.FC<SettingsDetailProps> = ({
           />
           Process with AI
         </label>
+        <div
+          style={{
+            fontSize: "0.85em",
+            color: "var(--app-text-color-secondary)",
+            marginTop: 6,
+          }}
+        >
+          Enabling this sends your text to an LLM (OpenAI or Gemini) to generate
+          slides based on your prompt.
+        </div>
       </div>
+
+      <WriteLogicModal
+        isOpen={isWriteModalOpen}
+        onClose={() => setIsWriteModalOpen(false)}
+        onApply={(code) => setLogic(code)}
+      />
 
       {processWithAI && (
         <>
@@ -202,8 +247,40 @@ const SettingsDetail: React.FC<SettingsDetailProps> = ({
               <option value="" disabled>
                 Select a provider
               </option>
-              <option value="openai">OpenAI</option>
-              <option value="gemini">Google Gemini</option>
+              <option
+                value="openai"
+                disabled={
+                  !window.localStorage.getItem("proassist_app_settings") ||
+                  !JSON.parse(
+                    window.localStorage.getItem("proassist_app_settings") ||
+                      "{}"
+                  )?.openAIConfig?.apiKey
+                }
+              >
+                OpenAI{" "}
+                {!JSON.parse(
+                  window.localStorage.getItem("proassist_app_settings") || "{}"
+                )?.openAIConfig?.apiKey
+                  ? "(add API key first)"
+                  : ""}
+              </option>
+              <option
+                value="gemini"
+                disabled={
+                  !window.localStorage.getItem("proassist_app_settings") ||
+                  !JSON.parse(
+                    window.localStorage.getItem("proassist_app_settings") ||
+                      "{}"
+                  )?.geminiConfig?.apiKey
+                }
+              >
+                Google Gemini{" "}
+                {!JSON.parse(
+                  window.localStorage.getItem("proassist_app_settings") || "{}"
+                )?.geminiConfig?.apiKey
+                  ? "(add API key first)"
+                  : ""}
+              </option>
             </select>
           </div>
 

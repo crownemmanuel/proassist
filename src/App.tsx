@@ -8,6 +8,7 @@ import "./App.css";
 // Import actual page components
 import MainApplicationPage from "./pages/MainApplicationPage";
 import SettingsPage from "./pages/SettingsPage";
+import HelpPage from "./pages/HelpPage";
 
 function App() {
   const [theme, setTheme] = useState(
@@ -67,6 +68,10 @@ function App() {
             <span className="icon">⚙️</span>
             <span className="text">Settings</span>
           </Link>
+          <Link to="/help" className="nav-action-button">
+            <span className="icon">❓</span>
+            <span className="text">Help</span>
+          </Link>
           <button
             onClick={toggleTheme}
             title={`Switch to ${theme === "light" ? "Dark" : "Light"} Mode`}
@@ -78,6 +83,7 @@ function App() {
         <Routes>
           <Route path="/" element={<MainApplicationPage />} />
           <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/help" element={<HelpPage />} />
         </Routes>
       </div>
     </Router>

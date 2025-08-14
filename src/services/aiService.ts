@@ -180,3 +180,107 @@ Ensure the output is a JSON object containing a \'slides\' array, where each ite
     return [];
   }
 };
+
+/**
+ * Generate a JavaScript or regex snippet from a natural-language description.
+ * Returns raw code only (no fencing/explanations) or an empty string on error.
+ */
+export const generateLogicSnippet = async (
+  description: string,
+  outputType: "regex" | "javascript",
+  providerFromUser: "openai" | "gemini" | undefined,
+  modelFromUser: string | undefined,
+  appSettings: AppSettings
+): Promise<string> => {
+  const provider =
+    providerFromUser || appSettings.defaultAIProvider || undefined;
+  if (!provider) return "";
+
+  let apiKey: string | undefined;
+  if (provider === "openai") apiKey = appSettings.openAIConfig?.apiKey;
+  if (provider === "gemini") apiKey = appSettings.geminiConfig?.apiKey;
+  if (!apiKey) return "";
+
+  try {
+    const system =
+      outputType === "regex"
+        ? "You are a JavaScript regex expert. STRICT FORMAT: Return ONLY a valid JavaScript regex literal in the form /pattern/flags. No prose, no code fences, no explanation. The regex will be used to split or capture sections from a single string variable named 'input'."
+        : "You are a senior JavaScript engineer. STRICT FORMAT: Return ONLY a minimal JavaScript snippet (no backticks, no comments, no prose) that, when executed as a function body, returns either string[] or { text: string, layout?: string }[]. Assume there is a single input string variable named 'input'. The snippet must end with a return statement.";
+
+    if (provider === "openai") {
+      const llm = new ChatOpenAI({
+        apiKey,
+        modelName: modelFromUser || "gpt-4o-mini",
+        temperature: 0.3,
+      });
+      const messages = [
+        new SystemMessage(system),
+        new HumanMessage(description),
+      ];
+      const res = await llm.invoke(messages);
+      const text =
+        (res as any)?.content?.[0]?.text ?? (res as any)?.content ?? "";
+      return typeof text === "string" ? text.trim() : "";
+    }
+    if (provider === "gemini") {
+      const llm = new ChatGoogleGenerativeAI({
+        apiKey,
+        model: modelFromUser || "gemini-1.5-flash-latest",
+        temperature: 0.3,
+      });
+      const messages = [
+        new SystemMessage(system),
+        new HumanMessage(description),
+      ];
+      const res = await llm.invoke(messages);
+      const text =
+        (res as any)?.content?.[0]?.text ?? (res as any)?.content ?? "";
+      return typeof text === "string" ? text.trim() : "";
+    }
+  } catch (err) {
+    console.error("generateLogicSnippet error:", err);
+    return "";
+  }
+  return "";
+};
+
+/**
+ * Fetch available model ids from OpenAI (v1/models). Filters to common chat models.
+ */
+export const fetchOpenAIModels = async (apiKey: string): Promise<string[]> => {
+  try {
+    const res = await fetch("https://api.openai.com/v1/models", {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const ids: string[] = (data?.data || []).map((m: any) => m.id);
+    // keep likely chat/gen models
+    return ids
+      .filter((id) => /gpt|o\d|^gpt-4|^gpt-3|^o3|^o1|^gpt-4o/.test(id))
+      .sort();
+  } catch (err) {
+    console.error("fetchOpenAIModels failed:", err);
+    return [];
+  }
+};
+
+/**
+ * Fetch available Gemini model ids.
+ */
+export const fetchGeminiModels = async (apiKey: string): Promise<string[]> => {
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1/models?key=${apiKey}`
+    );
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const ids: string[] = (data?.models || []).map(
+      (m: any) => m.name || m.displayName || m.id
+    );
+    return ids.sort();
+  } catch (err) {
+    console.error("fetchGeminiModels failed:", err);
+    return [];
+  }
+};

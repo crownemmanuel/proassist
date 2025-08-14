@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { Template, Slide, AppSettings } from "../types";
+import { Template, Slide, AppSettings, LayoutType } from "../types";
 import { getAppSettings } from "../utils/aiConfig";
 import { generateSlidesFromText } from "../services/aiService";
 import { formatSlidesForClipboard } from "../utils/slideUtils";
@@ -86,7 +86,11 @@ const ImportModal: React.FC<ImportModalProps> = ({
           appSettings
         );
       } else {
-        generatedSlides = parseTextBasic(currentInputText, template);
+        const logicSlides = parseWithTemplateLogic(currentInputText, template);
+        generatedSlides =
+          logicSlides && logicSlides.length > 0
+            ? logicSlides
+            : parseTextBasic(currentInputText, template);
       }
       setPreviewSlides(
         generatedSlides
@@ -126,6 +130,74 @@ const ImportModal: React.FC<ImportModalProps> = ({
         layout: defaultLayout,
       }))
       .filter((slide) => slide.text.length > 0);
+  };
+
+  // Optional logic: regex (/pattern/flags) or JavaScript snippet returning
+  // an array of strings or { text, layout } items
+  const parseWithTemplateLogic = (
+    text: string,
+    template: Template
+  ): Pick<Slide, "text" | "layout">[] | null => {
+    const logicRaw = (template.logic || "").trim();
+    if (!logicRaw) return null;
+
+    const defaultLayout: LayoutType =
+      template.availableLayouts[0] || ("one-line" as LayoutType);
+
+    // Regex form: /pattern/flags
+    if (logicRaw.startsWith("/") && logicRaw.lastIndexOf("/") > 0) {
+      try {
+        const lastSlash = logicRaw.lastIndexOf("/");
+        const pattern = logicRaw.slice(1, lastSlash);
+        const flags = logicRaw.slice(lastSlash + 1);
+        const regex = new RegExp(pattern, flags);
+        const matches = Array.from(text.matchAll(regex));
+        let chunks: string[] = [];
+        if (matches.length > 0) {
+          chunks = matches.map((m) => (m[1] ? m[1] : m[0]).trim());
+        } else {
+          chunks = text.split(regex).map((s) => s.trim());
+        }
+        return chunks
+          .filter((c) => c.length > 0)
+          .map((c) => ({ text: c, layout: defaultLayout }));
+      } catch (err) {
+        console.error("Invalid regex logic:", err);
+        return null;
+      }
+    }
+
+    // JavaScript: snippet receives (input, layouts) and should return
+    // string[] or { text, layout }[]
+    try {
+      const fn = new Function(
+        "input",
+        "layouts",
+        logicRaw.includes("return")
+          ? logicRaw
+          : `return (function(){ ${logicRaw} })()`
+      ) as (
+        input: string,
+        layouts: LayoutType[]
+      ) => string[] | { text: string; layout?: LayoutType }[];
+      const result = fn(text, template.availableLayouts);
+      if (Array.isArray(result)) {
+        return result
+          .map((r) => {
+            if (typeof r === "string") {
+              return { text: r.trim(), layout: defaultLayout };
+            }
+            return {
+              text: (r.text || "").trim(),
+              layout: (r.layout as LayoutType) || defaultLayout,
+            };
+          })
+          .filter((s) => s.text.length > 0);
+      }
+    } catch (err) {
+      console.error("Error running JS logic snippet:", err);
+    }
+    return null;
   };
 
   const handleFileChange = async (
