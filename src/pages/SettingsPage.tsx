@@ -11,48 +11,54 @@ const mockTemplatesData: Template[] = [
     id: "tpl1",
     name: "Simple Line Break",
     color: "#4CAF50",
-    type: "Simple",
-    logic: "Line Break", // For simple, this could be a description or enum
+    type: "text",
+    logic: "Line Break",
     availableLayouts: ["one-line", "two-line"],
     outputPath: "/tmp/proassist/output/simple/",
     outputFileNamePrefix: "simple_slide_",
+    processWithAI: false,
   },
   {
     id: "tpl2",
     name: "Sermon Regex",
     color: "#2196F3",
-    type: "Regex",
-    logic: "/^VERSE\\s*(\\d+[:\\d,-]*)\\s*([\\s\\S]*?)(?=\\n\\n|$)/gm", // Example Regex
+    type: "text",
+    logic: "/^VERSE\\s*(\\d+[:\\d,-]*)\\s*([\\s\\S]*?)(?=\\n\\n|$)/gm",
     availableLayouts: ["one-line", "two-line", "three-line"],
     outputPath: "/tmp/proassist/output/sermon/",
     outputFileNamePrefix: "sermon_note_",
+    processWithAI: false,
   },
   {
     id: "tpl3",
     name: "JS Scripture Splitter",
     color: "#FFC107",
-    type: "JavaScript Formula",
+    type: "text",
     logic: '// Example JS: item.text.split("\\\\n---\\\\n");',
     availableLayouts: ["one-line", "two-line"],
     outputPath: "/tmp/proassist/output/scripture/",
     outputFileNamePrefix: "scripture_passage_",
+    processWithAI: false,
   },
   {
     id: "tpl4",
     name: "AI Verse Grouping",
     color: "#E91E63",
-    type: "AI Powered",
+    type: "text",
     logic:
       "Group verses into thematic slides. Assign a two-line layout for headings and one-line for body.",
     availableLayouts: ["one-line", "two-line", "three-line", "four-line"],
-    prompt: "Create slides for the following text...",
+    aiPrompt: "Create slides for the following text...",
+    processWithAI: true,
+    aiProvider: "openai",
+    aiModel: "gpt-4o-mini",
     outputPath: "/tmp/proassist/output/ai_verses/",
     outputFileNamePrefix: "ai_verse_slide_",
   },
 ];
 
 const initialAppSettings: AppSettings = {
-  templates: mockTemplatesData,
+  theme: "light",
 };
 
 type SettingsView = "templates" | "aiConfiguration";
@@ -90,25 +96,25 @@ const SettingsPage: React.FC = () => {
     setTemplates((prev) =>
       prev.map((t) => (t.id === updatedTemplate.id ? updatedTemplate : t))
     );
-    // Later: Persist settings, possibly using Tauri store or backend
     console.log("Saved template:", updatedTemplate);
   };
 
-  const handleAddTemplate = (
-    name: string,
-    type: TemplateType,
-    color: string
-  ) => {
+  const handleAddTemplate = (newTemplateData: {
+    name: string;
+    type: TemplateType;
+    color: string;
+  }) => {
     const newTemplate: Template = {
       id: `tpl-${Date.now()}`,
-      name,
-      type,
-      color,
-      logic: type === "Regex" ? "/^EXAMPLE$/gm" : "EXAMPLE_LOGIC",
+      ...newTemplateData,
+      logic: newTemplateData.type === "text" ? "Default text logic/notes" : "",
       availableLayouts: ["one-line", "two-line"],
-      prompt: type === "AI Powered" ? "Your AI prompt here..." : undefined,
-      outputPath: "/tmp/proassist/output/new_template/", // Default path
-      outputFileNamePrefix: "new_template_slide_", // Default prefix
+      aiPrompt: "",
+      processWithAI: false,
+      aiProvider: undefined,
+      aiModel: undefined,
+      outputPath: "/tmp/proassist/output/new_template/",
+      outputFileNamePrefix: "new_template_slide_",
     };
     setTemplates((prev) => [...prev, newTemplate]);
     setSelectedTemplateId(newTemplate.id);

@@ -42,6 +42,8 @@ const mockTemplates: Template[] = [
     aiPrompt:
       "Break down the following sermon notes into concise points, each suitable for a slide. Use appropriate layouts.",
     processWithAI: true, // Let AI handle sermon points structuring
+    aiProvider: "openai",
+    aiModel: "gpt-4o-mini",
     outputPath: "/Users/emmanuelcrown/Documents/ProPresenterOutput/SermonNotes",
     outputFileNamePrefix: "SermonPoint",
   },
@@ -54,6 +56,8 @@ const mockTemplates: Template[] = [
     aiPrompt:
       "Create a lower third title and subtitle from the following text. Title on the first line, subtitle on the second.",
     processWithAI: true,
+    aiProvider: "openai",
+    aiModel: "gpt-4o-mini",
     outputPath: "/Users/emmanuelcrown/Documents/ProPresenterOutput/LowerThirds",
     outputFileNamePrefix: "LowerThird",
   },

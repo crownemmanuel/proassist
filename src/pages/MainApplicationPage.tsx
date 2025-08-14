@@ -135,6 +135,8 @@ const mockTemplatesForMainPage: Template[] = [
     outputPath: "/tmp/proassist/output/ai_verses/",
     outputFileNamePrefix: "ai_verse_slide_",
     processWithAI: true,
+    aiProvider: "openai",
+    aiModel: "gpt-4o-mini",
   },
 ];
 

@@ -1,5 +1,14 @@
 import React, { useState, useEffect } from "react";
-import { Template, TemplateType, LayoutType } from "../types";
+import {
+  Template,
+  TemplateType,
+  LayoutType,
+  AIProviderType,
+  OpenAIModelType,
+  GeminiModelType,
+  OPENAI_MODELS,
+  GEMINI_MODELS,
+} from "../types";
 import "../App.css";
 
 interface SettingsDetailProps {
@@ -26,6 +35,12 @@ const SettingsDetail: React.FC<SettingsDetailProps> = ({
   const [outputFileNamePrefix, setOutputFileNamePrefix] = useState(
     template.outputFileNamePrefix || ""
   );
+  const [aiProvider, setAiProvider] = useState<AIProviderType | undefined>(
+    template.aiProvider
+  );
+  const [aiModel, setAiModel] = useState<
+    OpenAIModelType | GeminiModelType | string | undefined
+  >(template.aiModel);
 
   const allLayoutTypes: LayoutType[] = [
     "one-line",
@@ -47,6 +62,8 @@ const SettingsDetail: React.FC<SettingsDetailProps> = ({
       setProcessWithAI(template.processWithAI || false);
       setOutputPath(template.outputPath || "");
       setOutputFileNamePrefix(template.outputFileNamePrefix || "");
+      setAiProvider(template.aiProvider);
+      setAiModel(template.aiModel);
     }
   }, [template]);
 
@@ -68,6 +85,8 @@ const SettingsDetail: React.FC<SettingsDetailProps> = ({
       processWithAI,
       outputPath,
       outputFileNamePrefix,
+      aiProvider: processWithAI ? aiProvider : undefined,
+      aiModel: processWithAI ? aiModel : undefined,
     });
   };
 
@@ -168,16 +187,69 @@ const SettingsDetail: React.FC<SettingsDetailProps> = ({
       </div>
 
       {processWithAI && (
-        <div className="form-group">
-          <label htmlFor="template-ai-prompt">AI Prompt:</label>
-          <textarea
-            id="template-ai-prompt"
-            value={aiPrompt}
-            onChange={(e) => setAiPrompt(e.target.value)}
-            placeholder="Enter the prompt for the AI to process the input text."
-            rows={4}
-          />
-        </div>
+        <>
+          <div className="form-group">
+            <label htmlFor="template-ai-provider">AI Provider:</label>
+            <select
+              id="template-ai-provider"
+              value={aiProvider || ""}
+              onChange={(e) => {
+                const newProvider = e.target.value as AIProviderType;
+                setAiProvider(newProvider);
+                setAiModel(undefined);
+              }}
+            >
+              <option value="" disabled>
+                Select a provider
+              </option>
+              <option value="openai">OpenAI</option>
+              <option value="gemini">Google Gemini</option>
+            </select>
+          </div>
+
+          {aiProvider && (
+            <div className="form-group">
+              <label htmlFor="template-ai-model">AI Model:</label>
+              <select
+                id="template-ai-model"
+                value={aiModel || ""}
+                onChange={(e) =>
+                  setAiModel(
+                    e.target.value as OpenAIModelType | GeminiModelType
+                  )
+                }
+                disabled={!aiProvider}
+              >
+                <option value="" disabled>
+                  Select a model
+                </option>
+                {aiProvider === "openai" &&
+                  OPENAI_MODELS.map((model) => (
+                    <option key={model} value={model}>
+                      {model}
+                    </option>
+                  ))}
+                {aiProvider === "gemini" &&
+                  GEMINI_MODELS.map((model) => (
+                    <option key={model} value={model}>
+                      {model}
+                    </option>
+                  ))}
+              </select>
+            </div>
+          )}
+
+          <div className="form-group">
+            <label htmlFor="template-ai-prompt">AI Prompt:</label>
+            <textarea
+              id="template-ai-prompt"
+              value={aiPrompt}
+              onChange={(e) => setAiPrompt(e.target.value)}
+              placeholder="Enter the prompt for the AI to process the input text."
+              rows={4}
+            />
+          </div>
+        </>
       )}
 
       <div className="form-group">

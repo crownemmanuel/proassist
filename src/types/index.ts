@@ -8,6 +8,24 @@ export type LayoutType =
 
 export type TemplateType = "text" | "image" | "video";
 
+// Define AI Provider and Model Types
+export type AIProviderType = "openai" | "gemini";
+
+export const OPENAI_MODELS = [
+  "gpt-4o",
+  "gpt-4o-mini",
+  "gpt-4-turbo",
+  "gpt-3.5-turbo",
+] as const;
+export type OpenAIModelType = (typeof OPENAI_MODELS)[number];
+
+export const GEMINI_MODELS = [
+  "gemini-1.5-pro-latest",
+  "gemini-1.5-flash-latest",
+  "gemini-1.0-pro", // Older, but might be preferred for cost/legacy
+] as const;
+export type GeminiModelType = (typeof GEMINI_MODELS)[number];
+
 export interface Slide {
   id: string;
   text: string; // Can be multi-line, actual rendering will depend on layout
@@ -39,6 +57,8 @@ export interface Template {
   availableLayouts: LayoutType[];
   aiPrompt?: string; // User-defined prompt for AI processing
   processWithAI?: boolean; // If true, use AI for slide generation
+  aiProvider?: AIProviderType; // Specify AI provider for this template
+  aiModel?: OpenAIModelType | GeminiModelType | string; // Specify AI model for this template (string for flexibility if new models added)
   outputPath: string;
   outputFileNamePrefix: string;
 }

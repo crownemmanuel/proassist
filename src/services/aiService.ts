@@ -30,9 +30,31 @@ export const generateSlidesFromText = async (
     return [];
   }
 
-  const provider = appSettings.defaultAIProvider;
-  let apiKey: string | undefined;
+  // Use provider from template, fallback to appSettings default, then error if none
+  const provider = template.aiProvider || appSettings.defaultAIProvider;
+  const modelName = template.aiModel; // Model must be specified in template if provider is
 
+  if (!provider) {
+    console.error(
+      "AI provider is not configured in the template or app settings."
+    );
+    alert(
+      "AI provider is not configured for this template. Please edit the template or check global AI settings."
+    );
+    return [];
+  }
+
+  if (template.aiProvider && !modelName) {
+    console.error(
+      `AI model is not specified in the template ('${template.name}') for the selected provider '${provider}'.`
+    );
+    alert(
+      `AI model not specified for template '${template.name}'. Please edit the template to select a model for '${provider}'.`
+    );
+    return [];
+  }
+
+  let apiKey: string | undefined;
   if (provider === "openai") {
     apiKey = appSettings.openAIConfig?.apiKey;
   } else if (provider === "gemini") {
@@ -52,13 +74,13 @@ export const generateSlidesFromText = async (
     if (provider === "openai") {
       llm = new ChatOpenAI({
         apiKey: apiKey,
-        modelName: "gpt-4o", // Or allow model selection later
+        modelName: modelName || "gpt-4o-mini", // Fallback to a default OpenAI model if somehow not set
         temperature: 0.7,
       });
     } else if (provider === "gemini") {
       llm = new ChatGoogleGenerativeAI({
         apiKey: apiKey,
-        model: "gemini-2.5-flash", // Corrected: modelName to model for Gemini
+        model: modelName || "gemini-1.5-flash-latest", // Fallback to a default Gemini model
         temperature: 0.7,
       });
     } else {
