@@ -84,3 +84,4 @@ const AddTemplateModal: React.FC<AddTemplateModalProps> = ({
 };
 
 export default AddTemplateModal;
+

@@ -9,9 +9,6 @@ interface PlaylistPaneProps {
   onAddPlaylist: (name: string) => void;
   selectedItemId: string | null;
   onSelectPlaylistItem: (itemId: string) => void;
-  onDeletePlaylist?: (playlistId: string) => void;
-  onDeletePlaylistItem?: (itemId: string) => void;
-  onRenamePlaylist?: (playlistId: string, newName: string) => void;
 }
 
 const PlaylistPane: React.FC<PlaylistPaneProps> = ({
@@ -21,9 +18,6 @@ const PlaylistPane: React.FC<PlaylistPaneProps> = ({
   onAddPlaylist,
   selectedItemId,
   onSelectPlaylistItem,
-  onDeletePlaylist,
-  onDeletePlaylistItem,
-  onRenamePlaylist,
 }) => {
   const [newPlaylistName, setNewPlaylistName] = useState("");
 
@@ -79,54 +73,22 @@ const PlaylistPane: React.FC<PlaylistPaneProps> = ({
           <li
             key={playlist.id}
             onClick={() => onSelectPlaylist(playlist.id)}
-            onDoubleClick={() => {
-              const newName = prompt("Rename playlist:", playlist.name);
-              if (newName && newName.trim() && onRenamePlaylist) {
-                onRenamePlaylist(playlist.id, newName.trim());
-              }
-            }}
             className={`list-item ${
               playlist.id === selectedPlaylistId ? "playlist-selected" : ""
             }`}
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-            }}
           >
-            <div>
-              {playlist.name}
-              <span
-                style={{
-                  fontSize: "0.8em",
-                  color:
-                    playlist.id === selectedPlaylistId
-                      ? "var(--app-playlist-selected-text)"
-                      : "var(--app-text-color-secondary)",
-                  marginLeft: "6px",
-                }}
-              >
-                ({playlist.items.length} items)
-              </span>
-            </div>
-            {onDeletePlaylist && (
-              <button
-                title="Delete playlist"
-                className="icon-button"
-                type="button"
-                style={{ padding: "4px", fontSize: "1em" }}
-                onMouseDown={(e) => {
-                  e.stopPropagation();
-                  e.preventDefault();
-                }}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onDeletePlaylist(playlist.id);
-                }}
-              >
-                🗑️
-              </button>
-            )}
+            {playlist.name}
+            <span
+              style={{
+                fontSize: "0.8em",
+                color:
+                  playlist.id === selectedPlaylistId
+                    ? "var(--app-playlist-selected-text)"
+                    : "var(--app-text-color-secondary)",
+              }}
+            >
+              ({playlist.items.length} items)
+            </span>
           </li>
         ))}
       </ul>
@@ -161,56 +123,27 @@ const PlaylistPane: React.FC<PlaylistPaneProps> = ({
                 className={`list-item ${
                   item.id === selectedItemId ? "playlist-item-selected" : ""
                 }`}
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                }}
               >
-                <div style={{ display: "flex", flexDirection: "column" }}>
-                  <span
-                    style={{
-                      fontWeight:
-                        item.id === selectedItemId ? "bold" : "normal",
-                    }}
-                  >
-                    {item.title}
-                  </span>
-                  <span
-                    className="template-badge"
-                    style={{
-                      backgroundColor:
-                        item.templateColor || "var(--app-button-bg-color)",
-                      color:
-                        item.templateColor && isColorDark(item.templateColor)
-                          ? "white"
-                          : "black",
-                      marginTop: 6,
-                      alignSelf: "flex-start",
-                    }}
-                  >
-                    {item.templateName}
-                  </span>
-                </div>
-                {onDeletePlaylistItem && (
-                  <button
-                    className="icon-button"
-                    title="Delete item"
-                    type="button"
-                    style={{ zIndex: 1 }}
-                    onMouseDown={(e) => {
-                      e.stopPropagation();
-                      e.preventDefault();
-                    }}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onDeletePlaylistItem(item.id);
-                    }}
-                    aria-label={`Delete ${item.title}`}
-                  >
-                    🗑️
-                  </button>
-                )}
+                <span
+                  style={{
+                    fontWeight: item.id === selectedItemId ? "bold" : "normal",
+                  }}
+                >
+                  {item.title}
+                </span>
+                <span
+                  className="template-badge"
+                  style={{
+                    backgroundColor:
+                      item.templateColor || "var(--app-button-bg-color)",
+                    color:
+                      item.templateColor && isColorDark(item.templateColor)
+                        ? "white"
+                        : "black",
+                  }}
+                >
+                  {item.templateName}
+                </span>
               </li>
             ))}
           </ul>

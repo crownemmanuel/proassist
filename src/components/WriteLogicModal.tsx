@@ -181,3 +181,4 @@ const WriteLogicModal: React.FC<WriteLogicModalProps> = ({
 };
 
 export default WriteLogicModal;
+

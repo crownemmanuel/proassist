@@ -1,15 +1,11 @@
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import PlaylistPane from "../components/PlaylistPane";
 import SlideDisplayArea from "../components/SlideDisplayArea";
 import ImportModal from "../components/ImportModal";
 import { Playlist, PlaylistItem, Slide, Template, LayoutType } from "../types"; // Using types defined earlier
 import "../App.css"; // Ensure global styles are applied
-import { invoke } from "@tauri-apps/api/core"; // Tauri v2 invoke entry
-import Toast from "../components/Toast";
-import ConfirmDialog from "../components/ConfirmDialog";
-import RenameDialog from "../components/RenameDialog";
+import { invoke } from "@tauri-apps/api/core"; // Tauri v2 core invoke
 import { formatSlidesForClipboard } from "../utils/slideUtils"; // Added import
-import { loadPlaylists, savePlaylists } from "../utils/playlistStorage";
 
 // Mock Data (can be moved to a separate file or fetched from backend later)
 const mockPlaylistsData: Playlist[] = [
@@ -138,30 +134,13 @@ const mockTemplatesForMainPage: Template[] = [
 ];
 
 const MainApplicationPage: React.FC = () => {
-  const [playlists, setPlaylists] = useState<Playlist[]>(() =>
-    loadPlaylists(mockPlaylistsData)
-  );
+  const [playlists, setPlaylists] = useState<Playlist[]>(mockPlaylistsData);
   const [selectedPlaylistId, setSelectedPlaylistId] = useState<string | null>(
     mockPlaylistsData.length > 0 ? mockPlaylistsData[0].id : null
   );
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [copyStatusMain, setCopyStatusMain] = useState<string>(""); // Added state for feedback
-  const [toastMessage, setToastMessage] = useState<string>("");
-  const [toastType, setToastType] = useState<"success" | "error" | "info">(
-    "success"
-  );
-  const [confirmState, setConfirmState] = useState<{
-    open: boolean;
-    title: string;
-    message: string;
-    onConfirm: () => void;
-  }>({ open: false, title: "", message: "", onConfirm: () => {} });
-  const [renameState, setRenameState] = useState<{
-    open: boolean;
-    target: { type: "playlist" | "item"; id: string } | null;
-    initial: string;
-  }>({ open: false, target: null, initial: "" });
   // Use the more complete mockTemplatesForMainPage or fetch/get from a shared store
   const [templates] = useState<Template[]>(() => {
     const savedTemplates = localStorage.getItem("proassist-templates");
@@ -175,34 +154,8 @@ const MainApplicationPage: React.FC = () => {
     setSelectedItemId(null);
   };
 
-  // Persist playlists when they change
-  useEffect(() => {
-    savePlaylists(playlists);
-  }, [playlists]);
-
   const handleSelectPlaylistItem = (itemId: string) => {
     setSelectedItemId(itemId);
-  };
-
-  const handleRenamePlaylist = (playlistId: string, newName: string) => {
-    setPlaylists((prev) =>
-      prev.map((p) => (p.id === playlistId ? { ...p, name: newName } : p))
-    );
-  };
-
-  const handleRenameItem = (itemId: string, newTitle: string) => {
-    if (!selectedPlaylistId) return;
-    setPlaylists((prev) =>
-      prev.map((p) => {
-        if (p.id !== selectedPlaylistId) return p;
-        return {
-          ...p,
-          items: p.items.map((it) =>
-            it.id === itemId ? { ...it, title: newTitle } : it
-          ),
-        };
-      })
-    );
   };
 
   const currentPlaylist = playlists.find((p) => p.id === selectedPlaylistId);
@@ -219,26 +172,6 @@ const MainApplicationPage: React.FC = () => {
     };
     setPlaylists((prev) => [...prev, newPlaylist]);
     setSelectedPlaylistId(newPlaylist.id); // Select the new playlist
-  };
-
-  const handleDeletePlaylist = (playlistIdToDelete: string) => {
-    setConfirmState({
-      open: true,
-      title: "Delete Playlist",
-      message:
-        "This will remove the playlist and all its items. This action cannot be undone.",
-      onConfirm: () => {
-        setPlaylists((prev) => prev.filter((p) => p.id !== playlistIdToDelete));
-        if (selectedPlaylistId === playlistIdToDelete) {
-          const remaining = playlists.filter(
-            (p) => p.id !== playlistIdToDelete
-          );
-          setSelectedPlaylistId(remaining.length > 0 ? remaining[0].id : null);
-          setSelectedItemId(null);
-        }
-        setConfirmState((s) => ({ ...s, open: false }));
-      },
-    });
   };
 
   // Function to update a slide (placeholder)
@@ -286,28 +219,12 @@ const MainApplicationPage: React.FC = () => {
       return;
     }
 
-    // Find the template used by this playlistItem using the latest saved settings
-    // Prefer fresh data from localStorage so changes in Settings apply immediately
-    let latestTemplates: Template[] | null = null;
-    try {
-      const raw = localStorage.getItem("proassist-templates");
-      latestTemplates = raw ? (JSON.parse(raw) as Template[]) : null;
-    } catch (_) {
-      latestTemplates = null;
-    }
-    const templatesSource =
-      latestTemplates && latestTemplates.length > 0
-        ? latestTemplates
-        : templates;
-    let template = templatesSource.find(
+    // Find the template used by this playlistItem
+    // This assumes playlistItem.templateName is reliable for lookup.
+    // A more robust way would be storing templateId in PlaylistItem.
+    const template = templates.find(
       (t) => t.name === playlistItem.templateName
     );
-    // Fallback: try to match by color if name mismatch
-    if (!template && (playlistItem as any).templateColor) {
-      template = templatesSource.find(
-        (t) => t.color === (playlistItem as any).templateColor
-      );
-    }
 
     if (!template) {
       console.error(
@@ -367,24 +284,17 @@ const MainApplicationPage: React.FC = () => {
         }${i + 1}.txt`;
 
         console.log(`Writing to file: ${filePath}, Content: "${lineContent}"`);
-        await invoke("write_text_to_file", {
-          filePath: filePath,
-          content: lineContent,
-        });
+        await invoke("write_text_to_file", { filePath, content: lineContent });
         // UNCOMMENT THE INVOKE CALL above once your Tauri backend command 'write_text_to_file' is ready.
         // Ensure your Tauri command creates directories if they don't exist or handles errors appropriately.
       }
-      // Success: no toast per UX request
+      // Optionally, provide user feedback on success
+      alert(
+        `Slide content for "${slide.id}" (up to ${linesToWrite} lines) has been processed for live output.`
+      );
     } catch (error) {
       console.error("Failed to write slide content to file(s):", error);
-      setToastType("error");
-      const details =
-        error instanceof Error
-          ? error.message
-          : typeof error === "string"
-          ? error
-          : JSON.stringify(error);
-      setToastMessage(`Error writing files: ${details}`);
+      alert("Error making slide live. Check console for details.");
     }
     // Note: The visual feedback (setting liveSlideId in SlideDisplayArea) is handled locally in that component.
     // This function focuses on the side effect (writing to files).
@@ -430,9 +340,6 @@ const MainApplicationPage: React.FC = () => {
       alert("Cannot delete slide: No playlist or item selected.");
       return;
     }
-    if (!window.confirm("Delete this slide?")) {
-      return;
-    }
     setPlaylists((prevPlaylists) =>
       prevPlaylists.map((p) => {
         if (p.id === selectedPlaylistId) {
@@ -454,30 +361,6 @@ const MainApplicationPage: React.FC = () => {
         return p;
       })
     );
-  };
-
-  const handleDeletePlaylistItem = (itemIdToDelete: string) => {
-    if (!selectedPlaylistId) return;
-    setConfirmState({
-      open: true,
-      title: "Delete Item",
-      message: "This will remove the selected item from the playlist.",
-      onConfirm: () => {
-        setPlaylists((prev) =>
-          prev.map((p) => {
-            if (p.id !== selectedPlaylistId) return p;
-            return {
-              ...p,
-              items: p.items.filter((it) => it.id !== itemIdToDelete),
-            };
-          })
-        );
-        if (selectedItemId === itemIdToDelete) {
-          setSelectedItemId(null);
-        }
-        setConfirmState((s) => ({ ...s, open: false }));
-      },
-    });
   };
 
   const handleChangeSlideLayout = (
@@ -623,54 +506,19 @@ const MainApplicationPage: React.FC = () => {
           onAddPlaylist={handleAddPlaylist}
           selectedItemId={selectedItemId}
           onSelectPlaylistItem={handleSelectPlaylistItem}
-          onDeletePlaylist={handleDeletePlaylist}
-          onDeletePlaylistItem={handleDeletePlaylistItem}
-          onRenamePlaylist={handleRenamePlaylist}
         />
       </div>
       <div style={rightColumnStyle}>
         <div style={rightColumnHeaderStyle}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <h3 style={{ margin: 0, fontWeight: 500 }}>
-              {currentPlaylist
-                ? `${
-                    currentPlaylistItem
-                      ? currentPlaylistItem.title
-                      : currentPlaylist.name
-                  }`
-                : "Select a Playlist"}
-            </h3>
-            {currentPlaylist && !currentPlaylistItem && (
-              <button
-                className="icon-button"
-                title="Rename playlist"
-                onClick={() =>
-                  setRenameState({
-                    open: true,
-                    target: { type: "playlist", id: currentPlaylist.id },
-                    initial: currentPlaylist.name,
-                  })
-                }
-              >
-                ✏️
-              </button>
-            )}
-            {currentPlaylistItem && (
-              <button
-                className="icon-button"
-                title="Rename item"
-                onClick={() =>
-                  setRenameState({
-                    open: true,
-                    target: { type: "item", id: currentPlaylistItem.id },
-                    initial: currentPlaylistItem.title,
-                  })
-                }
-              >
-                ✏️
-              </button>
-            )}
-          </div>
+          <h3 style={{ margin: 0, fontWeight: 500 }}>
+            {currentPlaylist
+              ? `${
+                  currentPlaylistItem
+                    ? currentPlaylistItem.title
+                    : currentPlaylist.name
+                }`
+              : "Select a Playlist"}
+          </h3>
           <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
             <span style={{ fontWeight: 500, fontSize: "0.9em" }}>Import</span>
             <button
@@ -741,45 +589,6 @@ const MainApplicationPage: React.FC = () => {
         onClose={() => setIsImportModalOpen(false)}
         templates={templates}
         onImport={handleImportFromModal}
-      />
-      <ConfirmDialog
-        isOpen={confirmState.open}
-        title={confirmState.title}
-        message={confirmState.message}
-        onConfirm={confirmState.onConfirm}
-        onCancel={() => setConfirmState((s) => ({ ...s, open: false }))}
-      />
-      <RenameDialog
-        isOpen={renameState.open}
-        title={
-          renameState.target?.type === "item"
-            ? "Rename Item"
-            : "Rename Playlist"
-        }
-        label={
-          renameState.target?.type === "item" ? "Item title" : "Playlist name"
-        }
-        initialValue={renameState.initial}
-        onCancel={() =>
-          setRenameState({ open: false, target: null, initial: "" })
-        }
-        onSave={(newName) => {
-          if (!renameState.target) return;
-          if (renameState.target.type === "item") {
-            handleRenameItem(renameState.target.id, newName);
-          } else if (renameState.target.type === "playlist") {
-            handleRenamePlaylist(renameState.target.id, newName);
-          }
-          setRenameState({ open: false, target: null, initial: "" });
-        }}
-      />
-      <Toast
-        message={toastMessage}
-        type={toastType}
-        visible={toastMessage.length > 0}
-        autoHide={toastType !== "error"}
-        durationMs={2500}
-        onClose={() => setToastMessage("")}
       />
     </div>
   );

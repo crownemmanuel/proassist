@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   Template,
   TemplateType,
@@ -6,11 +6,11 @@ import {
   AIProviderType,
   OpenAIModelType,
   GeminiModelType,
-  OPENAI_MODELS,
-  GEMINI_MODELS,
 } from "../types";
 import "../App.css";
 import WriteLogicModal from "./WriteLogicModal";
+import { fetchGeminiModels, fetchOpenAIModels } from "../services/aiService";
+import { getAppSettings } from "../utils/aiConfig";
 
 interface SettingsDetailProps {
   template: Template;
@@ -43,6 +43,11 @@ const SettingsDetail: React.FC<SettingsDetailProps> = ({
     OpenAIModelType | GeminiModelType | string | undefined
   >(template.aiModel);
   const [isWriteModalOpen, setIsWriteModalOpen] = useState(false);
+  const [models, setModels] = useState<string[]>([]);
+
+  const appSettings = useMemo(() => getAppSettings(), []);
+  const hasOpenAI = !!appSettings.openAIConfig?.apiKey;
+  const hasGemini = !!appSettings.geminiConfig?.apiKey;
 
   const allLayoutTypes: LayoutType[] = [
     "one-line",
@@ -68,6 +73,25 @@ const SettingsDetail: React.FC<SettingsDetailProps> = ({
       setAiModel(template.aiModel);
     }
   }, [template]);
+
+  // Load available models when provider changes
+  useEffect(() => {
+    (async () => {
+      try {
+        if (aiProvider === "openai" && hasOpenAI) {
+          const ids = await fetchOpenAIModels(appSettings.openAIConfig!.apiKey);
+          setModels(ids);
+        } else if (aiProvider === "gemini" && hasGemini) {
+          const ids = await fetchGeminiModels(appSettings.geminiConfig!.apiKey);
+          setModels(ids);
+        } else {
+          setModels([]);
+        }
+      } catch {
+        setModels([]);
+      }
+    })();
+  }, [aiProvider, hasOpenAI, hasGemini, appSettings]);
 
   const handleSave = () => {
     if (!name.trim() || !outputPath.trim() || !outputFileNamePrefix.trim()) {
@@ -247,39 +271,11 @@ const SettingsDetail: React.FC<SettingsDetailProps> = ({
               <option value="" disabled>
                 Select a provider
               </option>
-              <option
-                value="openai"
-                disabled={
-                  !window.localStorage.getItem("proassist_app_settings") ||
-                  !JSON.parse(
-                    window.localStorage.getItem("proassist_app_settings") ||
-                      "{}"
-                  )?.openAIConfig?.apiKey
-                }
-              >
-                OpenAI{" "}
-                {!JSON.parse(
-                  window.localStorage.getItem("proassist_app_settings") || "{}"
-                )?.openAIConfig?.apiKey
-                  ? "(add API key first)"
-                  : ""}
+              <option value="openai" disabled={!hasOpenAI}>
+                OpenAI {!hasOpenAI ? "(add API key first)" : ""}
               </option>
-              <option
-                value="gemini"
-                disabled={
-                  !window.localStorage.getItem("proassist_app_settings") ||
-                  !JSON.parse(
-                    window.localStorage.getItem("proassist_app_settings") ||
-                      "{}"
-                  )?.geminiConfig?.apiKey
-                }
-              >
-                Google Gemini{" "}
-                {!JSON.parse(
-                  window.localStorage.getItem("proassist_app_settings") || "{}"
-                )?.geminiConfig?.apiKey
-                  ? "(add API key first)"
-                  : ""}
+              <option value="gemini" disabled={!hasGemini}>
+                Google Gemini {!hasGemini ? "(add API key first)" : ""}
               </option>
             </select>
           </div>
@@ -295,23 +291,18 @@ const SettingsDetail: React.FC<SettingsDetailProps> = ({
                     e.target.value as OpenAIModelType | GeminiModelType
                   )
                 }
-                disabled={!aiProvider}
+                disabled={!aiProvider || models.length === 0}
               >
                 <option value="" disabled>
-                  Select a model
+                  {models.length === 0
+                    ? "No models available"
+                    : "Select a model"}
                 </option>
-                {aiProvider === "openai" &&
-                  OPENAI_MODELS.map((model) => (
-                    <option key={model} value={model}>
-                      {model}
-                    </option>
-                  ))}
-                {aiProvider === "gemini" &&
-                  GEMINI_MODELS.map((model) => (
-                    <option key={model} value={model}>
-                      {model}
-                    </option>
-                  ))}
+                {models.map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
               </select>
             </div>
           )}

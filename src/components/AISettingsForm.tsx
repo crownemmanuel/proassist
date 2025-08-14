@@ -55,6 +55,22 @@ const AISettingsForm: React.FC<AISettingsFormProps> = () => {
           onChange={(e) => setOpenAIKeyInput(e.target.value)}
           placeholder="Enter your OpenAI API Key"
         />
+        <div
+          style={{
+            marginTop: "6px",
+            fontSize: "0.9em",
+            color: "var(--app-text-color-secondary)",
+          }}
+        >
+          Get your OpenAI key:{" "}
+          <a
+            href="https://platform.openai.com/api-keys"
+            target="_blank"
+            rel="noreferrer noopener"
+          >
+            https://platform.openai.com/api-keys
+          </a>
+        </div>
       </div>
       <div className="form-group">
         <label htmlFor="gemini-key">Gemini API Key:</label>
@@ -65,6 +81,22 @@ const AISettingsForm: React.FC<AISettingsFormProps> = () => {
           onChange={(e) => setGeminiKeyInput(e.target.value)}
           placeholder="Enter your Gemini API Key"
         />
+        <div
+          style={{
+            marginTop: "6px",
+            fontSize: "0.9em",
+            color: "var(--app-text-color-secondary)",
+          }}
+        >
+          Get your Gemini key:{" "}
+          <a
+            href="https://aistudio.google.com/apikey"
+            target="_blank"
+            rel="noreferrer noopener"
+          >
+            https://aistudio.google.com/apikey
+          </a>
+        </div>
       </div>
       <div className="form-group">
         <label htmlFor="default-ai-provider">Default AI Provider:</label>

@@ -3,7 +3,6 @@ import SettingsList from "../components/SettingsList";
 import SettingsDetail from "../components/SettingsDetail";
 import { Template, TemplateType } from "../types";
 import AISettingsForm from "../components/AISettingsForm";
-import Toast from "../components/Toast";
 import "../App.css"; // Ensure global styles are applied
 import {
   exportAllTemplatesToFile,
@@ -343,12 +342,31 @@ const SettingsPage: React.FC = () => {
         )}
         {currentView === "aiConfiguration" && <AISettingsForm />}
       </div>
-      <Toast
-        message={toastMessage}
-        type={toastType}
-        visible={toastMessage.length > 0}
-        onClose={() => setToastMessage("")}
-      />
+      {toastMessage && (
+        <div
+          role="status"
+          style={{
+            position: "fixed",
+            right: 16,
+            bottom: 16,
+            padding: "8px 12px",
+            borderRadius: 6,
+            background:
+              toastType === "error"
+                ? "#fee2e2"
+                : toastType === "info"
+                ? "#e0f2fe"
+                : "#dcfce7",
+            color: "#111827",
+            boxShadow: "0 2px 10px rgba(0,0,0,0.15)",
+            zIndex: 1000,
+          }}
+          onClick={() => setToastMessage("")}
+          title="Click to dismiss"
+        >
+          {toastMessage}
+        </div>
+      )}
     </div>
   );
 };

@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "build:mac": "tauri build --bundles dmg",
+    "build:windows": "tauri build --bundles msi"
   },
   "dependencies": {
     "@langchain/core": "^0.3.56",
