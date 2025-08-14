@@ -13,45 +13,87 @@ import { formatSlidesForClipboard } from "../utils/slideUtils"; // Added import
 const mockPlaylistsData: Playlist[] = [
   {
     id: "playlist1",
-    name: "Sunday Service - AM",
+    name: "Sunday Service",
     items: [
       {
-        id: "item1-1",
-        title: "Worship Set 1",
-        templateName: "Simple Line Break",
-        templateColor: "#4CAF50",
-        slides: [
-          {
-            id: "slide1-1-1",
-            text: "Welcome to the service!",
-            layout: "one-line",
-            order: 1,
-          },
-          {
-            id: "slide1-1-2",
-            text: "Amazing Grace\nHow sweet the sound",
-            layout: "two-line",
-            order: 2,
-          },
-        ],
-      },
-      {
-        id: "item1-2",
+        id: "item1-sermon",
         title: "Sermon Slides",
         templateName: "Sermon Regex",
         templateColor: "#2196F3",
         slides: [
           {
-            id: "slide1-2-1",
+            id: "slide1-sermon-1",
             text: "Sermon Title: The Power of Prayer",
             layout: "one-line",
             order: 1,
           },
           {
-            id: "slide1-2-2",
-            text: "Point 1: Why we pray\nPoint 2: How to pray",
+            id: "slide1-sermon-2",
+            text: "Why We Pray\nGod invites us and we need His grace",
             layout: "two-line",
             order: 2,
+          },
+          {
+            id: "slide1-sermon-3",
+            text: "How To Pray\nAsk, seek, knock with humility and faith",
+            layout: "two-line",
+            order: 3,
+          },
+          {
+            id: "slide1-sermon-4",
+            text: "When To Pray — In every situation",
+            layout: "one-line",
+            order: 4,
+          },
+          {
+            id: "slide1-sermon-5",
+            text: "Prayer Changes Us — Aligns our hearts with God's will",
+            layout: "one-line",
+            order: 5,
+          },
+          {
+            id: "slide1-sermon-6",
+            text: "Call to Action — Pray for someone this week",
+            layout: "one-line",
+            order: 6,
+          },
+        ],
+      },
+      {
+        id: "item1-announcements",
+        title: "Announcements",
+        templateName: "Simple Line Break",
+        templateColor: "#FFC107",
+        slides: [
+          {
+            id: "slide1-ann-1",
+            text: "Welcome Guests — Stop by the connect desk",
+            layout: "one-line",
+            order: 1,
+          },
+          {
+            id: "slide1-ann-2",
+            text: "Midweek Prayer — Wednesday 7pm in the chapel",
+            layout: "one-line",
+            order: 2,
+          },
+          {
+            id: "slide1-ann-3",
+            text: "Youth Retreat — Register by Friday",
+            layout: "one-line",
+            order: 3,
+          },
+          {
+            id: "slide1-ann-4",
+            text: "Serve Teams — Join greeting or production",
+            layout: "one-line",
+            order: 4,
+          },
+          {
+            id: "slide1-ann-5",
+            text: "Giving — Thank you for your generosity",
+            layout: "one-line",
+            order: 5,
           },
         ],
       },
@@ -62,22 +104,46 @@ const mockPlaylistsData: Playlist[] = [
     name: "Midweek Study",
     items: [
       {
-        id: "item2-1",
-        title: "Romans Study",
+        id: "item2-study",
+        title: "Study Slides — Book of Romans",
         templateName: "JS Scripture Splitter",
-        templateColor: "#FFC107",
+        templateColor: "#4CAF50",
         slides: [
           {
-            id: "slide2-1-1",
-            text: "Romans 1:1",
+            id: "slide2-study-1",
+            text: "Romans 1:16 — The Gospel is the power of God",
             layout: "one-line",
             order: 1,
           },
           {
-            id: "slide2-1-2",
-            text: "Paul, a servant of Christ Jesus",
-            layout: "one-line",
+            id: "slide2-study-2",
+            text: "Righteousness of God\nRevealed from faith for faith",
+            layout: "two-line",
             order: 2,
+          },
+          {
+            id: "slide2-study-3",
+            text: "All Have Sinned — Romans 3:23",
+            layout: "one-line",
+            order: 3,
+          },
+          {
+            id: "slide2-study-4",
+            text: "Justified by Faith — Romans 5",
+            layout: "one-line",
+            order: 4,
+          },
+          {
+            id: "slide2-study-5",
+            text: "Life in the Spirit\nNo condemnation in Christ (Romans 8)",
+            layout: "two-line",
+            order: 5,
+          },
+          {
+            id: "slide2-study-6",
+            text: "Living Sacrifices — Romans 12",
+            layout: "one-line",
+            order: 6,
           },
         ],
       },
