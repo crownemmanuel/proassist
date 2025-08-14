@@ -20,6 +20,7 @@ const PlaylistPane: React.FC<PlaylistPaneProps> = ({
   onSelectPlaylistItem,
 }) => {
   const [newPlaylistName, setNewPlaylistName] = useState("");
+  const canAdd = newPlaylistName.trim().length > 0;
 
   const handleAddPlaylistClick = () => {
     if (newPlaylistName.trim() !== "") {
@@ -48,7 +49,13 @@ const PlaylistPane: React.FC<PlaylistPaneProps> = ({
           placeholder="New playlist name"
           style={{ flexGrow: 1 }}
         />
-        <button onClick={handleAddPlaylistClick} title="Add Playlist">
+        <button
+          onClick={handleAddPlaylistClick}
+          title="Add Playlist"
+          className={canAdd ? "primary" : undefined}
+          style={canAdd ? { color: "#ffffff" } : undefined}
+          disabled={!canAdd}
+        >
           ➕
         </button>
       </div>
@@ -124,26 +131,35 @@ const PlaylistPane: React.FC<PlaylistPaneProps> = ({
                   item.id === selectedItemId ? "playlist-item-selected" : ""
                 }`}
               >
-                <span
+                <div
                   style={{
-                    fontWeight: item.id === selectedItemId ? "bold" : "normal",
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "flex-start",
                   }}
                 >
-                  {item.title}
-                </span>
-                <span
-                  className="template-badge"
-                  style={{
-                    backgroundColor:
-                      item.templateColor || "var(--app-button-bg-color)",
-                    color:
-                      item.templateColor && isColorDark(item.templateColor)
-                        ? "white"
-                        : "black",
-                  }}
-                >
-                  {item.templateName}
-                </span>
+                  <span
+                    style={{
+                      fontWeight:
+                        item.id === selectedItemId ? "bold" : "normal",
+                    }}
+                  >
+                    {item.title}
+                  </span>
+                  <span
+                    className="template-badge playlist-badge"
+                    style={{
+                      backgroundColor:
+                        item.templateColor || "var(--app-button-bg-color)",
+                      color:
+                        item.templateColor && isColorDark(item.templateColor)
+                          ? "white"
+                          : "black",
+                    }}
+                  >
+                    {item.templateName}
+                  </span>
+                </div>
               </li>
             ))}
           </ul>

@@ -590,12 +590,16 @@ body.theme-light .list-item.playlist-item-selected:hover {
 }
 
 .template-badge {
-  padding: 3px 8px;
-  border-radius: 12px; /* More rounded */
-  font-size: 0.75em;
+  padding: 2px 6px;
+  border-radius: 10px; /* More rounded */
+  font-size: 0.68em;
   font-weight: 500;
   color: white; /* Default text, assuming dark badge bg */
-  text-shadow: 1px 1px 1px rgba(0, 0, 0, 0.2);
+}
+/* variant for playlist items: smaller, no shadow, placed under title */
+.playlist-badge {
+  margin-top: 4px;
+  text-shadow: none;
 }
 body.theme-light .template-badge {
   color: black; /* Default for light theme, assuming light badge bg */
