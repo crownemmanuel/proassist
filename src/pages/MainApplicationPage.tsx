@@ -2,16 +2,10 @@ import React, { useState } from "react";
 import PlaylistPane from "../components/PlaylistPane";
 import SlideDisplayArea from "../components/SlideDisplayArea";
 import ImportModal from "../components/ImportModal";
-import {
-  Playlist,
-  PlaylistItem,
-  Slide,
-  Template,
-  TemplateType,
-  LayoutType,
-} from "../types"; // Using types defined earlier
+import { Playlist, PlaylistItem, Slide, Template, LayoutType } from "../types"; // Using types defined earlier
 import "../App.css"; // Ensure global styles are applied
-import { invoke } from "@tauri-apps/api/tauri"; // Corrected import path for Tauri v2
+import { invoke } from "@tauri-apps/api/tauri"; // invoke API compatible with your installed @tauri-apps/api version
+import Toast from "../components/Toast";
 import { formatSlidesForClipboard } from "../utils/slideUtils"; // Added import
 
 // Mock Data (can be moved to a separate file or fetched from backend later)
@@ -148,8 +142,12 @@ const MainApplicationPage: React.FC = () => {
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [copyStatusMain, setCopyStatusMain] = useState<string>(""); // Added state for feedback
+  const [toastMessage, setToastMessage] = useState<string>("");
+  const [toastType, setToastType] = useState<"success" | "error" | "info">(
+    "success"
+  );
   // Use the more complete mockTemplatesForMainPage or fetch/get from a shared store
-  const [templates, setTemplates] = useState<Template[]>(() => {
+  const [templates] = useState<Template[]>(() => {
     const savedTemplates = localStorage.getItem("proassist-templates");
     return savedTemplates
       ? JSON.parse(savedTemplates)
@@ -179,6 +177,15 @@ const MainApplicationPage: React.FC = () => {
     };
     setPlaylists((prev) => [...prev, newPlaylist]);
     setSelectedPlaylistId(newPlaylist.id); // Select the new playlist
+  };
+
+  const handleDeletePlaylist = (playlistIdToDelete: string) => {
+    setPlaylists((prev) => prev.filter((p) => p.id !== playlistIdToDelete));
+    if (selectedPlaylistId === playlistIdToDelete) {
+      const remaining = playlists.filter((p) => p.id !== playlistIdToDelete);
+      setSelectedPlaylistId(remaining.length > 0 ? remaining[0].id : null);
+      setSelectedItemId(null);
+    }
   };
 
   // Function to update a slide (placeholder)
@@ -295,13 +302,16 @@ const MainApplicationPage: React.FC = () => {
         // UNCOMMENT THE INVOKE CALL above once your Tauri backend command 'write_text_to_file' is ready.
         // Ensure your Tauri command creates directories if they don't exist or handles errors appropriately.
       }
-      // Optionally, provide user feedback on success
-      alert(
-        `Slide content for "${slide.id}" (up to ${linesToWrite} lines) has been processed for live output.`
+      setToastType("success");
+      setToastMessage(
+        `Live: wrote ${linesToWrite} line${linesToWrite === 1 ? "" : "s"} to ${
+          template.outputPath
+        }`
       );
     } catch (error) {
       console.error("Failed to write slide content to file(s):", error);
-      alert("Error making slide live. Check console for details.");
+      setToastType("error");
+      setToastMessage("Error: failed to write slide content to files.");
     }
     // Note: The visual feedback (setting liveSlideId in SlideDisplayArea) is handled locally in that component.
     // This function focuses on the side effect (writing to files).
@@ -345,6 +355,9 @@ const MainApplicationPage: React.FC = () => {
   const handleDeleteSlide = (slideIdToDelete: string) => {
     if (!selectedPlaylistId || !selectedItemId) {
       alert("Cannot delete slide: No playlist or item selected.");
+      return;
+    }
+    if (!window.confirm("Delete this slide?")) {
       return;
     }
     setPlaylists((prevPlaylists) =>
@@ -513,6 +526,7 @@ const MainApplicationPage: React.FC = () => {
           onAddPlaylist={handleAddPlaylist}
           selectedItemId={selectedItemId}
           onSelectPlaylistItem={handleSelectPlaylistItem}
+          onDeletePlaylist={handleDeletePlaylist}
         />
       </div>
       <div style={rightColumnStyle}>
@@ -596,6 +610,12 @@ const MainApplicationPage: React.FC = () => {
         onClose={() => setIsImportModalOpen(false)}
         templates={templates}
         onImport={handleImportFromModal}
+      />
+      <Toast
+        message={toastMessage}
+        type={toastType}
+        visible={toastMessage.length > 0}
+        onClose={() => setToastMessage("")}
       />
     </div>
   );

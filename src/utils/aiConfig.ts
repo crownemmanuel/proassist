@@ -1,4 +1,4 @@
-import { AppSettings, AIProvider, AIServiceConfig } from "../types";
+import { AppSettings, AIProvider } from "../types";
 
 const APP_SETTINGS_KEY = "proassist_app_settings";
 

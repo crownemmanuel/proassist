@@ -167,9 +167,7 @@ const SlideDisplayArea: React.FC<SlideDisplayAreaProps> = ({
     setContextMenu({ isOpen: false, x: 0, y: 0, slideId: null });
   };
 
-  const currentEditingSlide = playlistItem?.slides.find(
-    (s) => s.id === editingSlideId
-  );
+  // Note: currentEditingSlide is not used currently; keeping the lookup inline where needed avoids unused var.
   const currentContextMenuSlide = playlistItem?.slides.find(
     (s) => s.id === contextMenu.slideId
   );
@@ -303,12 +301,10 @@ const SlideDisplayArea: React.FC<SlideDisplayAreaProps> = ({
                   </button>
                   <button
                     onClick={() => onDeleteSlide(slide.id)}
-                    style={{
-                      backgroundColor: "var(--app-button-hover-bg-color)",
-                    }}
-                    title="Delete Slide"
+                    className="icon-button"
+                    title="Delete slide"
                   >
-                    🗑️ Delete
+                    🗑️
                   </button>
                 </div>
               </div>

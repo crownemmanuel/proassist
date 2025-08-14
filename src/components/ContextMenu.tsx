@@ -63,7 +63,7 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
 
   // Handle click outside to close menu
   React.useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
+    const handleClickOutside = () => {
       // Basic check, ideally refine to check if click is outside the menu itself
       onClose();
     };

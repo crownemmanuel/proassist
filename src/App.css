@@ -229,6 +229,28 @@ button.primary:hover {
   background-color: color-mix(in srgb, var(--app-primary-color) 90%, black);
   border-color: color-mix(in srgb, var(--app-primary-color) 90%, black);
 }
+/* Neutral icon button */
+.icon-button {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--app-text-color-secondary);
+  padding: 6px;
+  border-radius: 6px;
+  line-height: 1;
+}
+.icon-button:hover {
+  background-color: var(--app-button-hover-bg-color);
+  color: var(--app-button-text-color);
+}
+button.danger {
+  background-color: #b3261e;
+  border-color: #b3261e;
+  color: white;
+}
+button.danger:hover {
+  background-color: color-mix(in srgb, #b3261e 90%, black);
+  border-color: color-mix(in srgb, #b3261e 90%, black);
+}
 body.theme-light button.primary:hover {
   background-color: color-mix(in srgb, var(--app-primary-color) 90%, white);
   border-color: color-mix(in srgb, var(--app-primary-color) 90%, white);
@@ -645,6 +667,29 @@ body.theme-light .template-badge {
   border-top: 1px solid var(--app-border-color); /* Separator line */
 }
 
+/* Toast notification */
+.toast {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  background: var(--app-header-bg);
+  color: var(--app-text-color);
+  border: 1px solid var(--app-border-color);
+  padding: 10px 14px;
+  border-radius: 6px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+  z-index: 2000;
+}
+.toast-success {
+  border-left: 4px solid #2e7d32;
+}
+.toast-error {
+  border-left: 4px solid #c62828;
+}
+.toast-info {
+  border-left: 4px solid var(--app-primary-color);
+}
+
 /* Ensures that the settings detail form sections have consistent spacing */
 .settings-form-section {
   margin-bottom: 25px;
@@ -698,4 +743,36 @@ body.theme-light .template-badge {
   border-radius: 16px;
   cursor: pointer;
   font-size: 0.85em;
+}
+
+/* Settings Page: left navigation pane styles */
+.settings-nav-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.settings-nav-pane button {
+  width: 100%;
+  text-align: left;
+  padding: 10px 12px;
+  border: none;
+  background-color: transparent;
+  color: var(--app-text-color);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background-color 0.15s ease-in-out, color 0.15s ease-in-out;
+  transform: none; /* Override global button hover lift */
+}
+.settings-nav-pane button:hover {
+  background-color: var(--app-list-item-hover-bg);
+  transform: none; /* Keep flat */
+}
+.settings-nav-pane button.active {
+  background-color: var(--app-list-item-selected-bg);
+  color: var(--app-list-item-selected-text);
+  font-weight: 600;
+  box-shadow: inset 3px 0 0 var(--app-primary-color);
+}
+body.theme-light .settings-nav-pane button.active {
+  background-color: var(--app-list-item-selected-bg);
 }

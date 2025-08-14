@@ -1,6 +1,7 @@
 import React, { useState } from "react";
-import { Template, TemplateType, LayoutType } from "../types";
+import { Template, TemplateType } from "../types";
 import "../App.css"; // Ensure global styles are applied
+import AddTemplateModal from "./AddTemplateModal";
 
 interface SettingsListProps {
   templates: Template[];
@@ -21,26 +22,7 @@ const SettingsList: React.FC<SettingsListProps> = ({
   onAddTemplate,
   onDeleteTemplate,
 }) => {
-  const [isAdding, setIsAdding] = useState(false);
-  const [newName, setNewName] = useState("");
-  const [newType, setNewType] = useState<TemplateType>("text");
-  const [newColor, setNewColor] = useState("#ffffff");
-
-  const handleAddNewTemplate = () => {
-    if (!newName.trim()) {
-      alert("Template name is required.");
-      return;
-    }
-    onAddTemplate({
-      name: newName,
-      type: newType,
-      color: newColor,
-    });
-    setIsAdding(false);
-    setNewName("");
-    setNewType("text");
-    setNewColor("#ffffff");
-  };
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
 
   return (
     <div>
@@ -49,65 +31,18 @@ const SettingsList: React.FC<SettingsListProps> = ({
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
-          marginBottom: "15px",
+          marginBottom: "10px",
+          gap: "8px",
         }}
       >
-        <h4>Templates</h4>
-        {!isAdding && (
-          <button
-            onClick={() => setIsAdding(true)}
-            style={{ width: "100%", marginTop: "10px" }}
-          >
-            ＋ Add New Template
-          </button>
-        )}
-      </div>
-
-      {isAdding && (
-        <div
-          className="add-template-form"
-          style={{
-            marginTop: "15px",
-            borderTop: "1px solid var(--app-border-color)",
-            paddingTop: "15px",
-          }}
+        <h4 style={{ margin: 0 }}>Templates</h4>
+        <button
+          onClick={() => setIsAddModalOpen(true)}
+          style={{ padding: "6px 10px" }}
         >
-          <h4>New Template Details</h4>
-          <input
-            type="text"
-            placeholder="Template Name*"
-            value={newName}
-            onChange={(e) => setNewName(e.target.value)}
-          />
-          <select
-            value={newType}
-            onChange={(e) => setNewType(e.target.value as TemplateType)}
-          >
-            <option value="text">Text</option>
-          </select>
-          <label
-            htmlFor="template-color-new"
-            style={{ display: "block", marginTop: "5px" }}
-          >
-            Color:
-          </label>
-          <input
-            type="color"
-            id="template-color-new"
-            value={newColor}
-            onChange={(e) => setNewColor(e.target.value)}
-            style={{ marginLeft: "5px" }}
-          />
-          <button
-            onClick={handleAddNewTemplate}
-            className="primary"
-            style={{ marginRight: "5px" }}
-          >
-            Save Template
-          </button>
-          <button onClick={() => setIsAdding(false)}>Cancel</button>
-        </div>
-      )}
+          ＋ Add New Template
+        </button>
+      </div>
 
       <ul
         style={{
@@ -118,7 +53,7 @@ const SettingsList: React.FC<SettingsListProps> = ({
           borderRadius: "4px",
         }}
       >
-        {templates.length === 0 && !isAdding && (
+        {templates.length === 0 && (
           <li
             className="list-item"
             style={{ color: "var(--app-text-color-secondary)" }}
@@ -129,15 +64,10 @@ const SettingsList: React.FC<SettingsListProps> = ({
         {templates.map((template) => (
           <li
             key={template.id}
-            className={`template-item ${
+            className={`list-item ${
               template.id === selectedTemplateId ? "selected" : ""
             }`}
             onClick={() => onSelectTemplate(template.id)}
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-            }}
           >
             <div>
               <span
@@ -189,6 +119,15 @@ const SettingsList: React.FC<SettingsListProps> = ({
           </li>
         ))}
       </ul>
+
+      <AddTemplateModal
+        isOpen={isAddModalOpen}
+        onClose={() => setIsAddModalOpen(false)}
+        onAddTemplate={(data) => {
+          onAddTemplate(data);
+          setIsAddModalOpen(false);
+        }}
+      />
     </div>
   );
 };

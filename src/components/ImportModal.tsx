@@ -1,11 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
-import {
-  Template,
-  LayoutType,
-  PlaylistItem,
-  Slide,
-  AppSettings,
-} from "../types";
+import { Template, Slide, AppSettings } from "../types";
 import { getAppSettings } from "../utils/aiConfig";
 import { generateSlidesFromText } from "../services/aiService";
 import { formatSlidesForClipboard } from "../utils/slideUtils";

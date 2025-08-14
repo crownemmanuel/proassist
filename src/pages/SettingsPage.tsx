@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from "react";
 import SettingsList from "../components/SettingsList";
 import SettingsDetail from "../components/SettingsDetail";
-import { Template, AppSettings, TemplateType, LayoutType } from "../types";
+import { Template, TemplateType } from "../types";
 import AISettingsForm from "../components/AISettingsForm";
+import Toast from "../components/Toast";
 import "../App.css"; // Ensure global styles are applied
 
 // Mock initial settings data
@@ -57,9 +58,9 @@ const mockTemplatesData: Template[] = [
   },
 ];
 
-const initialAppSettings: AppSettings = {
-  theme: "light",
-};
+// const initialAppSettings: AppSettings = {
+//   theme: "light",
+// };
 
 type SettingsView = "templates" | "aiConfiguration";
 
@@ -92,10 +93,17 @@ const SettingsPage: React.FC = () => {
     setSelectedTemplateId(templateId);
   };
 
+  const [toastMessage, setToastMessage] = useState<string>("");
+  const [toastType, setToastType] = useState<"success" | "error" | "info">(
+    "success"
+  );
+
   const handleSaveTemplate = (updatedTemplate: Template) => {
     setTemplates((prev) =>
       prev.map((t) => (t.id === updatedTemplate.id ? updatedTemplate : t))
     );
+    setToastType("success");
+    setToastMessage("Template saved");
     console.log("Saved template:", updatedTemplate);
   };
 
@@ -118,10 +126,13 @@ const SettingsPage: React.FC = () => {
     };
     setTemplates((prev) => [...prev, newTemplate]);
     setSelectedTemplateId(newTemplate.id);
+    setToastType("success");
+    setToastMessage(`Template \"${newTemplate.name}\" added`);
     console.log("Added template:", newTemplate);
   };
 
   const handleDeleteTemplate = (idToDelete: string) => {
+    const deleted = templates.find((t) => t.id === idToDelete);
     setTemplates((prev) => prev.filter((t) => t.id !== idToDelete));
     if (selectedTemplateId === idToDelete) {
       setSelectedTemplateId(
@@ -130,6 +141,8 @@ const SettingsPage: React.FC = () => {
           : null
       );
     }
+    setToastType("info");
+    setToastMessage(`Template ${deleted ? `\"${deleted.name}\" ` : ""}deleted`);
     console.log("Deleted template:", idToDelete);
   };
 
@@ -163,14 +176,12 @@ const SettingsPage: React.FC = () => {
           <button
             onClick={() => setCurrentView("templates")}
             className={currentView === "templates" ? "active" : ""}
-            style={{ marginRight: "10px", marginBottom: "10px" }}
           >
             Manage Templates
           </button>
           <button
             onClick={() => setCurrentView("aiConfiguration")}
             className={currentView === "aiConfiguration" ? "active" : ""}
-            style={{ marginBottom: "10px" }}
           >
             AI Configuration
           </button>
@@ -206,6 +217,12 @@ const SettingsPage: React.FC = () => {
         )}
         {currentView === "aiConfiguration" && <AISettingsForm />}
       </div>
+      <Toast
+        message={toastMessage}
+        type={toastType}
+        visible={toastMessage.length > 0}
+        onClose={() => setToastMessage("")}
+      />
     </div>
   );
 };

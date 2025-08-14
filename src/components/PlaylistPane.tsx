@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Playlist, PlaylistItem } from "../types";
+import { Playlist } from "../types";
 import "../App.css"; // Ensure global styles are applied
 
 interface PlaylistPaneProps {
@@ -9,6 +9,7 @@ interface PlaylistPaneProps {
   onAddPlaylist: (name: string) => void;
   selectedItemId: string | null;
   onSelectPlaylistItem: (itemId: string) => void;
+  onDeletePlaylist?: (playlistId: string) => void;
 }
 
 const PlaylistPane: React.FC<PlaylistPaneProps> = ({
@@ -18,6 +19,7 @@ const PlaylistPane: React.FC<PlaylistPaneProps> = ({
   onAddPlaylist,
   selectedItemId,
   onSelectPlaylistItem,
+  onDeletePlaylist,
 }) => {
   const [newPlaylistName, setNewPlaylistName] = useState("");
 
@@ -76,19 +78,46 @@ const PlaylistPane: React.FC<PlaylistPaneProps> = ({
             className={`list-item ${
               playlist.id === selectedPlaylistId ? "playlist-selected" : ""
             }`}
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+            }}
           >
-            {playlist.name}
-            <span
-              style={{
-                fontSize: "0.8em",
-                color:
-                  playlist.id === selectedPlaylistId
-                    ? "var(--app-playlist-selected-text)"
-                    : "var(--app-text-color-secondary)",
-              }}
-            >
-              ({playlist.items.length} items)
-            </span>
+            <div>
+              {playlist.name}
+              <span
+                style={{
+                  fontSize: "0.8em",
+                  color:
+                    playlist.id === selectedPlaylistId
+                      ? "var(--app-playlist-selected-text)"
+                      : "var(--app-text-color-secondary)",
+                  marginLeft: "6px",
+                }}
+              >
+                ({playlist.items.length} items)
+              </span>
+            </div>
+            {onDeletePlaylist && (
+              <button
+                title="Delete playlist"
+                className="icon-button"
+                style={{ padding: "4px", fontSize: "1em" }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (
+                    window.confirm(
+                      `Delete playlist "${playlist.name}" and all its items?`
+                    )
+                  ) {
+                    onDeletePlaylist(playlist.id);
+                  }
+                }}
+              >
+                🗑️
+              </button>
+            )}
           </li>
         ))}
       </ul>
