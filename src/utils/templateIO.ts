@@ -142,6 +142,7 @@ function fillTemplateDefaults(t: Template): Template {
     name: t.name || "Imported Template",
     color: t.color || "#4CAF50",
     type: t.type || "text",
+    processingType: t.processingType || "simple",
     logic: t.logic || "",
     availableLayouts:
       Array.isArray(t.availableLayouts) && t.availableLayouts.length > 0
@@ -149,8 +150,11 @@ function fillTemplateDefaults(t: Template): Template {
         : ["one-line"],
     aiPrompt: t.aiPrompt || "",
     processWithAI: !!t.processWithAI,
-    aiProvider: t.processWithAI ? t.aiProvider : undefined,
-    aiModel: t.processWithAI ? t.aiModel : undefined,
+    // Preserve provider/model if either legacy flag is true or processingType is ai
+    aiProvider:
+      t.processWithAI || t.processingType === "ai" ? t.aiProvider : undefined,
+    aiModel:
+      t.processWithAI || t.processingType === "ai" ? t.aiModel : undefined,
     outputPath: t.outputPath || "/tmp/proassist/output/imported/",
     outputFileNamePrefix: t.outputFileNamePrefix || "imported_slide_",
   };

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
-import { PlaylistItem, Slide, LayoutType } from "../types";
+import { PlaylistItem, Slide, LayoutType, Template } from "../types";
+import { FaTrash, FaEdit, FaPlay, FaPlus } from "react-icons/fa";
 import "../App.css"; // Ensure global styles are applied
 import ContextMenu from "./ContextMenu"; // Import the new component
 
@@ -7,6 +8,7 @@ const MAX_LINES_FOR_EDIT = 6;
 
 interface SlideDisplayAreaProps {
   playlistItem: PlaylistItem | undefined;
+  template: Template | undefined;
   onUpdateSlide: (slideId: string, newText: string) => void;
   onMakeSlideLive: (slide: Slide) => void;
   onAddSlide: (layout: LayoutType) => void;
@@ -23,12 +25,15 @@ interface ContextMenuState {
 
 const SlideDisplayArea: React.FC<SlideDisplayAreaProps> = ({
   playlistItem,
+  template,
   onUpdateSlide,
   onMakeSlideLive,
   onAddSlide,
   onDeleteSlide,
   onChangeSlideLayout, // New prop
 }) => {
+  // Mark unused prop as intentionally unused to satisfy TypeScript
+  void template;
   const [editingSlideId, setEditingSlideId] = useState<string | null>(null);
   // editText is now used as a temporary holder if needed, or can be removed if editingLines is sufficient
   // For simplicity, we'll manage lines directly.
@@ -181,23 +186,19 @@ const SlideDisplayArea: React.FC<SlideDisplayAreaProps> = ({
     "six-line",
   ];
 
+  // removed unused variable 'availableLayouts'
+
   const contextMenuItems = currentContextMenuSlide
     ? [
         { label: "Edit", onClick: () => handleEdit(currentContextMenuSlide) },
         {
           label: "Delete",
-          onClick: () => onDeleteSlide(currentContextMenuSlide.id),
+          onClick: () => {
+            if (currentContextMenuSlide) {
+              onDeleteSlide(currentContextMenuSlide.id);
+            }
+          },
         },
-        { isSeparator: true },
-        { label: "Change Layout To", disabled: true }, // Submenu header (not interactive)
-        ...allLayoutOptions.map((layout) => ({
-          label: `  ${getLayoutText(layout)}${
-            currentContextMenuSlide.layout === layout ? " ✓" : ""
-          }`,
-          onClick: () =>
-            onChangeSlideLayout(currentContextMenuSlide.id, layout),
-          disabled: currentContextMenuSlide.layout === layout,
-        })),
       ]
     : [];
 
@@ -239,10 +240,23 @@ const SlideDisplayArea: React.FC<SlideDisplayAreaProps> = ({
             className={`slide-item-card ${
               liveSlideId === slide.id ? "live" : ""
             }`}
-            onContextMenu={(e) => handleRightClick(e, slide.id)} // Added context menu handler
+            onContextMenu={(e) => handleRightClick(e, slide.id)}
           >
-            <div className="slide-layout-badge">
-              {getLayoutText(slide.layout)}
+            <div className="slide-layout-picker-container">
+              <select
+                className="slide-layout-picker"
+                value={slide.layout}
+                onChange={(e) =>
+                  onChangeSlideLayout(slide.id, e.target.value as LayoutType)
+                }
+                onClick={(e) => e.stopPropagation()} // Prevent card click-through
+              >
+                {allLayoutOptions.map((layout) => (
+                  <option key={layout} value={layout}>
+                    {getLayoutText(layout)}
+                  </option>
+                ))}
+              </select>
             </div>
             {editingSlideId === slide.id ? (
               <div style={{ width: "100%", paddingTop: "20px" }}>
@@ -291,20 +305,29 @@ const SlideDisplayArea: React.FC<SlideDisplayAreaProps> = ({
                 <div
                   style={{ display: "flex", gap: "10px", marginTop: "auto" }}
                 >
-                  <button onClick={() => handleEdit(slide)}>Edit</button>
+                  <button
+                    className="secondary"
+                    onClick={() => handleEdit(slide)}
+                  >
+                    <FaEdit />
+                    Edit
+                  </button>
                   <button
                     onClick={() => handleMakeLive(slide)}
-                    className={liveSlideId === slide.id ? "live-active" : ""}
+                    className={
+                      liveSlideId === slide.id ? "live-active" : "primary"
+                    }
                     disabled={liveSlideId === slide.id}
                   >
-                    {liveSlideId === slide.id ? "● Live" : "Go Live"}
+                    <FaPlay />
+                    {liveSlideId === slide.id ? "Live" : "Go Live"}
                   </button>
                   <button
                     onClick={() => onDeleteSlide(slide.id)}
                     className="icon-button"
                     title="Delete slide"
                   >
-                    🗑️
+                    <FaTrash />
                   </button>
                 </div>
               </div>
@@ -333,11 +356,11 @@ const SlideDisplayArea: React.FC<SlideDisplayAreaProps> = ({
               <button
                 key={layout}
                 onClick={() => onAddSlide(layout)}
-                // className="primary" // Use default button style or a specific one for these
+                className="secondary btn-sm"
                 title={`Add ${getLayoutText(layout)} Slide`}
-                style={{ fontSize: "0.85em", padding: "0.5em 0.8em" }}
               >
-                ➕ {getLayoutText(layout)}
+                <FaPlus />
+                {getLayoutText(layout)}
               </button>
             ))}
           </div>

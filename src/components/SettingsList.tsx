@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { Template, TemplateType } from "../types";
+import { FaPlus, FaTimes } from "react-icons/fa";
 import "../App.css"; // Ensure global styles are applied
 import AddTemplateModal from "./AddTemplateModal";
 
@@ -38,9 +39,10 @@ const SettingsList: React.FC<SettingsListProps> = ({
         <h4 style={{ margin: 0 }}>Templates</h4>
         <button
           onClick={() => setIsAddModalOpen(true)}
-          style={{ padding: "6px 10px" }}
+          className="secondary btn-sm"
         >
-          ＋ Add New Template
+          <FaPlus />
+          Add Template
         </button>
       </div>
 
@@ -107,14 +109,14 @@ const SettingsList: React.FC<SettingsListProps> = ({
                 }
               }}
               title="Delete template"
+              className="icon-button"
               style={{
-                padding: "3px 8px",
-                fontSize: "0.8em",
-                background: "transparent",
-                color: "var(--app-text-color-secondary)",
+                padding: "var(--spacing-1)",
+                minWidth: "24px",
+                minHeight: "24px",
               }}
             >
-              X
+              <FaTimes />
             </button>
           </li>
         ))}

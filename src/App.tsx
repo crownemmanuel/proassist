@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { BrowserRouter as Router, Routes, Route, Link } from "react-router-dom";
+import { FaHome, FaCog, FaQuestionCircle, FaSun, FaMoon } from "react-icons/fa";
 import "./App.css";
 // import { invoke } from "@tauri-apps/api/tauri"; // We will use this later
 // import { checkUpdate, installUpdate } from '@tauri-apps/api/updater'; // Removed as it was causing a lint error and not used yet
@@ -61,23 +62,23 @@ function App() {
       <div className="container">
         <nav className="app-nav">
           <Link to="/" className="nav-action-button">
-            <span className="icon">🏠</span>
-            <span className="text">Main</span>
+            <FaHome />
+            <span>Main</span>
           </Link>
           <Link to="/settings" className="nav-action-button">
-            <span className="icon">⚙️</span>
-            <span className="text">Settings</span>
+            <FaCog />
+            <span>Settings</span>
           </Link>
           <Link to="/help" className="nav-action-button">
-            <span className="icon">❓</span>
-            <span className="text">Help</span>
+            <FaQuestionCircle />
+            <span>Help</span>
           </Link>
           <button
             onClick={toggleTheme}
             title={`Switch to ${theme === "light" ? "Dark" : "Light"} Mode`}
             className="theme-toggle-button"
           >
-            {theme === "light" ? "🌙" : "☀️"}
+            {theme === "light" ? <FaMoon /> : <FaSun />}
           </button>
         </nav>
         <Routes>

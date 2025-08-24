@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { Playlist } from "../types";
+import { FaPlus, FaList, FaFolder } from "react-icons/fa";
 import "../App.css"; // Ensure global styles are applied
 
 interface PlaylistPaneProps {
@@ -33,7 +34,10 @@ const PlaylistPane: React.FC<PlaylistPaneProps> = ({
 
   return (
     <div>
-      <div className="playlist-section-header">Playlists</div>
+      <div className="playlist-section-header">
+        <FaList style={{ display: "inline", marginRight: "8px" }} />
+        Playlists
+      </div>
       <div
         style={{
           display: "flex",
@@ -52,11 +56,10 @@ const PlaylistPane: React.FC<PlaylistPaneProps> = ({
         <button
           onClick={handleAddPlaylistClick}
           title="Add Playlist"
-          className={canAdd ? "primary" : undefined}
-          style={canAdd ? { color: "#ffffff" } : undefined}
+          className={canAdd ? "primary btn-sm" : "btn-sm"}
           disabled={!canAdd}
         >
-          ➕
+          <FaPlus />
         </button>
       </div>
       <ul
@@ -84,25 +87,31 @@ const PlaylistPane: React.FC<PlaylistPaneProps> = ({
               playlist.id === selectedPlaylistId ? "playlist-selected" : ""
             }`}
           >
-            {playlist.name}
-            <span
-              style={{
-                fontSize: "0.8em",
-                color:
-                  playlist.id === selectedPlaylistId
-                    ? "var(--app-playlist-selected-text)"
-                    : "var(--app-text-color-secondary)",
-              }}
-            >
-              ({playlist.items.length} items)
-            </span>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <FaFolder />
+              <span style={{ flex: 1 }}>{playlist.name}</span>
+              <span
+                style={{
+                  fontSize: "0.8em",
+                  color:
+                    playlist.id === selectedPlaylistId
+                      ? "var(--app-playlist-selected-text)"
+                      : "var(--app-text-color-secondary)",
+                }}
+              >
+                {playlist.items.length}
+              </span>
+            </div>
           </li>
         ))}
       </ul>
 
       {selectedPlaylist && (
         <div style={{ marginTop: "20px" }}>
-          <div className="playlist-section-header">{selectedPlaylist.name}</div>
+          <div className="playlist-section-header">
+            <FaFolder style={{ display: "inline", marginRight: "8px" }} />
+            {selectedPlaylist.name}
+          </div>
           {selectedPlaylist.items.length === 0 && (
             <p
               style={{

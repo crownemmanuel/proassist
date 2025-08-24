@@ -1,81 +1,30 @@
 import React, { useState, useEffect, useRef } from "react";
-import SettingsList from "../components/SettingsList";
 import SettingsDetail from "../components/SettingsDetail";
-import { Template, TemplateType } from "../types";
+import { Template } from "../types";
 import AISettingsForm from "../components/AISettingsForm";
+import { FaList, FaRobot } from "react-icons/fa";
 import "../App.css"; // Ensure global styles are applied
 import {
   exportAllTemplatesToFile,
-  exportSingleTemplateToFile,
   parseTemplatesFromJsonFile,
   generateTemplateId,
 } from "../utils/templateIO";
-
-// Mock initial settings data
-const mockTemplatesData: Template[] = [
-  {
-    id: "tpl1",
-    name: "Simple Line Break",
-    color: "#4CAF50",
-    type: "text",
-    logic: "Line Break",
-    availableLayouts: ["one-line", "two-line"],
-    outputPath: "/tmp/proassist/output/simple/",
-    outputFileNamePrefix: "simple_slide_",
-    processWithAI: false,
-  },
-  {
-    id: "tpl2",
-    name: "Sermon Regex",
-    color: "#2196F3",
-    type: "text",
-    logic: "/^VERSE\\s*(\\d+[:\\d,-]*)\\s*([\\s\\S]*?)(?=\\n\\n|$)/gm",
-    availableLayouts: ["one-line", "two-line", "three-line"],
-    outputPath: "/tmp/proassist/output/sermon/",
-    outputFileNamePrefix: "sermon_note_",
-    processWithAI: false,
-  },
-  {
-    id: "tpl3",
-    name: "JS Scripture Splitter",
-    color: "#FFC107",
-    type: "text",
-    logic: '// Example JS: item.text.split("\\\\n---\\\\n");',
-    availableLayouts: ["one-line", "two-line"],
-    outputPath: "/tmp/proassist/output/scripture/",
-    outputFileNamePrefix: "scripture_passage_",
-    processWithAI: false,
-  },
-  {
-    id: "tpl4",
-    name: "AI Verse Grouping",
-    color: "#E91E63",
-    type: "text",
-    logic:
-      "Group verses into thematic slides. Assign a two-line layout for headings and one-line for body.",
-    availableLayouts: ["one-line", "two-line", "three-line", "four-line"],
-    aiPrompt: "Create slides for the following text...",
-    processWithAI: true,
-    aiProvider: "openai",
-    aiModel: "gpt-4o-mini",
-    outputPath: "/tmp/proassist/output/ai_verses/",
-    outputFileNamePrefix: "ai_verse_slide_",
-  },
-];
-
-// const initialAppSettings: AppSettings = {
-//   theme: "light",
-// };
+import TemplateListView from "../components/TemplateListView";
+import ConfirmDialog from "../components/ConfirmDialog";
 
 type SettingsView = "templates" | "aiConfiguration";
 
 const SettingsPage: React.FC = () => {
   const [templates, setTemplates] = useState<Template[]>(() => {
     const savedTemplates = localStorage.getItem("proassist-templates");
-    return savedTemplates ? JSON.parse(savedTemplates) : mockTemplatesData;
+    return savedTemplates ? JSON.parse(savedTemplates) : [];
   });
-  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(
-    templates.length > 0 ? templates[0].id : null
+  const [selectedTemplateIds, setSelectedTemplateIds] = useState<string[]>([]);
+  const [editingTemplateId, setEditingTemplateId] = useState<string | null>(
+    null
+  );
+  const [deletingTemplateId, setDeletingTemplateId] = useState<string | null>(
+    null
   );
   const [currentView, setCurrentView] = useState<SettingsView>("templates");
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -84,19 +33,12 @@ const SettingsPage: React.FC = () => {
     localStorage.setItem("proassist-templates", JSON.stringify(templates));
   }, [templates]);
 
-  useEffect(() => {
-    // If templates are loaded and no template is selected, or selected is invalid, select the first one.
-    if (
-      templates.length > 0 &&
-      (!selectedTemplateId ||
-        !templates.find((t) => t.id === selectedTemplateId))
-    ) {
-      setSelectedTemplateId(templates[0].id);
-    }
-  }, [templates, selectedTemplateId]);
-
   const handleSelectTemplate = (templateId: string) => {
-    setSelectedTemplateId(templateId);
+    setSelectedTemplateIds((prev) =>
+      prev.includes(templateId)
+        ? prev.filter((id) => id !== templateId)
+        : [...prev, templateId]
+    );
   };
 
   const [toastMessage, setToastMessage] = useState<string>("");
@@ -110,46 +52,51 @@ const SettingsPage: React.FC = () => {
     );
     setToastType("success");
     setToastMessage("Template saved");
+    setEditingTemplateId(null); // Return to list view
     console.log("Saved template:", updatedTemplate);
   };
 
-  const handleAddTemplate = (newTemplateData: {
-    name: string;
-    type: TemplateType;
-    color: string;
-  }) => {
+  const handleAddTemplate = () => {
     const newTemplate: Template = {
       id: `tpl-${Date.now()}`,
-      ...newTemplateData,
-      logic: newTemplateData.type === "text" ? "Default text logic/notes" : "",
+      name: "New Template",
+      type: "text",
+      color: `#${Math.floor(Math.random() * 16777215).toString(16)}`,
+      icon: "file-text",
+      processingType: "simple",
+      logic: "line-break",
       availableLayouts: ["one-line", "two-line"],
       aiPrompt: "",
-      processWithAI: false,
       aiProvider: undefined,
       aiModel: undefined,
       outputPath: "/tmp/proassist/output/new_template/",
       outputFileNamePrefix: "new_template_slide_",
     };
     setTemplates((prev) => [...prev, newTemplate]);
-    setSelectedTemplateId(newTemplate.id);
+    setEditingTemplateId(newTemplate.id);
     setToastType("success");
-    setToastMessage(`Template \"${newTemplate.name}\" added`);
+    setToastMessage(`Template "${newTemplate.name}" added`);
     console.log("Added template:", newTemplate);
   };
 
   const handleDeleteTemplate = (idToDelete: string) => {
-    const deleted = templates.find((t) => t.id === idToDelete);
-    setTemplates((prev) => prev.filter((t) => t.id !== idToDelete));
-    if (selectedTemplateId === idToDelete) {
-      setSelectedTemplateId(
-        templates.length > 1
-          ? templates.find((t) => t.id !== idToDelete)?.id || null
-          : null
-      );
+    setDeletingTemplateId(idToDelete);
+  };
+
+  const confirmDeleteTemplate = () => {
+    if (!deletingTemplateId) return;
+    const deleted = templates.find((t) => t.id === deletingTemplateId);
+    setTemplates((prev) => prev.filter((t) => t.id !== deletingTemplateId));
+    if (editingTemplateId === deletingTemplateId) {
+      setEditingTemplateId(null);
     }
+    setSelectedTemplateIds((prev) =>
+      prev.filter((id) => id !== deletingTemplateId)
+    );
     setToastType("info");
     setToastMessage(`Template ${deleted ? `\"${deleted.name}\" ` : ""}deleted`);
-    console.log("Deleted template:", idToDelete);
+    console.log("Deleted template:", deletingTemplateId);
+    setDeletingTemplateId(null);
   };
 
   const handleClickImport = () => {
@@ -209,7 +156,7 @@ const SettingsPage: React.FC = () => {
     }
   };
 
-  const selectedTemplate = templates.find((t) => t.id === selectedTemplateId);
+  const selectedTemplate = templates.find((t) => t.id === editingTemplateId);
 
   // Style objects using CSS variables (similar to MainApplicationPage)
   const pageLayoutStyle: React.CSSProperties = {
@@ -219,59 +166,65 @@ const SettingsPage: React.FC = () => {
   };
 
   const leftColumnStyle: React.CSSProperties = {
-    width: "300px",
+    width: "260px",
     borderRight: "1px solid var(--app-border-color)",
     overflowY: "auto",
-    padding: "20px",
-    backgroundColor: "var(--app-header-bg)", // Slightly different bg for clarity
+    padding: 0,
+    backgroundColor: "#1e1e1e",
+    display: "flex",
+    flexDirection: "column",
   };
 
   const rightColumnStyle: React.CSSProperties = {
     flexGrow: 1,
-    padding: "20px",
+    padding: "var(--spacing-5)",
     overflowY: "auto",
+    backgroundColor: "var(--app-bg-color)",
   };
 
   return (
     <div style={pageLayoutStyle}>
       <div style={leftColumnStyle}>
-        <div className="settings-nav-pane">
+        <div className="settings-rail-header">Settings</div>
+        <div
+          className="settings-nav-pane"
+          style={{ padding: "var(--spacing-2)" }}
+        >
           <button
             onClick={() => setCurrentView("templates")}
             className={currentView === "templates" ? "active" : ""}
           >
+            <FaList />
             Manage Templates
           </button>
           <button
             onClick={() => setCurrentView("aiConfiguration")}
             className={currentView === "aiConfiguration" ? "active" : ""}
           >
+            <FaRobot />
             AI Configuration
           </button>
         </div>
-        {currentView === "templates" && (
-          <SettingsList
-            templates={templates}
-            selectedTemplateId={selectedTemplateId}
-            onSelectTemplate={handleSelectTemplate}
-            onAddTemplate={handleAddTemplate}
-            onDeleteTemplate={handleDeleteTemplate}
-          />
-        )}
       </div>
       <div style={rightColumnStyle}>
         {currentView === "templates" && (
           <>
-            <div
-              style={{
-                display: "flex",
-                gap: "8px",
-                justifyContent: "flex-end",
-                marginBottom: "10px",
-              }}
-            >
-              <button
-                onClick={async () => {
+            {selectedTemplate ? (
+              <SettingsDetail
+                key={selectedTemplate.id}
+                template={selectedTemplate}
+                onSave={handleSaveTemplate}
+                onBack={() => setEditingTemplateId(null)}
+              />
+            ) : (
+              <TemplateListView
+                templates={templates}
+                selectedTemplates={selectedTemplateIds}
+                onSelectTemplate={handleSelectTemplate}
+                onEditTemplate={setEditingTemplateId}
+                onAddTemplate={handleAddTemplate}
+                onImport={handleClickImport}
+                onExportAll={async () => {
                   const result = await exportAllTemplatesToFile(templates);
                   if (result.status === "saved") {
                     setToastType("success");
@@ -281,90 +234,53 @@ const SettingsPage: React.FC = () => {
                     setToastMessage("Templates downloaded");
                   }
                 }}
-                className="secondary"
-                title="Export all templates to JSON"
-              >
-                Export All
-              </button>
-              <button
-                onClick={async () => {
-                  if (!selectedTemplate) return;
-                  const result = await exportSingleTemplateToFile(
-                    selectedTemplate
+                onExportSelected={async () => {
+                  if (selectedTemplateIds.length === 0) return;
+                  const toExport = templates.filter((t) =>
+                    selectedTemplateIds.includes(t.id)
                   );
+                  const result = await exportAllTemplatesToFile(toExport);
                   if (result.status === "saved") {
                     setToastType("success");
-                    setToastMessage("Template exported");
+                    setToastMessage("Templates exported");
                   } else if (result.status === "fallback") {
                     setToastType("success");
-                    setToastMessage("Template downloaded");
+                    setToastMessage("Templates downloaded");
                   }
                 }}
-                className="secondary"
-                disabled={!selectedTemplate}
-                title="Export the selected template to JSON"
-              >
-                Export Selected
-              </button>
-              <button
-                onClick={handleClickImport}
-                className="primary"
-                title="Import templates from JSON"
-              >
-                Import...
-              </button>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".json,application/json"
-                onChange={handleImportFileChange}
-                style={{ display: "none" }}
+                hasSelection={selectedTemplateIds.length > 0}
+                onDeleteTemplate={handleDeleteTemplate}
               />
-            </div>
-            {selectedTemplate ? (
-              <SettingsDetail
-                key={selectedTemplate.id}
-                template={selectedTemplate}
-                onSave={handleSaveTemplate}
-              />
-            ) : (
-              <p
-                style={{
-                  color: "var(--app-text-color-secondary)",
-                  textAlign: "center",
-                  paddingTop: "30px",
-                }}
-              >
-                Select a template to view or edit its details, or add a new one.
-              </p>
             )}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".json,application/json"
+              onChange={handleImportFileChange}
+              style={{ display: "none" }}
+            />
           </>
         )}
         {currentView === "aiConfiguration" && <AISettingsForm />}
       </div>
+      {deletingTemplateId && (
+        <ConfirmDialog
+          isOpen={!!deletingTemplateId}
+          title="Delete Template"
+          message={`Are you sure you want to delete the template "${
+            templates.find((t) => t.id === deletingTemplateId)?.name
+          }"?`}
+          onConfirm={confirmDeleteTemplate}
+          onCancel={() => setDeletingTemplateId(null)}
+        />
+      )}
       {toastMessage && (
         <div
-          role="status"
-          style={{
-            position: "fixed",
-            right: 16,
-            bottom: 16,
-            padding: "8px 12px",
-            borderRadius: 6,
-            background:
-              toastType === "error"
-                ? "#fee2e2"
-                : toastType === "info"
-                ? "#e0f2fe"
-                : "#dcfce7",
-            color: "#111827",
-            boxShadow: "0 2px 10px rgba(0,0,0,0.15)",
-            zIndex: 1000,
-          }}
+          className={`toast toast-${toastType}`}
           onClick={() => setToastMessage("")}
           title="Click to dismiss"
         >
-          {toastMessage}
+          <span className="toast-text">{toastMessage}</span>
         </div>
       )}
     </div>

@@ -23,7 +23,11 @@ export const generateSlidesFromText = async (
   template: Template,
   appSettings: AppSettings
 ): Promise<Pick<Slide, "text" | "layout">[]> => {
-  if (!template.processWithAI || !template.aiPrompt) {
+  const shouldUseAI =
+    template.processingType === "ai" || !!template.processWithAI;
+  const userPrompt = (template.aiPrompt || template.logic || "").trim();
+
+  if (!shouldUseAI || userPrompt.length === 0) {
     console.warn(
       "Template is not configured for AI processing or AI prompt is missing."
     );
@@ -136,19 +140,22 @@ export const generateSlidesFromText = async (
     })
     .pipe(outputParser);
 
-  const systemPrompt = `You are an assistant that helps create presentation slides. Your goal is to take the user\'s raw text and their specific instructions, then break it down into well-structured slides.
-For each slide, you must choose an appropriate layout from the provided list: ${template.availableLayouts.join(
+  const systemPrompt = `You are an assistant that helps create presentation slides. Your goal is to take the user's raw text and their specific instructions, then break it down into well-structured slides.
+\nFor each slide, choose an appropriate layout from the provided list: ${template.availableLayouts.join(
     ", "
   )}.
-Crucially, the \'text\' provided for a slide MUST match the capacity of the chosen layout.
-- If you choose a \'one-line\' layout, the \'text\' field must contain a single line of text.
-- If you choose a \'two-line\' layout, the \'text\' field must contain two lines of text, separated by a newline character (\\n).
-- If you choose a \'three-line\' layout, the \'text\' field must contain three lines of text, each separated by a newline character (\\n).
-- And so on for other multi-line layouts.
-The user\'s custom instructions/prompt are: "${
-    template.aiPrompt
-  }". Adhere to these instructions carefully, ensuring your text generation respects the chosen layout\'s line count.
-Ensure the output is a JSON object containing a \'slides\' array, where each item has \'text\' (formatted as described) and a \'layout\'.`;
+\nCrucially, the text provided for a slide MUST match the capacity of the chosen layout:
+- If you choose a 'one-line' layout, the text must contain exactly one line.
+- If you choose a 'two-line' layout, the text must contain exactly two lines separated by a single \\n.
+- If you choose a 'three-line' layout, the text must contain exactly three lines, each separated by \\n.
+- Continue this pattern for four-line through six-line.
+\nAdditional user instructions you must follow: "${userPrompt}".
+\nSTRICT OUTPUT REQUIREMENTS:
+- Return ONLY valid JSON (no prose, no backticks, no extra keys).
+- The JSON must be an object with a single key 'slides' whose value is an array.
+- Each array item must be an object: { "text": string, "layout": one of [${template.availableLayouts.join(
+    ", "
+  )} ] }.`;
 
   const messages = [
     new SystemMessage(systemPrompt),
@@ -165,21 +172,112 @@ Ensure the output is a JSON object containing a \'slides\' array, where each ite
     const result = await runnable.invoke(messages);
     console.log("AI Result:", result);
 
-    if (result && result.slides && Array.isArray(result.slides)) {
-      // Validate each slide object structure if necessary
-      return result.slides.map((s) => ({ text: s.text, layout: s.layout }));
+    if (
+      result &&
+      (result as any).slides &&
+      Array.isArray((result as any).slides)
+    ) {
+      return (result as any).slides.map((s: any) => ({
+        text: s.text,
+        layout: s.layout,
+      }));
     }
-    console.error("AI response did not match expected structure:", result);
+
+    // Fallback: try a plain text JSON response without function calling
+    console.warn(
+      "AI response did not match expected structure; attempting JSON fallback.",
+      result
+    );
+    const plainRes: any = await (llm as any).invoke([
+      new SystemMessage(
+        systemPrompt +
+          "\nReturn ONLY valid JSON for { slides: { text: string, layout: string }[] } with no extra commentary."
+      ),
+      new HumanMessage(inputText),
+    ]);
+
+    const rawContent = (plainRes as any)?.content;
+    const rawText =
+      typeof rawContent === "string" ? rawContent : rawContent?.[0]?.text ?? "";
+
+    const parsed = tryParseSlidesJson(rawText);
+    if (parsed) {
+      return parsed;
+    }
+
+    console.error("Fallback JSON parse failed. Raw:", rawText);
     alert("AI response structure was unexpected. Check console for details.");
     return [];
   } catch (error) {
-    console.error("Error processing text with AI:", error);
-    alert(
-      `Error from AI: ${error instanceof Error ? error.message : String(error)}`
-    );
-    return [];
+    // As a last resort, attempt the same plain JSON prompt if function-call failed
+    try {
+      console.error(
+        "Function-call path failed, trying plain JSON prompt:",
+        error
+      );
+      const plainRes: any = await (llm as any).invoke([
+        new SystemMessage(
+          systemPrompt +
+            "\nReturn ONLY valid JSON for { slides: { text: string, layout: string }[] } with no extra commentary."
+        ),
+        new HumanMessage(inputText),
+      ]);
+      const rawContent = (plainRes as any)?.content;
+      const rawText =
+        typeof rawContent === "string"
+          ? rawContent
+          : rawContent?.[0]?.text ?? "";
+      const parsed = tryParseSlidesJson(rawText);
+      if (parsed) return parsed;
+      console.error("Final fallback JSON parse failed. Raw:", rawText);
+      alert("AI processing failed and fallback parsing did not succeed.");
+      return [];
+    } catch (err2) {
+      console.error("Plain JSON prompt also failed:", err2);
+      alert(
+        `Error from AI: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+      return [];
+    }
   }
 };
+
+function tryParseSlidesJson(
+  raw: string
+): Pick<Slide, "text" | "layout">[] | null {
+  if (!raw) return null;
+  const attempt = (s: string) => {
+    try {
+      const obj = JSON.parse(s);
+      if (obj && Array.isArray(obj.slides)) {
+        return obj.slides
+          .map((x: any) => ({
+            text: String(x.text || "").trim(),
+            layout: x.layout,
+          }))
+          .filter(
+            (x: any) => x.text.length > 0 && typeof x.layout === "string"
+          );
+      }
+    } catch {}
+    return null;
+  };
+
+  // First, try the whole string
+  let parsed = attempt(raw);
+  if (parsed) return parsed;
+
+  // Next, try to extract the first JSON object substring
+  const firstBrace = raw.indexOf("{");
+  const lastBrace = raw.lastIndexOf("}");
+  if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+    parsed = attempt(raw.slice(firstBrace, lastBrace + 1));
+    if (parsed) return parsed;
+  }
+  return null;
+}
 
 /**
  * Generate a JavaScript or regex snippet from a natural-language description.

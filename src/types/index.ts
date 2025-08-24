@@ -51,14 +51,16 @@ export interface Playlist {
 export interface Template {
   id: string;
   name: string;
+  icon?: string;
   color: string;
   type: TemplateType;
-  logic?: string; // Could be a path to a script, regex, or other rules
+  processingType: "simple" | "regex" | "javascript" | "ai";
+  logic: string; // Could be a path to a script, regex, or other rules
   availableLayouts: LayoutType[];
   aiPrompt?: string; // User-defined prompt for AI processing
-  processWithAI?: boolean; // If true, use AI for slide generation
   aiProvider?: AIProviderType; // Specify AI provider for this template
   aiModel?: OpenAIModelType | GeminiModelType | string; // Specify AI model for this template (string for flexibility if new models added)
+  processWithAI?: boolean; // Whether to process text using AI for this template
   outputPath: string;
   outputFileNamePrefix: string;
 }

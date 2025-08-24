@@ -79,7 +79,7 @@ const ImportModal: React.FC<ImportModalProps> = ({
     setProcessedSlidesForImport([]); // Clear previous full results
     let generatedSlides: Pick<Slide, "text" | "layout">[] = [];
     try {
-      if (template.processWithAI && template.aiPrompt) {
+      if (template.processingType === "ai" || template.processWithAI) {
         generatedSlides = await generateSlidesFromText(
           currentInputText,
           template,
@@ -134,70 +134,97 @@ const ImportModal: React.FC<ImportModalProps> = ({
 
   // Optional logic: regex (/pattern/flags) or JavaScript snippet returning
   // an array of strings or { text, layout } items
-  const parseWithTemplateLogic = (
-    text: string,
-    template: Template
-  ): Pick<Slide, "text" | "layout">[] | null => {
-    const logicRaw = (template.logic || "").trim();
-    if (!logicRaw) return null;
+  const parseWithTemplateLogic = (text: string, template: Template) => {
+    const { logic, processingType, availableLayouts } = template;
+    const defaultLayout: LayoutType = availableLayouts.includes("one-line")
+      ? "one-line"
+      : availableLayouts[0] || "one-line";
 
-    const defaultLayout: LayoutType =
-      template.availableLayouts[0] || ("one-line" as LayoutType);
-
-    // Regex form: /pattern/flags
-    if (logicRaw.startsWith("/") && logicRaw.lastIndexOf("/") > 0) {
-      try {
-        const lastSlash = logicRaw.lastIndexOf("/");
-        const pattern = logicRaw.slice(1, lastSlash);
-        const flags = logicRaw.slice(lastSlash + 1);
-        const regex = new RegExp(pattern, flags);
-        const matches = Array.from(text.matchAll(regex));
-        let chunks: string[] = [];
-        if (matches.length > 0) {
-          chunks = matches.map((m) => (m[1] ? m[1] : m[0]).trim());
-        } else {
-          chunks = text.split(regex).map((s) => s.trim());
-        }
-        return chunks
-          .filter((c) => c.length > 0)
-          .map((c) => ({ text: c, layout: defaultLayout }));
-      } catch (err) {
-        console.error("Invalid regex logic:", err);
-        return null;
-      }
+    if (!logic) {
+      // Default to splitting by paragraphs if no logic is provided
+      return text
+        .split(/\n\s*\n/)
+        .map((s) => ({ text: s.trim(), layout: defaultLayout }))
+        .filter((s) => s.text.length > 0);
     }
 
-    // JavaScript: snippet receives (input, layouts) and should return
-    // string[] or { text, layout }[]
     try {
-      const fn = new Function(
-        "input",
-        "layouts",
-        logicRaw.includes("return")
-          ? logicRaw
-          : `return (function(){ ${logicRaw} })()`
-      ) as (
-        input: string,
-        layouts: LayoutType[]
-      ) => string[] | { text: string; layout?: LayoutType }[];
-      const result = fn(text, template.availableLayouts);
-      if (Array.isArray(result)) {
-        return result
-          .map((r) => {
-            if (typeof r === "string") {
-              return { text: r.trim(), layout: defaultLayout };
+      switch (processingType) {
+        case "simple":
+          let chunks: string[] = [];
+          const [strategy, value] = logic.split("-");
+          const numValue = parseInt(value, 10);
+
+          if (strategy === "word-count" && !isNaN(numValue)) {
+            const words = text.split(/\s+/);
+            for (let i = 0; i < words.length; i += numValue) {
+              chunks.push(words.slice(i, i + numValue).join(" "));
             }
-            return {
-              text: (r.text || "").trim(),
-              layout: (r.layout as LayoutType) || defaultLayout,
-            };
-          })
-          .filter((s) => s.text.length > 0);
+          } else if (strategy === "char-count" && !isNaN(numValue)) {
+            for (let i = 0; i < text.length; i += numValue) {
+              chunks.push(text.substring(i, i + numValue));
+            }
+          } else {
+            // line-break
+            chunks = text.split(/\n/);
+          }
+
+          return chunks
+            .map((s) => ({ text: s.trim(), layout: defaultLayout }))
+            .filter((s) => s.text.length > 0);
+
+        case "regex":
+          const regexMatch = logic.match(/^\/(.*)\/([gimsuy]*)$/);
+          if (regexMatch) {
+            const pattern = regexMatch[1];
+            const flags = regexMatch[2];
+            const regex = new RegExp(pattern, flags);
+
+            return text
+              .split(regex)
+              .map((s) => ({ text: s.trim(), layout: defaultLayout }))
+              .filter((s) => s.text.length > 0);
+          }
+          break; // Fallback to default if regex is invalid
+
+        case "javascript":
+          const fn = new Function(
+            "input",
+            "layouts",
+            logic.includes("return")
+              ? logic
+              : `return (function(){ ${logic} })()`
+          ) as (
+            input: string,
+            layouts: LayoutType[]
+          ) => string[] | { text: string; layout?: LayoutType }[];
+
+          const result = fn(text, template.availableLayouts);
+
+          if (Array.isArray(result)) {
+            return result
+              .map((r) => {
+                if (typeof r === "string") {
+                  return { text: r.trim(), layout: defaultLayout };
+                }
+                return {
+                  text: (r.text || "").trim(),
+                  layout: (r.layout as LayoutType) || defaultLayout,
+                };
+              })
+              .filter((s) => s.text.length > 0);
+          }
+          break;
       }
     } catch (err) {
-      console.error("Error running JS logic snippet:", err);
+      console.error(`Error running ${processingType} logic:`, err);
     }
-    return null;
+
+    // Fallback for errors or unhandled cases
+    return text
+      .split(/\n\s*\n/)
+      .map((s) => ({ text: s.trim(), layout: defaultLayout }))
+      .filter((s) => s.text.length > 0);
   };
 
   const handleFileChange = async (
@@ -310,7 +337,8 @@ const ImportModal: React.FC<ImportModalProps> = ({
               </option>
             ))}
           </select>
-          {selectedTemplateDetails?.processWithAI && (
+          {(selectedTemplateDetails?.processingType === "ai" ||
+            selectedTemplateDetails?.processWithAI) && (
             <span
               style={{
                 fontSize: "0.8em",
@@ -398,7 +426,9 @@ const ImportModal: React.FC<ImportModalProps> = ({
             className="primary"
             type="button"
           >
-            {isLoading && selectedTemplateDetails?.processWithAI
+            {isLoading &&
+            (selectedTemplateDetails?.processingType === "ai" ||
+              selectedTemplateDetails?.processWithAI)
               ? "✨ Processing with AI..."
               : isLoading
               ? "Processing..."
@@ -406,13 +436,31 @@ const ImportModal: React.FC<ImportModalProps> = ({
           </button>
         </div>
 
+        {processedSlidesForImport.length > 0 &&
+          (selectedTemplateDetails?.processingType === "ai" ||
+            selectedTemplateDetails?.processWithAI) && (
+            <p
+              style={{
+                color: "var(--app-primary-color)",
+                textAlign: "center",
+                margin: "10px 0",
+              }}
+            >
+              ✨ Processed with AI ✨
+            </p>
+          )}
+
         <h4>
           Preview (Up to {MAX_PREVIEW_SLIDES} Slides)
           {isLoading &&
-            selectedTemplateDetails?.processWithAI &&
+            (selectedTemplateDetails?.processingType === "ai" ||
+              selectedTemplateDetails?.processWithAI) &&
             "(✨ AI Processing...)"}
           {isLoading &&
-            !selectedTemplateDetails?.processWithAI &&
+            !(
+              selectedTemplateDetails?.processingType === "ai" ||
+              selectedTemplateDetails?.processWithAI
+            ) &&
             "(Processing...)"}
         </h4>
         <div className="import-preview-area">

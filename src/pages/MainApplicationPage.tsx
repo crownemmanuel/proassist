@@ -5,213 +5,22 @@ import ImportModal from "../components/ImportModal";
 import RenameModal from "../components/RenameModal";
 import ConfirmDialog from "../components/ConfirmDialog";
 import { Playlist, PlaylistItem, Slide, Template, LayoutType } from "../types"; // Using types defined earlier
+import { FaFileImport, FaEdit, FaTrash, FaCopy } from "react-icons/fa";
 import "../App.css"; // Ensure global styles are applied
 import { invoke } from "@tauri-apps/api/core"; // Tauri v2 core invoke
 import { formatSlidesForClipboard } from "../utils/slideUtils"; // Added import
-
-// Mock Data (can be moved to a separate file or fetched from backend later)
-const mockPlaylistsData: Playlist[] = [
-  {
-    id: "playlist1",
-    name: "Sunday Service",
-    items: [
-      {
-        id: "item1-sermon",
-        title: "Sermon Slides",
-        templateName: "Sermon Regex",
-        templateColor: "#2196F3",
-        slides: [
-          {
-            id: "slide1-sermon-1",
-            text: "Sermon Title: The Power of Prayer",
-            layout: "one-line",
-            order: 1,
-          },
-          {
-            id: "slide1-sermon-2",
-            text: "Why We Pray\nGod invites us and we need His grace",
-            layout: "two-line",
-            order: 2,
-          },
-          {
-            id: "slide1-sermon-3",
-            text: "How To Pray\nAsk, seek, knock with humility and faith",
-            layout: "two-line",
-            order: 3,
-          },
-          {
-            id: "slide1-sermon-4",
-            text: "When To Pray — In every situation",
-            layout: "one-line",
-            order: 4,
-          },
-          {
-            id: "slide1-sermon-5",
-            text: "Prayer Changes Us — Aligns our hearts with God's will",
-            layout: "one-line",
-            order: 5,
-          },
-          {
-            id: "slide1-sermon-6",
-            text: "Call to Action — Pray for someone this week",
-            layout: "one-line",
-            order: 6,
-          },
-        ],
-      },
-      {
-        id: "item1-announcements",
-        title: "Announcements",
-        templateName: "Simple Line Break",
-        templateColor: "#FFC107",
-        slides: [
-          {
-            id: "slide1-ann-1",
-            text: "Welcome Guests — Stop by the connect desk",
-            layout: "one-line",
-            order: 1,
-          },
-          {
-            id: "slide1-ann-2",
-            text: "Midweek Prayer — Wednesday 7pm in the chapel",
-            layout: "one-line",
-            order: 2,
-          },
-          {
-            id: "slide1-ann-3",
-            text: "Youth Retreat — Register by Friday",
-            layout: "one-line",
-            order: 3,
-          },
-          {
-            id: "slide1-ann-4",
-            text: "Serve Teams — Join greeting or production",
-            layout: "one-line",
-            order: 4,
-          },
-          {
-            id: "slide1-ann-5",
-            text: "Giving — Thank you for your generosity",
-            layout: "one-line",
-            order: 5,
-          },
-        ],
-      },
-    ],
-  },
-  {
-    id: "playlist2",
-    name: "Midweek Study",
-    items: [
-      {
-        id: "item2-study",
-        title: "Study Slides — Book of Romans",
-        templateName: "JS Scripture Splitter",
-        templateColor: "#4CAF50",
-        slides: [
-          {
-            id: "slide2-study-1",
-            text: "Romans 1:16 — The Gospel is the power of God",
-            layout: "one-line",
-            order: 1,
-          },
-          {
-            id: "slide2-study-2",
-            text: "Righteousness of God\nRevealed from faith for faith",
-            layout: "two-line",
-            order: 2,
-          },
-          {
-            id: "slide2-study-3",
-            text: "All Have Sinned — Romans 3:23",
-            layout: "one-line",
-            order: 3,
-          },
-          {
-            id: "slide2-study-4",
-            text: "Justified by Faith — Romans 5",
-            layout: "one-line",
-            order: 4,
-          },
-          {
-            id: "slide2-study-5",
-            text: "Life in the Spirit\nNo condemnation in Christ (Romans 8)",
-            layout: "two-line",
-            order: 5,
-          },
-          {
-            id: "slide2-study-6",
-            text: "Living Sacrifices — Romans 12",
-            layout: "one-line",
-            order: 6,
-          },
-        ],
-      },
-    ],
-  },
-];
-
-// Mock Templates Data (ensure this matches structure in SettingsPage or is fetched/shared)
-// For this change, it's CRITICAL that the templates here have outputPath and outputFileNamePrefix
-// Consider a shared source for templates if not already done.
-const mockTemplatesForMainPage: Template[] = [
-  // Duplicating for clarity, ideally from shared state
-  {
-    id: "tpl1",
-    name: "Simple Line Break",
-    color: "#4CAF50",
-    type: "text",
-    availableLayouts: ["one-line", "two-line"],
-    outputPath: "/tmp/proassist/output/simple/",
-    outputFileNamePrefix: "simple_slide_",
-    processWithAI: false,
-  },
-  {
-    id: "tpl2",
-    name: "Sermon Regex",
-    color: "#2196F3",
-    type: "text",
-    availableLayouts: ["one-line", "two-line", "three-line"],
-    outputPath: "/tmp/proassist/output/sermon/",
-    outputFileNamePrefix: "sermon_note_",
-    processWithAI: false,
-  },
-  {
-    id: "tpl3",
-    name: "JS Scripture Splitter",
-    color: "#FFC107",
-    type: "text",
-    availableLayouts: ["one-line", "two-line"],
-    outputPath: "/tmp/proassist/output/scripture/",
-    outputFileNamePrefix: "scripture_passage_",
-    processWithAI: false,
-  },
-  {
-    id: "tpl4",
-    name: "AI Verse Grouping",
-    color: "#E91E63",
-    type: "text",
-    availableLayouts: ["one-line", "two-line", "three-line", "four-line"],
-    aiPrompt: "Create slides for the following text...",
-    outputPath: "/tmp/proassist/output/ai_verses/",
-    outputFileNamePrefix: "ai_verse_slide_",
-    processWithAI: true,
-    aiProvider: "openai",
-    aiModel: "gpt-4o-mini",
-  },
-];
 
 const MainApplicationPage: React.FC = () => {
   const [playlists, setPlaylists] = useState<Playlist[]>(() => {
     try {
       const saved = localStorage.getItem("proassist-playlists");
-      return saved ? (JSON.parse(saved) as Playlist[]) : mockPlaylistsData;
+      return saved ? (JSON.parse(saved) as Playlist[]) : [];
     } catch {
-      return mockPlaylistsData;
+      return [];
     }
   });
   const [selectedPlaylistId, setSelectedPlaylistId] = useState<string | null>(
-    mockPlaylistsData.length > 0 ? mockPlaylistsData[0].id : null
+    null
   );
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
@@ -231,9 +40,7 @@ const MainApplicationPage: React.FC = () => {
   // Use the more complete mockTemplatesForMainPage or fetch/get from a shared store
   const [templates] = useState<Template[]>(() => {
     const savedTemplates = localStorage.getItem("proassist-templates");
-    return savedTemplates
-      ? JSON.parse(savedTemplates)
-      : mockTemplatesForMainPage; // Use the more detailed one
+    return savedTemplates ? JSON.parse(savedTemplates) : [];
   });
 
   // Persist playlists to localStorage whenever they change
@@ -652,8 +459,8 @@ const MainApplicationPage: React.FC = () => {
     width: "300px",
     borderRight: "1px solid var(--app-border-color)",
     overflowY: "auto",
-    padding: "10px",
-    backgroundColor: "var(--app-bg-color)", // Or a slightly different shade like var(--app-header-bg)
+    padding: "var(--spacing-3)",
+    backgroundColor: "#1e1e1e",
   };
 
   const rightColumnStyle: React.CSSProperties = {
@@ -665,13 +472,13 @@ const MainApplicationPage: React.FC = () => {
   };
 
   const rightColumnHeaderStyle: React.CSSProperties = {
-    padding: "10px 20px",
-    borderBottom: "1px solid var(--app-border-color)",
+    padding: "var(--spacing-3) var(--spacing-4)",
+    borderBottom: "1px solid var(--border)",
     display: "flex",
     justifyContent: "space-between",
     alignItems: "center",
-    backgroundColor: "var(--app-header-bg)", // Use header background
-    color: "var(--app-text-color)",
+    backgroundColor: "var(--surface)",
+    color: "var(--text)",
   };
 
   return (
@@ -701,46 +508,45 @@ const MainApplicationPage: React.FC = () => {
             {currentPlaylist && !currentPlaylistItem && (
               <button
                 onClick={handleOpenRenameSelectedPlaylist}
-                className="secondary"
+                className="secondary btn-sm"
                 title="Rename playlist"
-                style={{ padding: "4px 8px", fontSize: "0.8em" }}
               >
-                ✏️ Edit
+                <FaEdit />
+                Edit
               </button>
             )}
             {currentPlaylist && !currentPlaylistItem && (
               <button
                 onClick={handleDeleteSelectedPlaylist}
-                className="secondary"
+                className="secondary btn-sm"
                 title="Delete playlist"
-                style={{ padding: "4px 8px", fontSize: "0.8em" }}
               >
-                🗑️ Delete
+                <FaTrash />
+                Delete
               </button>
             )}
             {currentPlaylist && currentPlaylistItem && (
               <button
                 onClick={handleOpenRenameSelectedItem}
-                className="secondary"
+                className="secondary btn-sm"
                 title="Rename item"
-                style={{ padding: "4px 8px", fontSize: "0.8em" }}
               >
-                ✏️ Edit
+                <FaEdit />
+                Edit
               </button>
             )}
             {currentPlaylist && currentPlaylistItem && (
               <button
                 onClick={handleDeleteSelectedItem}
-                className="secondary"
+                className="secondary btn-sm"
                 title="Delete item"
-                style={{ padding: "4px 8px", fontSize: "0.8em" }}
               >
-                🗑️ Delete
+                <FaTrash />
+                Delete
               </button>
             )}
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-            <span style={{ fontWeight: 500, fontSize: "0.9em" }}>Import</span>
             <button
               onClick={() => {
                 if (currentPlaylist) {
@@ -750,23 +556,20 @@ const MainApplicationPage: React.FC = () => {
                 }
               }}
               disabled={!currentPlaylist}
-              className="import-button-round-purple"
+              className="primary"
               title={`Import to "${currentPlaylist?.name || "Playlist"}"`}
             >
-              ➕
+              <FaFileImport />
+              Import
             </button>
             {currentPlaylistItem && currentPlaylistItem.slides.length > 0 && (
               <button
                 onClick={handleCopyToClipboardMain}
                 title="Copy all slides in this item to clipboard"
-                style={{
-                  marginLeft: "10px",
-                  padding: "5px 10px",
-                  fontSize: "0.8em",
-                }} // Basic styling
-                className="secondary" // Assuming you have a secondary button style
+                className="secondary"
               >
-                📋 Copy Slides
+                <FaCopy />
+                Copy Slides
               </button>
             )}
             {copyStatusMain && (
@@ -774,7 +577,7 @@ const MainApplicationPage: React.FC = () => {
                 style={{
                   marginLeft: "5px",
                   fontSize: "0.8em",
-                  color: "var(--app-primary-color)",
+                  color: "var(--accent)",
                 }}
               >
                 {copyStatusMain}
@@ -782,9 +585,15 @@ const MainApplicationPage: React.FC = () => {
             )}
           </div>
         </div>
-        <div style={{ padding: "20px", flexGrow: 1, overflowY: "auto" }}>
+        <div
+          className="slide-display-scroll-container"
+          style={{ padding: "20px", flexGrow: 1, overflowY: "auto" }}
+        >
           <SlideDisplayArea
             playlistItem={currentPlaylistItem}
+            template={templates.find(
+              (t) => t.name === currentPlaylistItem?.templateName
+            )}
             onUpdateSlide={(slideId, newText) => {
               if (currentPlaylist && currentPlaylistItem) {
                 handleUpdateSlide(

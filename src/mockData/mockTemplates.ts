@@ -6,6 +6,7 @@ const mockTemplates: Template[] = [
     name: "Basic Song Lyrics",
     color: "#3498db",
     type: "text", // Was "Simple"
+    processingType: "simple",
     availableLayouts: ["one-line", "two-line", "four-line"],
     logic: "", // No specific logic for simple text
     aiPrompt: "",
@@ -18,6 +19,7 @@ const mockTemplates: Template[] = [
     name: "Bible Verse",
     color: "#2ecc71",
     type: "text", // Was "Regex"
+    processingType: "regex",
     availableLayouts: ["two-line", "three-line"],
     logic: "([A-Za-z]+ d+:d+)", // Example: Book Chapter:Verse
     aiPrompt: "Format this bible verse appropriately for a presentation slide.",
@@ -30,6 +32,7 @@ const mockTemplates: Template[] = [
     name: "Sermon Points",
     color: "#e67e22",
     type: "text", // Was "JavaScript Formula"
+    processingType: "javascript",
     availableLayouts: [
       "one-line",
       "two-line",
@@ -52,7 +55,9 @@ const mockTemplates: Template[] = [
     name: "AI Generated Lower Third",
     color: "#9b59b6",
     type: "text", // Was "AI Powered"
+    processingType: "ai",
     availableLayouts: ["one-line", "two-line"],
+    logic: "",
     aiPrompt:
       "Create a lower third title and subtitle from the following text. Title on the first line, subtitle on the second.",
     processWithAI: true,
@@ -66,6 +71,7 @@ const mockTemplates: Template[] = [
     name: "Default Fallback",
     color: "#7f8c8d",
     type: "text",
+    processingType: "simple",
     availableLayouts: [
       "one-line",
       "two-line",
@@ -74,6 +80,7 @@ const mockTemplates: Template[] = [
       "five-line",
       "six-line",
     ],
+    logic: "",
     aiPrompt: "Present this text clearly.",
     processWithAI: false,
     outputPath: "/Users/emmanuelcrown/Documents/ProPresenterOutput/Default",
