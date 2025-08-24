@@ -276,6 +276,20 @@ const MainApplicationPage: React.FC = () => {
         // UNCOMMENT THE INVOKE CALL above once your Tauri backend command 'write_text_to_file' is ready.
         // Ensure your Tauri command creates directories if they don't exist or handles errors appropriately.
       }
+
+      // After writing the slide's content, blank out any subsequent files
+      // up to a max of 6, to clear any lingering text from previous slides.
+      if (linesToWrite < 6) {
+        for (let i = linesToWrite + 1; i <= 6; i++) {
+          const filePath = `${template.outputPath.replace(/\/?$/, "/")}${
+            template.outputFileNamePrefix
+          }${i}.txt`;
+          // We don't need to check if the file exists, just write blank
+          // This simplifies the logic and ensures a clean state.
+          await invoke("write_text_to_file", { filePath, content: "" });
+        }
+      }
+
       // Success: no UI notification required
     } catch (error) {
       console.error("Failed to write slide content to file(s):", error);
