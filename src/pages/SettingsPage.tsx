@@ -2,7 +2,8 @@ import React, { useState, useEffect, useRef } from "react";
 import SettingsDetail from "../components/SettingsDetail";
 import { Template } from "../types";
 import AISettingsForm from "../components/AISettingsForm";
-import { FaList, FaRobot } from "react-icons/fa";
+import LiveTestimoniesSettings from "../components/LiveTestimoniesSettings";
+import { FaList, FaRobot, FaMicrophone } from "react-icons/fa";
 import "../App.css"; // Ensure global styles are applied
 import {
   exportAllTemplatesToFile,
@@ -12,7 +13,7 @@ import {
 import TemplateListView from "../components/TemplateListView";
 import ConfirmDialog from "../components/ConfirmDialog";
 
-type SettingsView = "templates" | "aiConfiguration";
+type SettingsView = "templates" | "aiConfiguration" | "liveTestimonies";
 
 const SettingsPage: React.FC = () => {
   const [templates, setTemplates] = useState<Template[]>(() => {
@@ -204,6 +205,13 @@ const SettingsPage: React.FC = () => {
             <FaRobot />
             AI Configuration
           </button>
+          <button
+            onClick={() => setCurrentView("liveTestimonies")}
+            className={currentView === "liveTestimonies" ? "active" : ""}
+          >
+            <FaMicrophone />
+            Live Testimonies
+          </button>
         </div>
       </div>
       <div style={rightColumnStyle}>
@@ -262,6 +270,7 @@ const SettingsPage: React.FC = () => {
           </>
         )}
         {currentView === "aiConfiguration" && <AISettingsForm />}
+        {currentView === "liveTestimonies" && <LiveTestimoniesSettings />}
       </div>
       {deletingTemplateId && (
         <ConfirmDialog

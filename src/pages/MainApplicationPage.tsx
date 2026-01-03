@@ -471,6 +471,7 @@ const MainApplicationPage: React.FC = () => {
 
   const leftColumnStyle: React.CSSProperties = {
     width: "300px",
+    flexShrink: 0, // Add this line
     borderRight: "1px solid var(--app-border-color)",
     overflowY: "auto",
     padding: "var(--spacing-3)",

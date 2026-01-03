@@ -773,6 +773,13 @@ body.theme-light .template-badge {
   }
 }
 
+@keyframes ping {
+  75%, 100% {
+    transform: scale(2);
+    opacity: 0;
+  }
+}
+
 /* Settings form sections */
 .settings-form-section {
   margin-bottom: var(--spacing-5);

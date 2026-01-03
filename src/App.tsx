@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { BrowserRouter as Router, Routes, Route, Link } from "react-router-dom";
-import { FaHome, FaCog, FaQuestionCircle, FaSun, FaMoon } from "react-icons/fa";
+import { FaHome, FaCog, FaQuestionCircle, FaSun, FaMoon, FaMicrophone } from "react-icons/fa";
 import "./App.css";
 // import { invoke } from "@tauri-apps/api/tauri"; // We will use this later
 // import { checkUpdate, installUpdate } from '@tauri-apps/api/updater'; // Removed as it was causing a lint error and not used yet
@@ -10,6 +10,7 @@ import "./App.css";
 import MainApplicationPage from "./pages/MainApplicationPage";
 import SettingsPage from "./pages/SettingsPage";
 import HelpPage from "./pages/HelpPage";
+import MediaView from "./pages/MediaView";
 
 function App() {
   const [theme, setTheme] = useState(
@@ -69,6 +70,10 @@ function App() {
             <FaCog />
             <span>Settings</span>
           </Link>
+          <Link to="/live-testimonies" className="nav-action-button">
+            <FaMicrophone />
+            <span>Live Testimonies</span>
+          </Link>
           <Link to="/help" className="nav-action-button">
             <FaQuestionCircle />
             <span>Help</span>
@@ -84,6 +89,7 @@ function App() {
         <Routes>
           <Route path="/" element={<MainApplicationPage />} />
           <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/live-testimonies" element={<MediaView />} />
           <Route path="/help" element={<HelpPage />} />
         </Routes>
       </div>
