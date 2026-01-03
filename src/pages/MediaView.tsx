@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
   getTestimoniesByDateAndService,
@@ -6,6 +6,7 @@ import {
   clearLiveTestimony,
   getLiveTestimony,
   subscribeToLiveTestimony,
+  subscribeToTestimoniesByDateAndService,
   getServices,
 } from "../services/firebaseService";
 import { Testimony, LiveTestimony, ServiceType, FirebaseConfig } from "../types/testimonies";
@@ -34,6 +35,10 @@ const MediaView: React.FC = () => {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [firebaseConfig, setFirebaseConfig] = useState<FirebaseConfig | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [selectedIndex, setSelectedIndex] = useState<number>(-1);
+  const [isSubscribed, setIsSubscribed] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const unsubscribeTestimoniesRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     // Load Firebase config
@@ -78,11 +83,52 @@ const MediaView: React.FC = () => {
     return () => unsubscribe();
   }, []);
 
+  // Subscribe to real-time testimonies updates
   useEffect(() => {
-    if (firebaseConfig && service && date) {
-      loadTestimonies();
+    if (!firebaseConfig || !service || !date) return;
+
+    // Cleanup previous subscription
+    if (unsubscribeTestimoniesRef.current) {
+      unsubscribeTestimoniesRef.current();
+      unsubscribeTestimoniesRef.current = null;
     }
+
+    setIsLoading(true);
+    setError(null);
+    setIsSubscribed(false);
+
+    // Subscribe to real-time updates
+    const unsubscribe = subscribeToTestimoniesByDateAndService(
+      firebaseConfig,
+      date,
+      service,
+      (updatedTestimonies) => {
+        setTestimonies(updatedTestimonies);
+        setIsLoading(false);
+        setIsSubscribed(true);
+      }
+    );
+
+    unsubscribeTestimoniesRef.current = unsubscribe;
+
+    return () => {
+      if (unsubscribeTestimoniesRef.current) {
+        unsubscribeTestimoniesRef.current();
+        unsubscribeTestimoniesRef.current = null;
+      }
+    };
   }, [date, service, firebaseConfig]);
+
+  // Reset selected index when testimonies change
+  useEffect(() => {
+    if (testimonies.length > 0 && selectedIndex === -1) {
+      setSelectedIndex(0);
+    } else if (testimonies.length === 0) {
+      setSelectedIndex(-1);
+    } else if (selectedIndex >= testimonies.length) {
+      setSelectedIndex(testimonies.length - 1);
+    }
+  }, [testimonies]);
 
   const loadTestimonies = async () => {
     if (!firebaseConfig || !service) return;
@@ -104,7 +150,7 @@ const MediaView: React.FC = () => {
     }
   };
 
-  const handleCopyName = async (testimony: Testimony) => {
+  const handleCopyName = useCallback(async (testimony: Testimony) => {
     const settings = loadLiveTestimoniesSettings();
     const formattedName = formatNameForCopy(testimony.name, settings.nameFormatting);
     try {
@@ -115,9 +161,9 @@ const MediaView: React.FC = () => {
       console.error("Failed to copy:", error);
       alert("Failed to copy name to clipboard");
     }
-  };
+  }, []);
 
-  const handleSetLive = async (testimony: Testimony) => {
+  const handleSetLive = useCallback(async (testimony: Testimony) => {
     if (!firebaseConfig) {
       alert("Firebase configuration not found. Please configure it in Settings.");
       return;
@@ -156,7 +202,48 @@ const MediaView: React.FC = () => {
       console.error("Failed to set live:", error);
       alert("Failed to set live testimony. Check console for details.");
     }
-  };
+  }, [firebaseConfig]);
+
+  // Keyboard navigation handler - arrow keys navigate AND set live
+  const handleKeyDown = useCallback((event: KeyboardEvent) => {
+    if (testimonies.length === 0) return;
+
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      const newIndex = selectedIndex < testimonies.length - 1 ? selectedIndex + 1 : selectedIndex;
+      if (newIndex !== selectedIndex) {
+        setSelectedIndex(newIndex);
+        const testimony = testimonies[newIndex];
+        if (testimony) {
+          handleSetLive(testimony);
+        }
+      }
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      const newIndex = selectedIndex > 0 ? selectedIndex - 1 : 0;
+      if (newIndex !== selectedIndex) {
+        setSelectedIndex(newIndex);
+        const testimony = testimonies[newIndex];
+        if (testimony) {
+          handleSetLive(testimony);
+        }
+      }
+    } else if (event.key === "Enter" && selectedIndex >= 0) {
+      event.preventDefault();
+      const testimony = testimonies[selectedIndex];
+      if (testimony) {
+        handleSetLive(testimony);
+      }
+    }
+  }, [testimonies, selectedIndex, handleSetLive]);
+
+  // Add keyboard event listener
+  useEffect(() => {
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [handleKeyDown]);
 
   const handleClearLive = async () => {
     if (!firebaseConfig) return;
@@ -194,15 +281,17 @@ const MediaView: React.FC = () => {
   }
 
   return (
-    <div style={{ 
-      padding: "var(--spacing-4)", 
-      minHeight: "calc(100vh - 51px)",
-      backgroundColor: "var(--app-bg-color)",
-      color: "var(--app-text-color)",
-    }}>
-      <header style={{ marginBottom: "var(--spacing-4)" }}>
-        <h1 style={{ margin: 0, fontSize: "1.5rem", fontWeight: 600, color: "var(--app-text-color)" }}>Media View</h1>
-      </header>
+    <div 
+      ref={containerRef}
+      tabIndex={0}
+      style={{ 
+        padding: "var(--spacing-4)", 
+        minHeight: "calc(100vh - 51px)",
+        backgroundColor: "var(--app-bg-color)",
+        color: "var(--app-text-color)",
+        outline: "none",
+      }}
+    >
 
       {/* Current Live Indicator */}
       {currentLive && (
@@ -283,7 +372,7 @@ const MediaView: React.FC = () => {
       {/* Filters */}
       <div
         style={{
-          backgroundColor: "var(--app-input-bg-color)",
+          backgroundColor: "var(--app-header-bg)",
           borderRadius: "12px",
           padding: "var(--spacing-4)",
           marginBottom: "var(--spacing-4)",
@@ -298,13 +387,14 @@ const MediaView: React.FC = () => {
             alignItems: "flex-end",
           }}
         >
-          <div style={{ flex: "1 1 150px" }}>
+          <div style={{ flex: "1 1 200px" }}>
             <label
               style={{
                 display: "block",
-                color: "var(--app-text-color-secondary)",
+                color: "var(--app-text-color)",
                 fontSize: "0.875rem",
                 marginBottom: "var(--spacing-2)",
+                fontWeight: 500,
               }}
             >
               Date
@@ -316,19 +406,22 @@ const MediaView: React.FC = () => {
               style={{
                 width: "100%",
                 padding: "var(--spacing-3)",
-                borderRadius: "12px",
-                border: "1px solid var(--border)",
-                backgroundColor: "var(--surface)",
+                borderRadius: "8px",
+                border: "1px solid var(--app-border-color)",
+                backgroundColor: "var(--app-input-bg-color)",
+                color: "var(--app-input-text-color)",
+                fontSize: "1rem",
               }}
             />
           </div>
-          <div style={{ flex: "1 1 150px" }}>
+          <div style={{ flex: "1 1 200px" }}>
             <label
               style={{
                 display: "block",
-                color: "var(--app-text-color-secondary)",
+                color: "var(--app-text-color)",
                 fontSize: "0.875rem",
                 marginBottom: "var(--spacing-2)",
+                fontWeight: 500,
               }}
             >
               Service
@@ -340,9 +433,11 @@ const MediaView: React.FC = () => {
               style={{
                 width: "100%",
                 padding: "var(--spacing-3)",
-                borderRadius: "12px",
-                border: "1px solid var(--border)",
-                backgroundColor: "var(--surface)",
+                borderRadius: "8px",
+                border: "1px solid var(--app-border-color)",
+                backgroundColor: "var(--app-input-bg-color)",
+                color: "var(--app-input-text-color)",
+                fontSize: "1rem",
               }}
             >
               <option value="">Select Service</option>
@@ -353,14 +448,40 @@ const MediaView: React.FC = () => {
               ))}
             </select>
           </div>
-          <button
-            onClick={loadTestimonies}
-            disabled={!service || isLoading}
-            className="primary"
-            style={{ minWidth: "100px" }}
-          >
-            {isLoading ? "Loading..." : "Load"}
-          </button>
+          <div style={{ display: "flex", alignItems: "center", gap: "var(--spacing-2)" }}>
+            <button
+              onClick={loadTestimonies}
+              disabled={!service || isLoading}
+              className="primary"
+              style={{ minWidth: "100px" }}
+            >
+              {isLoading ? "Loading..." : "Load"}
+            </button>
+            {isSubscribed && (
+              <span
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  color: "rgb(34, 197, 94)",
+                  fontSize: "0.75rem",
+                  fontWeight: 500,
+                }}
+                title="Real-time updates enabled"
+              >
+                <span
+                  style={{
+                    width: "8px",
+                    height: "8px",
+                    borderRadius: "50%",
+                    backgroundColor: "rgb(34, 197, 94)",
+                    animation: "ping 2s cubic-bezier(0, 0, 0.2, 1) infinite",
+                  }}
+                />
+                Live
+              </span>
+            )}
+          </div>
         </div>
       </div>
 
@@ -398,13 +519,15 @@ const MediaView: React.FC = () => {
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-2)" }}>
-          {testimonies.map((testimony) => {
+          {testimonies.map((testimony, index) => {
             const isLive = currentLive?.testimonyId === testimony.id;
             const isCopied = copiedId === testimony.id;
+            const isSelected = selectedIndex === index;
 
             return (
               <div
                 key={testimony.id}
+                onClick={() => setSelectedIndex(index)}
                 style={{
                   borderRadius: "12px",
                   padding: "var(--spacing-4)",
@@ -413,10 +536,16 @@ const MediaView: React.FC = () => {
                   justifyContent: "space-between",
                   backgroundColor: isLive
                     ? "rgba(220, 38, 38, 0.3)"
-                    : "var(--app-input-bg-color)",
+                    : isSelected
+                    ? "var(--app-button-hover-bg-color)"
+                    : "var(--app-header-bg)",
                   border: isLive
-                    ? "1px solid rgba(220, 38, 38, 0.5)"
+                    ? "2px solid rgba(220, 38, 38, 0.7)"
+                    : isSelected
+                    ? "2px solid var(--app-primary-color)"
                     : "1px solid var(--app-border-color)",
+                  cursor: "pointer",
+                  transition: "all 0.15s ease-in-out",
                 }}
               >
                 <div style={{ display: "flex", alignItems: "center", gap: "var(--spacing-3)" }}>
@@ -526,7 +655,7 @@ const MediaView: React.FC = () => {
         </div>
       )}
 
-      {/* Count */}
+      {/* Count and Keyboard Shortcuts */}
       {testimonies.length > 0 && (
         <div
           style={{
@@ -536,10 +665,30 @@ const MediaView: React.FC = () => {
             fontSize: "0.875rem",
           }}
         >
-          {testimonies.length} testimon{testimonies.length === 1 ? "y" : "ies"} (
-          {testimonies.filter((t) => t.status === "approved").length} approved,{" "}
-          {testimonies.filter((t) => t.status === "pending").length} pending,{" "}
-          {testimonies.filter((t) => t.status === "declined").length} declined)
+          <div>
+            {testimonies.length} testimon{testimonies.length === 1 ? "y" : "ies"} (
+            {testimonies.filter((t) => t.status === "approved").length} approved,{" "}
+            {testimonies.filter((t) => t.status === "pending").length} pending,{" "}
+            {testimonies.filter((t) => t.status === "declined").length} declined)
+          </div>
+          <div style={{ marginTop: "var(--spacing-2)", opacity: 0.7, fontSize: "0.75rem" }}>
+            <kbd style={{ 
+              padding: "2px 6px", 
+              backgroundColor: "var(--app-header-bg)", 
+              borderRadius: "4px",
+              border: "1px solid var(--app-border-color)",
+              fontFamily: "monospace",
+            }}>↑</kbd>
+            {" previous • "}
+            <kbd style={{ 
+              padding: "2px 6px", 
+              backgroundColor: "var(--app-header-bg)", 
+              borderRadius: "4px",
+              border: "1px solid var(--app-border-color)",
+              fontFamily: "monospace",
+            }}>↓</kbd>
+            {" next (sets live automatically)"}
+          </div>
         </div>
       )}
     </div>

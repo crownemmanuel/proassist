@@ -158,3 +158,33 @@ export function subscribeToLiveTestimony(
 
   return unsubscribe;
 }
+
+// Realtime subscription for testimonies by date and service
+export function subscribeToTestimoniesByDateAndService(
+  config: FirebaseConfig,
+  date: string,
+  service: string,
+  callback: (testimonies: Testimony[]) => void
+): () => void {
+  const db = getFirebaseDatabase(config);
+  const testimoniesRef = ref(db, "testimonies");
+
+  const unsubscribe = onValue(testimoniesRef, (snapshot) => {
+    if (!snapshot.exists()) {
+      callback([]);
+      return;
+    }
+
+    const testimonies: Testimony[] = [];
+    snapshot.forEach((child) => {
+      const data = child.val();
+      if (data.date === date && data.service === service) {
+        testimonies.push({ id: child.key!, ...data });
+      }
+    });
+
+    callback(testimonies.sort((a, b) => a.createdAt - b.createdAt));
+  });
+
+  return unsubscribe;
+}

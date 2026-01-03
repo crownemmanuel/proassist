@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { BrowserRouter as Router, Routes, Route, Link } from "react-router-dom";
+import { BrowserRouter as Router, Routes, Route, Link, useLocation } from "react-router-dom";
 import { FaHome, FaCog, FaQuestionCircle, FaSun, FaMoon, FaMicrophone } from "react-icons/fa";
 import "./App.css";
 // import { invoke } from "@tauri-apps/api/tauri"; // We will use this later
@@ -11,6 +11,46 @@ import MainApplicationPage from "./pages/MainApplicationPage";
 import SettingsPage from "./pages/SettingsPage";
 import HelpPage from "./pages/HelpPage";
 import MediaView from "./pages/MediaView";
+
+// Navigation component that uses useLocation
+function Navigation({ theme, toggleTheme }: { theme: string; toggleTheme: () => void }) {
+  const location = useLocation();
+  
+  const isActive = (path: string) => {
+    if (path === "/") {
+      return location.pathname === "/";
+    }
+    return location.pathname.startsWith(path);
+  };
+
+  return (
+    <nav className="app-nav">
+      <Link to="/" className={`nav-action-button ${isActive("/") ? "active" : ""}`}>
+        <FaHome />
+        <span>Main</span>
+      </Link>
+      <Link to="/settings" className={`nav-action-button ${isActive("/settings") ? "active" : ""}`}>
+        <FaCog />
+        <span>Settings</span>
+      </Link>
+      <Link to="/live-testimonies" className={`nav-action-button ${isActive("/live-testimonies") ? "active" : ""}`}>
+        <FaMicrophone />
+        <span>Live Testimonies</span>
+      </Link>
+      <Link to="/help" className={`nav-action-button ${isActive("/help") ? "active" : ""}`}>
+        <FaQuestionCircle />
+        <span>Help</span>
+      </Link>
+      <button
+        onClick={toggleTheme}
+        title={`Switch to ${theme === "light" ? "Dark" : "Light"} Mode`}
+        className="theme-toggle-button"
+      >
+        {theme === "light" ? <FaMoon /> : <FaSun />}
+      </button>
+    </nav>
+  );
+}
 
 function App() {
   const [theme, setTheme] = useState(
@@ -27,65 +67,10 @@ function App() {
     setTheme((prevTheme) => (prevTheme === "light" ? "dark" : "light"));
   };
 
-  // const [greetMsg, setGreetMsg] = useState("");
-  // const [name, setName] = useState("");
-
-  // async function greet() {
-  //   // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
-  //   setGreetMsg(await invoke("greet", { name }));
-  // }
-
-  // Example update check (can be re-added later if needed)
-  // useEffect(() => {
-  //   const doUpdateCheck = async () => {
-  //     try {
-  //       console.log('Checking for updates...');
-  //       const { shouldUpdate, manifest } = await checkUpdate();
-  //       if (shouldUpdate) {
-  //         console.log(
-  //           `Installing update ${manifest?.version}, current version is ${await getName()} ${await getVersion()}`
-  //         );
-  //         // Install the update. This will also restart the app on Windows!
-  //         await installUpdate();
-  //         // On macOS and Linux you will need to restart the app manually.
-  //         // You could use this step to display confirmation dialog.
-  //         await relaunch();
-  //       }
-  //     } catch (error) {
-  //       console.error('Update check failed:', error);
-  //     }
-  //   };
-  //   doUpdateCheck();
-  // }, []);
-
   return (
     <Router>
       <div className="container">
-        <nav className="app-nav">
-          <Link to="/" className="nav-action-button">
-            <FaHome />
-            <span>Main</span>
-          </Link>
-          <Link to="/settings" className="nav-action-button">
-            <FaCog />
-            <span>Settings</span>
-          </Link>
-          <Link to="/live-testimonies" className="nav-action-button">
-            <FaMicrophone />
-            <span>Live Testimonies</span>
-          </Link>
-          <Link to="/help" className="nav-action-button">
-            <FaQuestionCircle />
-            <span>Help</span>
-          </Link>
-          <button
-            onClick={toggleTheme}
-            title={`Switch to ${theme === "light" ? "Dark" : "Light"} Mode`}
-            className="theme-toggle-button"
-          >
-            {theme === "light" ? <FaMoon /> : <FaSun />}
-          </button>
-        </nav>
+        <Navigation theme={theme} toggleTheme={toggleTheme} />
         <Routes>
           <Route path="/" element={<MainApplicationPage />} />
           <Route path="/settings" element={<SettingsPage />} />
