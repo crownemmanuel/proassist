@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { FirebaseConfig, LiveTestimoniesSettings as LiveTestimoniesSettingsType, NameFormattingType } from "../types/testimonies";
 import {
-  loadFirebaseConfig,
   saveFirebaseConfig,
   loadLiveTestimoniesSettings,
   saveLiveTestimoniesSettings,
