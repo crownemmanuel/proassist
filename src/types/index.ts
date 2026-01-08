@@ -31,6 +31,7 @@ export interface Slide {
   text: string; // Can be multi-line, actual rendering will depend on layout
   layout: LayoutType;
   order: number; // To maintain order within a playlist item
+  isAutoScripture?: boolean; // True if this slide was auto-generated from detected scripture reference
 }
 
 export interface PlaylistItem {

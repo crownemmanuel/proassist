@@ -523,6 +523,47 @@ body.theme-light .list-item.selected:hover {
   box-shadow: 0 0 12px var(--app-live-indicator-glow); /* Green glow */
 }
 
+/* Auto-generated scripture slide - pink border */
+.slide-item-card.auto-scripture {
+  border: 2px solid #ff69b4; /* Hot pink border */
+  border-left: 4px solid #ff69b4; /* Thicker left border for emphasis */
+  background: linear-gradient(
+    90deg,
+    rgba(255, 105, 180, 0.08) 0%,
+    transparent 20%
+  );
+}
+
+.slide-item-card.auto-scripture::before {
+  content: "📖";
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  font-size: 0.85em;
+}
+
+.slide-item-card.auto-scripture .slide-layout-picker-container {
+  right: 10px;
+  left: auto;
+}
+
+body.theme-light .slide-item-card.auto-scripture {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 105, 180, 0.12) 0%,
+    transparent 25%
+  );
+}
+
+/* Preview scripture slide styling */
+.preview-slide-item.scripture-slide {
+  border-left: 3px solid #ff69b4;
+  padding-left: 10px;
+  background-color: rgba(255, 105, 180, 0.1);
+  margin: 2px 0;
+  border-radius: 4px;
+}
+
 body.theme-light .slide-item-card {
   background-color: #ffffff; /* White cards on light theme */
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.07);

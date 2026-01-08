@@ -418,7 +418,7 @@ const MainApplicationPage: React.FC = () => {
   const handleImportFromModal = (
     itemName: string,
     templateName: string,
-    slidesFromModal: Pick<Slide, "text" | "layout">[]
+    slidesFromModal: Pick<Slide, "text" | "layout" | "isAutoScripture">[]
   ) => {
     if (!selectedPlaylistId) {
       alert("No playlist selected to add the imported item to.");

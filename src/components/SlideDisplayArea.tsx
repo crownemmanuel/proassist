@@ -239,7 +239,7 @@ const SlideDisplayArea: React.FC<SlideDisplayAreaProps> = ({
             key={slide.id}
             className={`slide-item-card ${
               liveSlideId === slide.id ? "live" : ""
-            }`}
+            } ${slide.isAutoScripture ? "auto-scripture" : ""}`}
             onContextMenu={(e) => handleRightClick(e, slide.id)}
           >
             <div className="slide-layout-picker-container">

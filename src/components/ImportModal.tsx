@@ -3,12 +3,13 @@ import { Template, Slide, AppSettings, LayoutType } from "../types";
 import { getAppSettings } from "../utils/aiConfig";
 import { generateSlidesFromText } from "../services/aiService";
 import { formatSlidesForClipboard } from "../utils/slideUtils";
+import { processTextWithBibleReferences } from "../services/bibleService";
 import "../App.css"; // Ensure global styles are applied
 
 const MAX_PREVIEW_SLIDES = 10;
 
 // Define a type for the preview slide structure, omitting the id
-interface PreviewSlide extends Pick<Slide, "text" | "layout"> {
+interface PreviewSlide extends Pick<Slide, "text" | "layout" | "isAutoScripture"> {
   order: number; // Order for preview sorting
 }
 
@@ -18,7 +19,7 @@ interface ImportModalProps {
   onImport: (
     itemName: string,
     templateName: string,
-    slides: Pick<Slide, "text" | "layout">[]
+    slides: Pick<Slide, "text" | "layout" | "isAutoScripture">[]
   ) => void;
   templates: Template[];
 }
@@ -37,8 +38,9 @@ const ImportModal: React.FC<ImportModalProps> = ({
   const [importMethod, setImportMethod] = useState<"paste" | "upload">("paste");
   const [previewSlides, setPreviewSlides] = useState<PreviewSlide[]>([]);
   const [processedSlidesForImport, setProcessedSlidesForImport] = useState<
-    Pick<Slide, "text" | "layout">[]
+    Pick<Slide, "text" | "layout" | "isAutoScripture">[]
   >([]);
+  const [autoLoadBibleVerses, setAutoLoadBibleVerses] = useState(false);
   const [isLoading, setIsLoading] = useState(false); // Generic loading for AI or file reading
   const [appSettings, setAppSettings] = useState<AppSettings>(getAppSettings());
   const [copyFeedback, setCopyFeedback] = useState<string>(""); // Added state for feedback
@@ -56,6 +58,7 @@ const ImportModal: React.FC<ImportModalProps> = ({
       setIsLoading(false);
       setAppSettings(getAppSettings());
       setCopyFeedback(""); // Reset feedback
+      setAutoLoadBibleVerses(false);
     }
   }, [isOpen, templates]);
 
@@ -77,7 +80,7 @@ const ImportModal: React.FC<ImportModalProps> = ({
     setIsLoading(true);
     setPreviewSlides([]); // Clear previous preview
     setProcessedSlidesForImport([]); // Clear previous full results
-    let generatedSlides: Pick<Slide, "text" | "layout">[] = [];
+    let generatedSlides: Pick<Slide, "text" | "layout" | "isAutoScripture">[] = [];
     try {
       if (template.processingType === "ai" || template.processWithAI) {
         generatedSlides = await generateSlidesFromText(
@@ -92,6 +95,15 @@ const ImportModal: React.FC<ImportModalProps> = ({
             ? logicSlides
             : parseTextBasic(currentInputText, template);
       }
+
+      // If auto-load Bible verses is enabled, process slides for scripture references
+      console.log("Auto-load Bible verses checkbox:", autoLoadBibleVerses);
+      if (autoLoadBibleVerses) {
+        console.log("Processing slides for Bible references...");
+        generatedSlides = await processTextWithBibleReferences(generatedSlides, true);
+        console.log("After Bible processing, slides count:", generatedSlides.length);
+      }
+
       setPreviewSlides(
         generatedSlides
           .map((s, i) => ({ ...s, order: i }))
@@ -414,6 +426,53 @@ const ImportModal: React.FC<ImportModalProps> = ({
         )}
 
         <div
+          className="form-group"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "10px",
+            padding: "10px",
+            backgroundColor: "var(--app-input-bg-color)",
+            borderRadius: "6px",
+            marginBottom: "15px",
+          }}
+        >
+          <input
+            type="checkbox"
+            id="autoLoadBibleVerses"
+            checked={autoLoadBibleVerses}
+            onChange={(e) => {
+              setAutoLoadBibleVerses(e.target.checked);
+              // Clear preview when toggling since we need to re-process
+              setPreviewSlides([]);
+              setProcessedSlidesForImport([]);
+            }}
+            disabled={isLoading}
+            style={{ width: "auto", margin: 0 }}
+          />
+          <label
+            htmlFor="autoLoadBibleVerses"
+            style={{
+              margin: 0,
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+            }}
+          >
+            📖 Auto-load Bible verses (KJV)
+            <span
+              style={{
+                fontSize: "0.8em",
+                color: "var(--app-text-color-secondary)",
+              }}
+            >
+              Detects scripture references and adds verses as slides
+            </span>
+          </label>
+        </div>
+
+        <div
           style={{
             marginBottom: "15px",
             borderTop: "1px solid var(--app-border-color)",
@@ -470,14 +529,27 @@ const ImportModal: React.FC<ImportModalProps> = ({
                 slide,
                 index // Use index as key for preview items
               ) => (
-                <div key={index} className="preview-slide-item">
+                <div
+                  key={index}
+                  className={`preview-slide-item ${slide.isAutoScripture ? "scripture-slide" : ""}`}
+                  style={
+                    slide.isAutoScripture
+                      ? {
+                          borderLeft: "3px solid #ff69b4",
+                          paddingLeft: "10px",
+                          backgroundColor: "rgba(255, 105, 180, 0.1)",
+                        }
+                      : undefined
+                  }
+                >
                   <strong>
+                    {slide.isAutoScripture && "📖 "}
                     {slide.layout
                       .replace(/-line$/, "")
                       .replace("-", " ")
                       .replace(/\b\w/g, (l) => l.toUpperCase())}
                     :
-                  </strong>
+                  </strong>{" "}
                   {slide.text.length > 70
                     ? slide.text.substring(0, 70) + "..."
                     : slide.text}
