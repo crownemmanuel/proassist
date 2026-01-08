@@ -64,6 +64,9 @@ export interface Template {
   processWithAI?: boolean; // Whether to process text using AI for this template
   outputPath: string;
   outputFileNamePrefix: string;
+  // Auto-scripture output mapping
+  scriptureReferenceFileIndex?: number; // Which file index (1-6) to write scripture reference to
+  scriptureTextFileIndex?: number; // Which file index (1-6) to write scripture text to
 }
 
 export interface AppSettings {

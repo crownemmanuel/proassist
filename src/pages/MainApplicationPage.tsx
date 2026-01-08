@@ -239,54 +239,85 @@ const MainApplicationPage: React.FC = () => {
     );
 
     const lines = slide.text.split("\n");
-    // Determine how many lines to write based on slide.layout
-    let linesToWrite = 0;
-    switch (slide.layout) {
-      case "one-line":
-        linesToWrite = 1;
-        break;
-      case "two-line":
-        linesToWrite = 2;
-        break;
-      case "three-line":
-        linesToWrite = 3;
-        break;
-      case "four-line":
-        linesToWrite = 4;
-        break;
-      case "five-line":
-        linesToWrite = 5;
-        break;
-      case "six-line":
-        linesToWrite = 6;
-        break;
-      default:
-        linesToWrite = lines.length; // Fallback: write all lines from text
-    }
+    const basePath = template.outputPath.replace(/\/?$/, "/");
+    const prefix = template.outputFileNamePrefix;
+
+    // Check if this is an auto-scripture slide with custom mapping configured
+    const isScriptureWithMapping =
+      slide.isAutoScripture &&
+      template.scriptureReferenceFileIndex !== undefined &&
+      template.scriptureTextFileIndex !== undefined;
 
     try {
-      for (let i = 0; i < linesToWrite; i++) {
-        const lineContent = lines[i] || ""; // Use empty string if line doesn't exist
-        const filePath = `${template.outputPath.replace(/\/?$/, "/")}${
-          template.outputFileNamePrefix
-        }${i + 1}.txt`;
+      if (isScriptureWithMapping) {
+        // For auto-scripture slides with mapping configured:
+        // - Write verse text to the designated text file index
+        // - Write reference to the designated reference file index
+        // - Blank out ALL other files (1-6)
+        const verseText = lines[0] || ""; // First line is the verse text
+        const reference = lines[1] || ""; // Second line is the reference
 
-        console.log(`Writing to file: ${filePath}, Content: "${lineContent}"`);
-        await invoke("write_text_to_file", { filePath, content: lineContent });
-        // UNCOMMENT THE INVOKE CALL above once your Tauri backend command 'write_text_to_file' is ready.
-        // Ensure your Tauri command creates directories if they don't exist or handles errors appropriately.
-      }
+        console.log("Auto-scripture slide with custom mapping detected");
+        console.log(`Reference file index: ${template.scriptureReferenceFileIndex}`);
+        console.log(`Text file index: ${template.scriptureTextFileIndex}`);
 
-      // After writing the slide's content, blank out any subsequent files
-      // up to a max of 6, to clear any lingering text from previous slides.
-      if (linesToWrite < 6) {
-        for (let i = linesToWrite + 1; i <= 6; i++) {
-          const filePath = `${template.outputPath.replace(/\/?$/, "/")}${
-            template.outputFileNamePrefix
-          }${i}.txt`;
-          // We don't need to check if the file exists, just write blank
-          // This simplifies the logic and ensures a clean state.
+        // Blank out all 6 files first
+        for (let i = 1; i <= 6; i++) {
+          const filePath = `${basePath}${prefix}${i}.txt`;
           await invoke("write_text_to_file", { filePath, content: "" });
+        }
+
+        // Write the reference to its designated file
+        const refFilePath = `${basePath}${prefix}${template.scriptureReferenceFileIndex}.txt`;
+        console.log(`Writing reference to: ${refFilePath}, Content: "${reference}"`);
+        await invoke("write_text_to_file", { filePath: refFilePath, content: reference });
+
+        // Write the verse text to its designated file
+        const textFilePath = `${basePath}${prefix}${template.scriptureTextFileIndex}.txt`;
+        console.log(`Writing verse text to: ${textFilePath}, Content: "${verseText}"`);
+        await invoke("write_text_to_file", { filePath: textFilePath, content: verseText });
+      } else {
+        // Standard slide handling (non-scripture or no custom mapping)
+        // Determine how many lines to write based on slide.layout
+        let linesToWrite = 0;
+        switch (slide.layout) {
+          case "one-line":
+            linesToWrite = 1;
+            break;
+          case "two-line":
+            linesToWrite = 2;
+            break;
+          case "three-line":
+            linesToWrite = 3;
+            break;
+          case "four-line":
+            linesToWrite = 4;
+            break;
+          case "five-line":
+            linesToWrite = 5;
+            break;
+          case "six-line":
+            linesToWrite = 6;
+            break;
+          default:
+            linesToWrite = lines.length; // Fallback: write all lines from text
+        }
+
+        for (let i = 0; i < linesToWrite; i++) {
+          const lineContent = lines[i] || ""; // Use empty string if line doesn't exist
+          const filePath = `${basePath}${prefix}${i + 1}.txt`;
+
+          console.log(`Writing to file: ${filePath}, Content: "${lineContent}"`);
+          await invoke("write_text_to_file", { filePath, content: lineContent });
+        }
+
+        // After writing the slide's content, blank out any subsequent files
+        // up to a max of 6, to clear any lingering text from previous slides.
+        if (linesToWrite < 6) {
+          for (let i = linesToWrite + 1; i <= 6; i++) {
+            const filePath = `${basePath}${prefix}${i}.txt`;
+            await invoke("write_text_to_file", { filePath, content: "" });
+          }
         }
       }
 

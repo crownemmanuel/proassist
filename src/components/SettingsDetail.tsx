@@ -57,6 +57,13 @@ const SettingsDetail: React.FC<SettingsDetailProps> = ({
   const [isIconPickerOpen, setIsIconPickerOpen] = useState(false);
   const [isAIPromptModalOpen, setIsAIPromptModalOpen] = useState(false);
   const [models, setModels] = useState<string[]>([]);
+  // Scripture output mapping
+  const [scriptureReferenceFileIndex, setScriptureReferenceFileIndex] = useState<number | undefined>(
+    template.scriptureReferenceFileIndex
+  );
+  const [scriptureTextFileIndex, setScriptureTextFileIndex] = useState<number | undefined>(
+    template.scriptureTextFileIndex
+  );
 
   const appSettings = useMemo(() => getAppSettings(), []);
   const hasOpenAI = !!appSettings.openAIConfig?.apiKey;
@@ -102,6 +109,8 @@ const SettingsDetail: React.FC<SettingsDetailProps> = ({
       setOutputFileNamePrefix(template.outputFileNamePrefix || "");
       setAiProvider(template.aiProvider);
       setAiModel(template.aiModel);
+      setScriptureReferenceFileIndex(template.scriptureReferenceFileIndex);
+      setScriptureTextFileIndex(template.scriptureTextFileIndex);
     }
   }, [template]);
 
@@ -199,6 +208,8 @@ const SettingsDetail: React.FC<SettingsDetailProps> = ({
       aiPrompt: aiPrompt,
       aiProvider: processingType === "ai" ? aiProvider : undefined,
       aiModel: processingType === "ai" ? aiModel : undefined,
+      scriptureReferenceFileIndex,
+      scriptureTextFileIndex,
     });
   };
 
@@ -558,6 +569,68 @@ const SettingsDetail: React.FC<SettingsDetailProps> = ({
               onChange={(e) => setOutputFileNamePrefix(e.target.value)}
               placeholder="e.g., SermonNote"
             />
+          </div>
+
+          <div className="settings-detail-section">
+            <h4>Auto-Scripture Output Mapping</h4>
+            <p className="instruction-text" style={{ marginBottom: "15px" }}>
+              Configure which text files receive scripture reference and verse text when going live on auto-generated scripture slides.
+              All other files will be blanked when a scripture slide goes live.
+            </p>
+            <div style={{ display: "flex", gap: "20px", flexWrap: "wrap" }}>
+              <div className="form-group" style={{ flex: "1", minWidth: "150px" }}>
+                <label htmlFor="scripture-reference-index">
+                  Reference File Index:
+                </label>
+                <select
+                  id="scripture-reference-index"
+                  value={scriptureReferenceFileIndex ?? ""}
+                  onChange={(e) =>
+                    setScriptureReferenceFileIndex(
+                      e.target.value ? parseInt(e.target.value, 10) : undefined
+                    )
+                  }
+                  className="select-css"
+                >
+                  <option value="">Not Set</option>
+                  <option value="1">File 1 ({outputFileNamePrefix || "prefix"}1.txt)</option>
+                  <option value="2">File 2 ({outputFileNamePrefix || "prefix"}2.txt)</option>
+                  <option value="3">File 3 ({outputFileNamePrefix || "prefix"}3.txt)</option>
+                  <option value="4">File 4 ({outputFileNamePrefix || "prefix"}4.txt)</option>
+                  <option value="5">File 5 ({outputFileNamePrefix || "prefix"}5.txt)</option>
+                  <option value="6">File 6 ({outputFileNamePrefix || "prefix"}6.txt)</option>
+                </select>
+                <p className="instruction-text">
+                  e.g., "John 3:16"
+                </p>
+              </div>
+              <div className="form-group" style={{ flex: "1", minWidth: "150px" }}>
+                <label htmlFor="scripture-text-index">
+                  Verse Text File Index:
+                </label>
+                <select
+                  id="scripture-text-index"
+                  value={scriptureTextFileIndex ?? ""}
+                  onChange={(e) =>
+                    setScriptureTextFileIndex(
+                      e.target.value ? parseInt(e.target.value, 10) : undefined
+                    )
+                  }
+                  className="select-css"
+                >
+                  <option value="">Not Set</option>
+                  <option value="1">File 1 ({outputFileNamePrefix || "prefix"}1.txt)</option>
+                  <option value="2">File 2 ({outputFileNamePrefix || "prefix"}2.txt)</option>
+                  <option value="3">File 3 ({outputFileNamePrefix || "prefix"}3.txt)</option>
+                  <option value="4">File 4 ({outputFileNamePrefix || "prefix"}4.txt)</option>
+                  <option value="5">File 5 ({outputFileNamePrefix || "prefix"}5.txt)</option>
+                  <option value="6">File 6 ({outputFileNamePrefix || "prefix"}6.txt)</option>
+                </select>
+                <p className="instruction-text">
+                  e.g., "For God so loved..."
+                </p>
+              </div>
+            </div>
           </div>
 
           <button
