@@ -17,6 +17,8 @@
     "@langchain/openai": "^0.5.10",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-opener": "^2",
+    "@tauri-apps/plugin-process": "^2",
+    "@tauri-apps/plugin-updater": "^2",
     "bible-passage-reference-parser": "^3.1.0",
     "firebase": "^12.7.0",
     "langchain": "^0.3.26",
