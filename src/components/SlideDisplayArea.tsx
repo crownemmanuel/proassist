@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { PlaylistItem, Slide, LayoutType, Template } from "../types";
-import { FaTrash, FaEdit, FaPlay, FaPlus } from "react-icons/fa";
+import { FaTrash, FaEdit, FaPlay, FaPlus, FaSearch, FaTimes } from "react-icons/fa";
 import "../App.css"; // Ensure global styles are applied
 import ContextMenu from "./ContextMenu"; // Import the new component
 
@@ -14,6 +14,11 @@ interface SlideDisplayAreaProps {
   onAddSlide: (layout: LayoutType) => void;
   onDeleteSlide: (slideId: string) => void;
   onChangeSlideLayout: (slideId: string, newLayout: LayoutType) => void; // New prop
+  onDetachLiveSlides?: () => void;
+  onBeginLiveSlideEdit?: (slide: Slide) => void;
+  onEndLiveSlideEdit?: () => void;
+  liveSlidesStatus?: { serverRunning: boolean; sessionExists: boolean };
+  onResumeLiveSlidesSession?: () => void;
 }
 
 interface ContextMenuState {
@@ -31,6 +36,11 @@ const SlideDisplayArea: React.FC<SlideDisplayAreaProps> = ({
   onAddSlide,
   onDeleteSlide,
   onChangeSlideLayout, // New prop
+  onDetachLiveSlides,
+  onBeginLiveSlideEdit,
+  onEndLiveSlideEdit,
+  liveSlidesStatus,
+  onResumeLiveSlidesSession,
 }) => {
   // Mark unused prop as intentionally unused to satisfy TypeScript
   void template;
@@ -45,6 +55,10 @@ const SlideDisplayArea: React.FC<SlideDisplayAreaProps> = ({
     y: 0,
     slideId: null,
   });
+  const [searchQuery, setSearchQuery] = useState<string>("");
+  const [searchMode, setSearchMode] = useState<"first-line" | "all">("first-line");
+  const [showSearchOptions, setShowSearchOptions] = useState<boolean>(false);
+  const [hasFocusedSearch, setHasFocusedSearch] = useState<boolean>(false);
 
   useEffect(() => {
     setEditingSlideId(null);
@@ -78,6 +92,7 @@ const SlideDisplayArea: React.FC<SlideDisplayAreaProps> = ({
   };
 
   const handleEdit = (slide: Slide) => {
+    onBeginLiveSlideEdit?.(slide);
     setEditingSlideId(slide.id);
 
     const currentLines = slide.text.split("\n");
@@ -146,11 +161,13 @@ const SlideDisplayArea: React.FC<SlideDisplayAreaProps> = ({
     onUpdateSlide(slideId, newText);
     setEditingSlideId(null);
     setEditingLines([]);
+    onEndLiveSlideEdit?.();
   };
 
   const handleCancelEdit = () => {
     setEditingSlideId(null);
     setEditingLines([]);
+    onEndLiveSlideEdit?.();
   };
 
   const handleMakeLive = (slide: Slide) => {
@@ -172,6 +189,9 @@ const SlideDisplayArea: React.FC<SlideDisplayAreaProps> = ({
     setContextMenu({ isOpen: false, x: 0, y: 0, slideId: null });
   };
 
+  const isLiveLinked =
+    !!playlistItem?.liveSlidesSessionId && (playlistItem?.liveSlidesLinked ?? true);
+
   // Note: currentEditingSlide is not used currently; keeping the lookup inline where needed avoids unused var.
   const currentContextMenuSlide = playlistItem?.slides.find(
     (s) => s.id === contextMenu.slideId
@@ -188,19 +208,20 @@ const SlideDisplayArea: React.FC<SlideDisplayAreaProps> = ({
 
   // removed unused variable 'availableLayouts'
 
-  const contextMenuItems = currentContextMenuSlide
-    ? [
-        { label: "Edit", onClick: () => handleEdit(currentContextMenuSlide) },
-        {
-          label: "Delete",
-          onClick: () => {
-            if (currentContextMenuSlide) {
-              onDeleteSlide(currentContextMenuSlide.id);
-            }
+  const contextMenuItems =
+    currentContextMenuSlide && !isLiveLinked
+      ? [
+          { label: "Edit", onClick: () => handleEdit(currentContextMenuSlide) },
+          {
+            label: "Delete",
+            onClick: () => {
+              if (currentContextMenuSlide) {
+                onDeleteSlide(currentContextMenuSlide.id);
+              }
+            },
           },
-        },
-      ]
-    : [];
+        ]
+      : [];
 
   // Simple text area styling, can be moved to CSS if not already there
   // Individual input styling can also be added to App.css
@@ -217,6 +238,41 @@ const SlideDisplayArea: React.FC<SlideDisplayAreaProps> = ({
     boxSizing: "border-box",
   };
 
+  // Filter slides based on search query
+  const filteredSlides = useMemo(() => {
+    if (!playlistItem || !searchQuery.trim()) {
+      return playlistItem?.slides || [];
+    }
+
+    const query = searchQuery.toLowerCase().trim();
+    return playlistItem.slides.filter((slide) => {
+      if (searchMode === "first-line") {
+        // Search only the first line
+        const firstLine = slide.text.split("\n")[0] || "";
+        return firstLine.toLowerCase().includes(query);
+      } else {
+        // Search all text
+        return slide.text.toLowerCase().includes(query);
+      }
+    });
+  }, [playlistItem, searchQuery, searchMode]);
+
+  // Highlight matching text
+  const highlightText = (text: string, query: string): React.ReactNode => {
+    if (!query.trim()) return text;
+    
+    const parts = text.split(new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi'));
+    return parts.map((part, index) => 
+      part.toLowerCase() === query.toLowerCase() ? (
+        <mark key={index} style={{ backgroundColor: "#FFD700", padding: "2px 0" }}>
+          {part}
+        </mark>
+      ) : (
+        part
+      )
+    );
+  };
+
   if (!playlistItem) {
     return (
       <p style={{ color: "var(--app-text-color-secondary)" }}>
@@ -227,12 +283,187 @@ const SlideDisplayArea: React.FC<SlideDisplayAreaProps> = ({
 
   return (
     <div>
+      {/* Search Bar */}
+      <div
+        style={{
+          marginBottom: "16px",
+          padding: "12px",
+          backgroundColor: "var(--app-header-bg)",
+          borderRadius: "8px",
+          border: "1px solid var(--app-border-color)",
+          display: "flex",
+          alignItems: "center",
+          gap: "10px",
+          position: "relative",
+        }}
+      >
+        <FaSearch style={{ color: "var(--app-text-color-secondary)", flexShrink: 0 }} />
+        <input
+          type="text"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder="Search slides..."
+          style={{
+            flex: 1,
+            padding: "8px 12px",
+            fontSize: "0.9rem",
+            backgroundColor: "var(--app-input-bg-color)",
+            color: "var(--app-input-text-color)",
+            border: "1px solid var(--app-border-color)",
+            borderRadius: "6px",
+            outline: "none",
+          }}
+          onFocus={() => {
+            if (!hasFocusedSearch) {
+              setShowSearchOptions(true);
+              setHasFocusedSearch(true);
+            }
+          }}
+        />
+        {searchQuery && (
+          <button
+            onClick={() => {
+              setSearchQuery("");
+              setShowSearchOptions(false);
+            }}
+            style={{
+              background: "none",
+              border: "none",
+              color: "var(--app-text-color-secondary)",
+              cursor: "pointer",
+              padding: "4px",
+              display: "flex",
+              alignItems: "center",
+            }}
+            title="Clear search"
+          >
+            <FaTimes />
+          </button>
+        )}
+        {searchQuery && (
+          <div
+            style={{
+              position: "absolute",
+              top: "100%",
+              left: "12px",
+              right: "12px",
+              marginTop: "4px",
+              backgroundColor: "var(--app-bg-color)",
+              border: "1px solid var(--app-border-color)",
+              borderRadius: "6px",
+              padding: "8px",
+              fontSize: "0.85rem",
+              color: "var(--app-text-color-secondary)",
+              zIndex: 10,
+            }}
+          >
+            Found {filteredSlides.length} of {playlistItem.slides.length} slides
+          </div>
+        )}
+      </div>
+
+      {/* Search Options Dropdown */}
+      {showSearchOptions && (
+        <div
+          style={{
+            marginBottom: "12px",
+            padding: "8px 12px",
+            backgroundColor: "var(--app-header-bg)",
+            borderRadius: "6px",
+            border: "1px solid var(--app-border-color)",
+            display: "flex",
+            alignItems: "center",
+            gap: "12px",
+            fontSize: "0.85rem",
+          }}
+        >
+          <span style={{ color: "var(--app-text-color-secondary)" }}>Search in:</span>
+          <label
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "6px",
+              cursor: "pointer",
+            }}
+          >
+            <input
+              type="radio"
+              checked={searchMode === "first-line"}
+              onChange={() => setSearchMode("first-line")}
+            />
+            First line only
+          </label>
+          <label
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "6px",
+              cursor: "pointer",
+            }}
+          >
+            <input
+              type="radio"
+              checked={searchMode === "all"}
+              onChange={() => setSearchMode("all")}
+            />
+            All slides
+          </label>
+        </div>
+      )}
+      {isLiveLinked && (
+        <div
+          style={{
+            marginBottom: "12px",
+            padding: "10px 12px",
+            borderRadius: "8px",
+            border: "1px solid var(--app-border-color)",
+            backgroundColor: "var(--app-header-bg)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: "12px",
+          }}
+        >
+          <div style={{ color: "var(--app-text-color-secondary)", fontSize: "0.9em" }}>
+            This item is <strong>Live Slides linked</strong>. It updates in real-time.
+            Editing a slide will sync back to the session; add/delete/layout changes require detaching.
+            {liveSlidesStatus &&
+              (!liveSlidesStatus.serverRunning || !liveSlidesStatus.sessionExists) && (
+                <>
+                  {" "}
+                  <span style={{ color: "#f59e0b" }}>
+                    (Session not running — restart to resume typing)
+                  </span>
+                </>
+              )}
+          </div>
+          <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+            {liveSlidesStatus &&
+              (!liveSlidesStatus.serverRunning || !liveSlidesStatus.sessionExists) &&
+              onResumeLiveSlidesSession && (
+                <button onClick={onResumeLiveSlidesSession} className="primary btn-sm">
+                  Restart/Resume Session
+                </button>
+              )}
+            {onDetachLiveSlides && (
+              <button onClick={onDetachLiveSlides} className="secondary btn-sm">
+                Detach (make editable)
+              </button>
+            )}
+          </div>
+        </div>
+      )}
       {playlistItem.slides.length === 0 && (
         <p style={{ color: "var(--app-text-color-secondary)" }}>
           This item has no slides.
         </p>
       )}
-      {playlistItem.slides
+      {searchQuery && filteredSlides.length === 0 && (
+        <p style={{ color: "var(--app-text-color-secondary)", fontStyle: "italic" }}>
+          No slides found matching "{searchQuery}"
+        </p>
+      )}
+      {(searchQuery ? filteredSlides : playlistItem.slides)
         .sort((a, b) => a.order - b.order)
         .map((slide) => (
           <div
@@ -250,6 +481,8 @@ const SlideDisplayArea: React.FC<SlideDisplayAreaProps> = ({
                   onChangeSlideLayout(slide.id, e.target.value as LayoutType)
                 }
                 onClick={(e) => e.stopPropagation()} // Prevent card click-through
+                disabled={isLiveLinked}
+                title={isLiveLinked ? "Detach Live Slides to edit layout" : undefined}
               >
                 {allLayoutOptions.map((layout) => (
                   <option key={layout} value={layout}>
@@ -296,7 +529,19 @@ const SlideDisplayArea: React.FC<SlideDisplayAreaProps> = ({
                     minHeight: "40px",
                   }}
                 >
-                  {slide.text || (
+                  {slide.text ? (
+                    searchQuery ? (
+                      <div>
+                        {slide.text.split("\n").map((line, idx) => (
+                          <div key={idx}>
+                            {highlightText(line, searchQuery)}
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      slide.text
+                    )
+                  ) : (
                     <span style={{ color: "var(--app-text-color-secondary)" }}>
                       (Empty Slide)
                     </span>
@@ -308,6 +553,8 @@ const SlideDisplayArea: React.FC<SlideDisplayAreaProps> = ({
                   <button
                     className="secondary"
                     onClick={() => handleEdit(slide)}
+                    disabled={liveSlideId === slide.id}
+                    title={liveSlideId === slide.id ? "This slide is currently Live" : undefined}
                   >
                     <FaEdit />
                     Edit
@@ -326,6 +573,7 @@ const SlideDisplayArea: React.FC<SlideDisplayAreaProps> = ({
                     onClick={() => onDeleteSlide(slide.id)}
                     className="icon-button"
                     title="Delete slide"
+                    disabled={isLiveLinked}
                   >
                     <FaTrash />
                   </button>
@@ -358,6 +606,7 @@ const SlideDisplayArea: React.FC<SlideDisplayAreaProps> = ({
                 onClick={() => onAddSlide(layout)}
                 className="secondary btn-sm"
                 title={`Add ${getLayoutText(layout)} Slide`}
+                disabled={isLiveLinked}
               >
                 <FaPlus />
                 {getLayoutText(layout)}

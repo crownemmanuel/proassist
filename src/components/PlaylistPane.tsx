@@ -168,6 +168,19 @@ const PlaylistPane: React.FC<PlaylistPaneProps> = ({
                   >
                     {item.templateName}
                   </span>
+                  {item.liveSlidesSessionId && (item.liveSlidesLinked ?? true) && (
+                    <span
+                      className="template-badge playlist-badge"
+                      style={{
+                        backgroundColor: "#2563eb",
+                        color: "white",
+                        marginTop: "6px",
+                      }}
+                      title="This item is linked to a Live Slides session and updates in real-time"
+                    >
+                      Live
+                    </span>
+                  )}
                 </div>
               </li>
             ))}
