@@ -30,6 +30,16 @@ ProAssist is a desktop application that adds intelligent automation, AI-powered 
 - **Multi-File Support**: Write to up to 6 text files per template for complex layouts
 - **Auto-Scripture Support**: Automatic Bible verse lookup and formatting
 
+### 🌐 Live Slides - Real-Time Collaboration
+
+- **WebSocket-Based System**: Built-in WebSocket server for real-time slide updates
+- **Browser-Based Notepad**: Open a notepad in any browser to edit slides live
+- **Multi-Device Support**: Share notepad URLs with team members on the same network
+- **Live Editing**: Type content in the notepad and see slides update instantly in ProAssist
+- **Session Management**: Create multiple Live Slides sessions for different presentations
+- **Smart Parsing**: Automatically converts text into slides (blank lines = new slides, tabs = sub-items)
+- **Color-Coded Slides**: Visual indicators show slide boundaries and hierarchy
+
 ### 📚 Playlist Management
 
 - **Organized Content**: Create and manage playlists of slides
@@ -123,6 +133,39 @@ ProAssist is a desktop application that adds intelligent automation, AI-powered 
 2. Add your OpenAI or Gemini API key
 3. Select your preferred default AI provider
 4. Configure AI prompts in your templates for intelligent content processing
+
+### Step 5: Using Live Slides (Optional)
+
+Live Slides enables real-time collaboration for presentations. Perfect for live events where content needs to be edited on the fly.
+
+1. **Start the WebSocket Server**:
+   - Go to **Live Slides** page in ProAssist
+   - Click **Start** to launch the WebSocket server
+   - Note the server address (e.g., `192.168.1.100:9876`)
+
+2. **Create a Session**:
+   - Enter a session name and click the **+** button
+   - A new Live Slides session will be created
+
+3. **Open the Notepad**:
+   - Click the **Copy URL** button to copy the notepad URL
+   - Or click **Open in browser** to open it directly
+   - Share the URL with team members on the same network
+
+4. **Edit Content**:
+   - Type content in the notepad (blank lines create new slides)
+   - Use Tab to create sub-items (indented lines)
+   - Changes appear instantly in ProAssist's Live Preview
+
+5. **Send to ProPresenter**:
+   - Import Live Slides sessions into playlists
+   - Use **Go Live** to send slides to ProPresenter
+   - Slides update automatically as content changes in the notepad
+
+**Live Slides Format**:
+- Empty lines separate slides
+- Lines starting with Tab (or 4 spaces) become sub-items
+- Each slide gets a color indicator for easy identification
 
 ## 🛠️ Development
 
