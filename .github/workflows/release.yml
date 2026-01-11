@@ -1,115 +1,115 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - 'v*'
-  workflow_dispatch:
+    push:
+        tags:
+            - "v*"
+    workflow_dispatch:
 
 permissions:
-  contents: write
+    contents: write
 
 jobs:
-  create-release:
-    runs-on: ubuntu-latest
-    outputs:
-      release_id: ${{ steps.create-release.outputs.id }}
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Get version from tag
-        id: get_version
-        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+    create-release:
+        runs-on: ubuntu-latest
+        outputs:
+            release_id: ${{ steps.create-release.outputs.id }}
+        steps:
+            - uses: actions/checkout@v4
 
-      - name: Create Release
-        id: create-release
-        uses: actions/github-script@v6
-        with:
-          script: |
-            const tagName = context.ref.replace('refs/tags/', '');
-            const version = '${{ steps.get_version.outputs.VERSION }}';
-            const releaseName = `ProAssist v${version}`;
-            const releaseBody = `## What's New
-            
-            See the [changelog](https://github.com/${context.repo.owner}/${context.repo.repo}/blob/main/CHANGELOG.md) for details.
-            
-            ## Download
-            
-            Download the appropriate installer for your platform below.`;
-            
-            const release = await github.rest.repos.createRelease({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              tag_name: tagName,
-              name: releaseName,
-              body: releaseBody,
-              draft: true,
-              prerelease: false
-            });
-            
-            core.setOutput('id', release.data.id.toString());
+            - name: Get version from tag
+              id: get_version
+              run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
 
-  build-tauri:
-    needs: create-release
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: 'macos-latest'
-            args: '--target aarch64-apple-darwin'
-          - platform: 'macos-latest'
-            args: '--target x86_64-apple-darwin'
-          - platform: 'ubuntu-22.04'
-            args: ''
-          - platform: 'windows-latest'
-            args: ''
+            - name: Create Release
+              id: create-release
+              uses: actions/github-script@v6
+              with:
+                  script: |
+                      const tagName = context.ref.replace('refs/tags/', '');
+                      const version = '${{ steps.get_version.outputs.VERSION }}';
+                      const releaseName = `ProAssist v${version}`;
+                      const releaseBody = `## What's New
 
-    runs-on: ${{ matrix.platform }}
-    steps:
-      - uses: actions/checkout@v4
+                      See the [changelog](https://github.com/${context.repo.owner}/${context.repo.repo}/blob/main/CHANGELOG.md) for details.
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: lts/*
+                      ## Download
 
-      - name: Install Rust stable
-        uses: dtolnay/rust-action@stable
-        with:
-          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+                      Download the appropriate installer for your platform below.`;
 
-      - name: Install dependencies (Ubuntu only)
-        if: matrix.platform == 'ubuntu-22.04'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+                      const release = await github.rest.repos.createRelease({
+                        owner: context.repo.owner,
+                        repo: context.repo.repo,
+                        tag_name: tagName,
+                        name: releaseName,
+                        body: releaseBody,
+                        draft: true,
+                        prerelease: false
+                      });
 
-      - name: Install frontend dependencies
-        run: npm install
+                      core.setOutput('id', release.data.id.toString());
 
-      - name: Build the app
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        with:
-          releaseId: ${{ needs.create-release.outputs.release_id }}
-          args: ${{ matrix.args }}
+    build-tauri:
+        needs: create-release
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - platform: "macos-latest"
+                      args: "--target aarch64-apple-darwin"
+                    - platform: "macos-latest"
+                      args: "--target x86_64-apple-darwin"
+                    - platform: "ubuntu-22.04"
+                      args: ""
+                    - platform: "windows-latest"
+                      args: ""
 
-  publish-release:
-    runs-on: ubuntu-latest
-    needs: [create-release, build-tauri]
-    steps:
-      - name: Publish release
-        uses: actions/github-script@v6
-        with:
-          script: |
-            const releaseId = '${{ needs.create-release.outputs.release_id }}';
-            await github.rest.repos.updateRelease({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              release_id: parseInt(releaseId),
-              draft: false,
-              prerelease: false
-            });
+        runs-on: ${{ matrix.platform }}
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Setup Node
+              uses: actions/setup-node@v4
+              with:
+                  node-version: lts/*
+
+            - name: Install Rust stable
+              uses: dtolnay/rust-action@stable
+              with:
+                  targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+            - name: Install dependencies (Ubuntu only)
+              if: matrix.platform == 'ubuntu-22.04'
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+            - name: Install frontend dependencies
+              run: npm install
+
+            - name: Build the app
+              uses: tauri-apps/tauri-action@v0
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+                  TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+              with:
+                  releaseId: ${{ needs.create-release.outputs.release_id }}
+                  args: ${{ matrix.args }}
+
+    publish-release:
+        runs-on: ubuntu-latest
+        needs: [create-release, build-tauri]
+        steps:
+            - name: Publish release
+              uses: actions/github-script@v6
+              with:
+                  script: |
+                      const releaseId = '${{ needs.create-release.outputs.release_id }}';
+                      await github.rest.repos.updateRelease({
+                        owner: context.repo.owner,
+                        repo: context.repo.repo,
+                        release_id: parseInt(releaseId),
+                        draft: false,
+                        prerelease: false
+                      });
