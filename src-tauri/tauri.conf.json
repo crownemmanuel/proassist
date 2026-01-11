@@ -37,7 +37,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDIyMTlEQTYzMDk4Q0YyRTUKUldUbDhvd0pZOW9aSW9Lc1IxL1JnVnNzZUFLSUlOSVhlTnloUHRnOWNJV0dpWVJybk13bDZWd2YK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEUxMzhCRkUxNDIwQTYxQzgKUldUSVlRcEM0Yjg0NFpzQXo4cG9xN3ErUGlpMUtPNDNiTWsyL21Peld1V0VmdUs3UEc1TmpRR3AK",
       "endpoints": [
         "https://github.com/crownemmanuel/proassist/releases/latest/download/latest.json"
       ]
