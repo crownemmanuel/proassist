@@ -202,6 +202,22 @@ To test the update flow locally:
 - The public key in `tauri.conf.json` must match the private key in secrets
 - Make sure the private key wasn't regenerated without updating the public key
 
+### "Missing comment in secret key" Error
+
+This error indicates the private key format is incorrect:
+
+1. **Verify Key Format**: The private key must include the full content with the comment header:
+   ```
+   untrusted comment: <description>
+   <base64 encoded key>
+   ```
+
+2. **Check Password Secret**:
+   - If key has **no password**: `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` should be empty or not set
+   - If key **has a password**: `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` must match exactly
+
+3. **Solution**: Regenerate keys and ensure you copy the **entire** key file content to GitHub Secrets (including the comment line)
+
 ## File Structure
 
 ```
