@@ -11,10 +11,17 @@ import MainApplicationPage from "./pages/MainApplicationPage";
 import SettingsPage from "./pages/SettingsPage";
 import HelpPage from "./pages/HelpPage";
 import MediaView from "./pages/MediaView";
+import LiveSlidesNotepad from "./pages/LiveSlidesNotepad";
+import { loadLiveSlidesSettings, startLiveSlidesServer } from "./services/liveSlideService";
 
 // Navigation component that uses useLocation
 function Navigation({ theme, toggleTheme }: { theme: string; toggleTheme: () => void }) {
   const location = useLocation();
+  
+  // Hide navigation on the notepad page for a cleaner experience
+  if (location.pathname.includes("/live-slides/notepad/")) {
+    return null;
+  }
   
   const isActive = (path: string) => {
     if (path === "/") {
@@ -52,10 +59,45 @@ function Navigation({ theme, toggleTheme }: { theme: string; toggleTheme: () => 
   );
 }
 
+// Wrapper component that conditionally renders the container
+function AppContent({ theme, toggleTheme }: { theme: string; toggleTheme: () => void }) {
+  const location = useLocation();
+  const isNotepadPage = location.pathname.includes("/live-slides/notepad/");
+  
+  if (isNotepadPage) {
+    // Notepad page gets full viewport without navigation
+    return (
+      <Routes>
+        <Route path="/live-slides/notepad/:sessionId" element={<LiveSlidesNotepad />} />
+      </Routes>
+    );
+  }
+  
+  return (
+    <div className="container">
+      <Navigation theme={theme} toggleTheme={toggleTheme} />
+      <Routes>
+        <Route path="/" element={<MainApplicationPage />} />
+        <Route path="/settings" element={<SettingsPage />} />
+        <Route path="/live-testimonies" element={<MediaView />} />
+        <Route path="/help" element={<HelpPage />} />
+      </Routes>
+    </div>
+  );
+}
+
 function App() {
   const [theme, setTheme] = useState(
     localStorage.getItem("app-theme") || "dark"
   );
+
+  // Auto-start Live Slides WebSocket server if enabled in settings.
+  useEffect(() => {
+    const settings = loadLiveSlidesSettings();
+    if (!settings.autoStartServer) return;
+    // Best-effort: if it fails (already running / port in use), we'll let Settings/Import UI surface it.
+    startLiveSlidesServer(settings.serverPort).catch(() => {});
+  }, []);
 
   useEffect(() => {
     document.body.classList.remove("theme-light", "theme-dark");
@@ -69,15 +111,7 @@ function App() {
 
   return (
     <Router>
-      <div className="container">
-        <Navigation theme={theme} toggleTheme={toggleTheme} />
-        <Routes>
-          <Route path="/" element={<MainApplicationPage />} />
-          <Route path="/settings" element={<SettingsPage />} />
-          <Route path="/live-testimonies" element={<MediaView />} />
-          <Route path="/help" element={<HelpPage />} />
-        </Routes>
-      </div>
+      <AppContent theme={theme} toggleTheme={toggleTheme} />
     </Router>
   );
 }

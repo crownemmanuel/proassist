@@ -41,6 +41,17 @@ export interface PlaylistItem {
   templateName: string;
   templateColor: string; // From the template used
   slides: Slide[];
+  /**
+   * Live Slides integration (optional):
+   * When set, this playlist item is backed by a Live Slides session and can update in real-time.
+   */
+  liveSlidesSessionId?: string;
+  liveSlidesLinked?: boolean; // default true when liveSlidesSessionId is set
+  /**
+   * Persisted copy of the session's raw_text so sessions can be resumed after app restart.
+   * This is the canonical serialization for Live Slides (blank line = new slide).
+   */
+  liveSlidesCachedRawText?: string;
 }
 
 export interface Playlist {

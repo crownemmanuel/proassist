@@ -1,14 +1,32 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import PlaylistPane from "../components/PlaylistPane";
 import SlideDisplayArea from "../components/SlideDisplayArea";
 import ImportModal from "../components/ImportModal";
+import ImportFromLiveSlidesModal from "../components/ImportFromLiveSlidesModal";
 import RenameModal from "../components/RenameModal";
 import ConfirmDialog from "../components/ConfirmDialog";
+import TypingUrlModal from "../components/TypingUrlModal";
 import { Playlist, PlaylistItem, Slide, Template, LayoutType } from "../types"; // Using types defined earlier
-import { FaFileImport, FaEdit, FaTrash, FaCopy } from "react-icons/fa";
+import {
+  FaFileImport,
+  FaEdit,
+  FaTrash,
+  FaCopy,
+  FaDesktop,
+  FaLink,
+} from "react-icons/fa";
 import "../App.css"; // Ensure global styles are applied
 import { invoke } from "@tauri-apps/api/core"; // Tauri v2 core invoke
 import { formatSlidesForClipboard } from "../utils/slideUtils"; // Added import
+import {
+  createLiveSlideSession,
+  getLiveSlidesServerInfo,
+  LiveSlidesWebSocket,
+  loadLiveSlidesSettings,
+  startLiveSlidesServer,
+} from "../services/liveSlideService";
+import { LiveSlide } from "../types/liveSlides";
+import { calculateSlideBoundaries } from "../utils/liveSlideParser";
 
 const MainApplicationPage: React.FC = () => {
   const [playlists, setPlaylists] = useState<Playlist[]>(() => {
@@ -24,7 +42,9 @@ const MainApplicationPage: React.FC = () => {
   );
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [isLiveSlidesImportOpen, setIsLiveSlidesImportOpen] = useState(false);
   const [copyStatusMain, setCopyStatusMain] = useState<string>(""); // Added state for feedback
+  const [typingUrlModal, setTypingUrlModal] = useState<{ url: string } | null>(null);
   const [isRenameOpen, setIsRenameOpen] = useState(false);
   const [renameInitialName, setRenameInitialName] = useState("");
   const [renameTarget, setRenameTarget] = useState<
@@ -43,6 +63,30 @@ const MainApplicationPage: React.FC = () => {
     return savedTemplates ? JSON.parse(savedTemplates) : [];
   });
 
+  // Live Slides server info + websocket connections (for live-linked playlist items)
+  const [liveSlidesServerRunning, setLiveSlidesServerRunning] = useState<boolean>(false);
+  const [liveSlidesWsUrl, setLiveSlidesWsUrl] = useState<string | null>(null);
+  const [liveSlidesServerSessionIds, setLiveSlidesServerSessionIds] = useState<Set<string>>(new Set());
+  const [liveSlidesServerIp, setLiveSlidesServerIp] = useState<string>("localhost");
+  const liveSlidesWsMapRef = useRef<Map<string, LiveSlidesWebSocket>>(new Map());
+  // When a slide is currently being output ("Live"), avoid overwriting that slide from incoming WS updates.
+  const [liveSlidesLockBySession, setLiveSlidesLockBySession] = useState<Record<string, number | null>>({});
+  // When a slide is being edited locally, avoid overwriting it from incoming WS updates.
+  const [liveSlidesEditLockBySession, setLiveSlidesEditLockBySession] = useState<Record<string, number | null>>({});
+  // Use refs to access current lock state without causing re-renders
+  const liveSlidesLockBySessionRef = useRef<Record<string, number | null>>({});
+  const liveSlidesEditLockBySessionRef = useRef<Record<string, number | null>>({});
+  
+  // Keep refs in sync with state
+  useEffect(() => {
+    liveSlidesLockBySessionRef.current = liveSlidesLockBySession;
+  }, [liveSlidesLockBySession]);
+  useEffect(() => {
+    liveSlidesEditLockBySessionRef.current = liveSlidesEditLockBySession;
+  }, [liveSlidesEditLockBySession]);
+  // Latest raw_text per session (from server) so we can patch a single slide back to the notepad.
+  const [liveSlidesRawTextBySession, setLiveSlidesRawTextBySession] = useState<Record<string, string>>({});
+
   // Persist playlists to localStorage whenever they change
   useEffect(() => {
     try {
@@ -51,6 +95,33 @@ const MainApplicationPage: React.FC = () => {
       console.error("Failed to save playlists:", err);
     }
   }, [playlists]);
+
+  // Best-effort: keep track of the Live Slides server URL for viewer connections.
+  useEffect(() => {
+    let cancelled = false;
+    const refresh = async () => {
+      try {
+        const info = await getLiveSlidesServerInfo();
+        if (cancelled) return;
+        setLiveSlidesServerRunning(!!info.server_running);
+        setLiveSlidesWsUrl(info.server_running ? `ws://${info.local_ip}:${info.server_port}` : null);
+        setLiveSlidesServerSessionIds(new Set(Object.keys(info.sessions || {})));
+        setLiveSlidesServerIp(info.local_ip || "localhost");
+      } catch {
+        if (cancelled) return;
+        setLiveSlidesServerRunning(false);
+        setLiveSlidesWsUrl(null);
+        setLiveSlidesServerSessionIds(new Set());
+        setLiveSlidesServerIp("localhost");
+      }
+    };
+    refresh();
+    const t = setInterval(refresh, 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
+  }, []);
 
   const handleSelectPlaylist = (playlistId: string) => {
     setSelectedPlaylistId(playlistId);
@@ -215,36 +286,49 @@ const MainApplicationPage: React.FC = () => {
     );
 
     if (!template) {
-      console.error(
-        `Template '${playlistItem.templateName}' not found for playlist item '${playlistItem.title}'.`
-      );
-      alert(`Error: Template definition not found for this item.`);
-      return;
+      // Live Slides items don't require a template; they use Live Slides settings for output.
+      if (!playlistItem.liveSlidesSessionId) {
+        console.error(
+          `Template '${playlistItem.templateName}' not found for playlist item '${playlistItem.title}'.`
+        );
+        alert(`Error: Template definition not found for this item.`);
+        return;
+      }
     }
 
-    if (!template.outputPath || !template.outputFileNamePrefix) {
-      console.error(
-        `Template '${template.name}' is missing outputPath or outputFileNamePrefix.`
-      );
-      alert(
-        `Error: Output path or file prefix is not configured for the template '${template.name}'.`
-      );
-      return;
+    // Freeze this slide from incoming notepad updates while it is live.
+    if (playlistItem.liveSlidesSessionId) {
+      setLiveSlidesLockBySession((prev) => ({
+        ...prev,
+        [playlistItem.liveSlidesSessionId as string]: slide.order,
+      }));
     }
 
     console.log("Making slide live:", slide);
-    console.log("Using template:", template.name);
-    console.log(
-      `Output Path: ${template.outputPath}, Prefix: ${template.outputFileNamePrefix}`
-    );
+    if (playlistItem.liveSlidesSessionId) {
+      const ls = loadLiveSlidesSettings();
+      console.log("Using Live Slides output settings");
+      console.log(`Output Path: ${ls.outputPath}, Prefix: ${ls.outputFilePrefix}`);
+    } else if (template) {
+      console.log("Using template:", template.name);
+      console.log(
+        `Output Path: ${template.outputPath}, Prefix: ${template.outputFileNamePrefix}`
+      );
+    }
 
     const lines = slide.text.split("\n");
-    const basePath = template.outputPath.replace(/\/?$/, "/");
-    const prefix = template.outputFileNamePrefix;
+    const basePath = (playlistItem.liveSlidesSessionId
+      ? loadLiveSlidesSettings().outputPath
+      : template?.outputPath || ""
+    ).replace(/\/?$/, "/");
+    const prefix = playlistItem.liveSlidesSessionId
+      ? loadLiveSlidesSettings().outputFilePrefix
+      : template?.outputFileNamePrefix || "";
 
     // Check if this is an auto-scripture slide with custom mapping configured
     const isScriptureWithMapping =
       slide.isAutoScripture &&
+      !!template &&
       template.scriptureReferenceFileIndex !== undefined &&
       template.scriptureTextFileIndex !== undefined;
 
@@ -258,8 +342,8 @@ const MainApplicationPage: React.FC = () => {
         const reference = lines[1] || ""; // Second line is the reference
 
         console.log("Auto-scripture slide with custom mapping detected");
-        console.log(`Reference file index: ${template.scriptureReferenceFileIndex}`);
-        console.log(`Text file index: ${template.scriptureTextFileIndex}`);
+        console.log(`Reference file index: ${template!.scriptureReferenceFileIndex}`);
+        console.log(`Text file index: ${template!.scriptureTextFileIndex}`);
 
         // Blank out all 6 files first
         for (let i = 1; i <= 6; i++) {
@@ -268,12 +352,12 @@ const MainApplicationPage: React.FC = () => {
         }
 
         // Write the reference to its designated file
-        const refFilePath = `${basePath}${prefix}${template.scriptureReferenceFileIndex}.txt`;
+        const refFilePath = `${basePath}${prefix}${template!.scriptureReferenceFileIndex}.txt`;
         console.log(`Writing reference to: ${refFilePath}, Content: "${reference}"`);
         await invoke("write_text_to_file", { filePath: refFilePath, content: reference });
 
         // Write the verse text to its designated file
-        const textFilePath = `${basePath}${prefix}${template.scriptureTextFileIndex}.txt`;
+        const textFilePath = `${basePath}${prefix}${template!.scriptureTextFileIndex}.txt`;
         console.log(`Writing verse text to: ${textFilePath}, Content: "${verseText}"`);
         await invoke("write_text_to_file", { filePath: textFilePath, content: verseText });
       } else {
@@ -446,23 +530,56 @@ const MainApplicationPage: React.FC = () => {
     }
   };
 
+  const handleCopyLiveSlidesTypingLink = async () => {
+    const sid = currentPlaylistItem?.liveSlidesSessionId;
+    if (!sid) return;
+
+    if (!liveSlidesServerRunning || !liveSlidesServerSessionIds.has(sid)) {
+      alert("That Live Slides session isn't running. Click Restart/Resume Session first.");
+      return;
+    }
+
+    const settings = loadLiveSlidesSettings();
+    const appPort = window.location.port || "1420";
+    const url = `http://${liveSlidesServerIp}:${appPort}/live-slides/notepad/${sid}?wsHost=${liveSlidesServerIp}&wsPort=${settings.serverPort}`;
+    
+    // Show typing URL modal
+    setTypingUrlModal({ url });
+    
+    // Try to copy to clipboard automatically (non-blocking)
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopyStatusMain("Link Copied!");
+      setTimeout(() => setCopyStatusMain(""), 2000);
+    } catch (e) {
+      console.error(e);
+      // Clipboard access denied - user can copy from modal
+    }
+  };
+
   const handleImportFromModal = (
     itemName: string,
     templateName: string,
-    slidesFromModal: Pick<Slide, "text" | "layout" | "isAutoScripture">[]
+    slidesFromModal: Pick<Slide, "text" | "layout" | "isAutoScripture">[],
+    options?: { liveSlidesSessionId?: string; liveSlidesLinked?: boolean }
   ) => {
     if (!selectedPlaylistId) {
       alert("No playlist selected to add the imported item to.");
       return;
     }
 
-    const selectedTemplate = templates.find((t) => t.name === templateName);
-    if (!selectedTemplate) {
+    const isLiveSlidesItem = !!options?.liveSlidesSessionId;
+    const selectedTemplate = isLiveSlidesItem
+      ? undefined
+      : templates.find((t) => t.name === templateName);
+    if (!isLiveSlidesItem && !selectedTemplate) {
       alert(`Template "${templateName}" not found. Cannot import.`);
       setIsImportModalOpen(false);
       return;
     }
-    const templateColorUsed = selectedTemplate.color || "#808080";
+    const templateColorUsed = isLiveSlidesItem
+      ? "#2563eb"
+      : selectedTemplate!.color || "#808080";
 
     const fullSlides: Slide[] = slidesFromModal.map((slideData, index) => ({
       ...slideData,
@@ -476,6 +593,9 @@ const MainApplicationPage: React.FC = () => {
       slides: fullSlides,
       templateName: templateName,
       templateColor: templateColorUsed,
+      liveSlidesSessionId: options?.liveSlidesSessionId,
+      liveSlidesLinked:
+        options?.liveSlidesSessionId ? options?.liveSlidesLinked ?? true : undefined,
     };
 
     setPlaylists((prevPlaylists) =>
@@ -489,6 +609,334 @@ const MainApplicationPage: React.FC = () => {
     setSelectedItemId(newPlaylistItem.id);
     setIsImportModalOpen(false);
   };
+
+  const handleDetachCurrentLiveSlides = () => {
+    if (!currentPlaylist || !currentPlaylistItem) return;
+    const sid = currentPlaylistItem.liveSlidesSessionId;
+    if (!sid) return;
+
+    setPlaylists((prev) =>
+      prev.map((p) => {
+        if (p.id !== currentPlaylist.id) return p;
+        return {
+          ...p,
+          items: p.items.map((it) => {
+            if (it.id !== currentPlaylistItem.id) return it;
+            return {
+              ...it,
+              liveSlidesLinked: false,
+            };
+          }),
+        };
+      })
+    );
+
+    // Clear any "live slide" lock for this session once detached.
+    setLiveSlidesLockBySession((prev) => {
+      const next = { ...prev };
+      delete next[sid];
+      return next;
+    });
+
+    // Clear any edit lock/raw text cache for this session once detached.
+    setLiveSlidesEditLockBySession((prev) => {
+      const next = { ...prev };
+      delete next[sid];
+      return next;
+    });
+    setLiveSlidesRawTextBySession((prev) => {
+      const next = { ...prev };
+      delete next[sid];
+      return next;
+    });
+  };
+
+  const buildRawTextFromSlides = (slides: Slide[]): string => {
+    return slides
+      .slice()
+      .sort((a, b) => a.order - b.order)
+      .map((s) => (s.text || "").trim())
+      .filter((t) => t.length > 0)
+      .join("\n\n");
+  };
+
+  const handleResumeCurrentLiveSlidesSession = async () => {
+    if (!currentPlaylist || !currentPlaylistItem?.liveSlidesSessionId) return;
+
+    try {
+      const settings = loadLiveSlidesSettings();
+
+      // Ensure server is running.
+      if (!liveSlidesServerRunning) {
+        await startLiveSlidesServer(settings.serverPort);
+      }
+
+      // Re-fetch server info to get IP + port + sessions
+      const info = await getLiveSlidesServerInfo();
+      setLiveSlidesServerRunning(!!info.server_running);
+      setLiveSlidesWsUrl(info.server_running ? `ws://${info.local_ip}:${info.server_port}` : null);
+      setLiveSlidesServerSessionIds(new Set(Object.keys(info.sessions || {})));
+
+      if (!info.server_running) {
+        alert("Failed to start Live Slides server.");
+        return;
+      }
+
+      // Create a fresh session and seed it with our cached content.
+      const session = await createLiveSlideSession(currentPlaylistItem.title);
+
+      const seedRaw =
+        currentPlaylistItem.liveSlidesCachedRawText?.trim().length
+          ? currentPlaylistItem.liveSlidesCachedRawText
+          : buildRawTextFromSlides(currentPlaylistItem.slides);
+
+      // Update item to point at new session id (so future reconnects + WS updates work).
+      setPlaylists((prev) =>
+        prev.map((p) => {
+          if (p.id !== currentPlaylist.id) return p;
+          return {
+            ...p,
+            items: p.items.map((it) => {
+              if (it.id !== currentPlaylistItem.id) return it;
+              return {
+                ...it,
+                liveSlidesSessionId: session.id,
+                liveSlidesLinked: true,
+                liveSlidesCachedRawText: seedRaw,
+              };
+            }),
+          };
+        })
+      );
+
+      // Seed the server via WS - ensure text is sent before notepad connects.
+      const wsUrl = `ws://${info.local_ip}:${info.server_port}`;
+      const ws = new LiveSlidesWebSocket(wsUrl, session.id, "viewer");
+      liveSlidesWsMapRef.current.set(session.id, ws);
+      await ws.connect();
+      
+      // Send the text update to seed the session
+      if (seedRaw.trim().length > 0) {
+        ws.sendTextUpdate(seedRaw);
+        // Give the server a moment to process the update before showing the URL
+        // This ensures the notepad will receive the pre-populated content when it connects
+        await new Promise(resolve => setTimeout(resolve, 300));
+      }
+
+      // Show typing URL modal
+      const typingUrl = `http://${info.local_ip}:${window.location.port || "1420"}/live-slides/notepad/${session.id}?wsHost=${info.local_ip}&wsPort=${settings.serverPort}`;
+      setTypingUrlModal({ url: typingUrl });
+      
+      // Try to copy to clipboard automatically (non-blocking)
+      try {
+        await navigator.clipboard.writeText(typingUrl);
+      } catch (clipboardError) {
+        // Clipboard access denied - user can copy from modal
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      alert(`Failed to restart Live Slides session: ${msg}`);
+    }
+  };
+
+  const patchSlideIntoRawText = (
+    rawText: string,
+    slideOrder: number,
+    newSlideText: string
+  ): string => {
+    const safeLines = newSlideText
+      .split("\n")
+      // Avoid creating new slide boundaries from empty lines inside a slide.
+      .map((l) => l.trimEnd())
+      .filter((l) => l.trim() !== "");
+
+    const lines = rawText.split("\n");
+    const boundaries = calculateSlideBoundaries(rawText);
+    const boundary = boundaries.find((b) => b.slideIndex === slideOrder - 1);
+    if (!boundary) {
+      // If we can't find it, fallback to appending at the end as a best-effort.
+      const prefix = rawText.trim().length ? `${rawText.trimEnd()}\n\n` : "";
+      return `${prefix}${safeLines.join("\n")}`;
+    }
+
+    const before = lines.slice(0, boundary.startLine);
+    const after = lines.slice(boundary.endLine + 1);
+    const nextLines = [...before, ...safeLines, ...after];
+    return nextLines.join("\n");
+  };
+
+  const handleUpdateLiveSlidesSlide = async (
+    playlistId: string,
+    itemId: string,
+    slideId: string,
+    newText: string
+  ) => {
+    const pl = playlists.find((p) => p.id === playlistId);
+    const it = pl?.items.find((x) => x.id === itemId);
+    const sid = it?.liveSlidesSessionId;
+    if (!pl || !it || !sid) return;
+
+    const slide = it.slides.find((s) => s.id === slideId);
+    if (!slide) return;
+
+    const ws = liveSlidesWsMapRef.current.get(sid);
+    if (!ws) {
+      alert("Live Slides connection is not ready yet. Try again in a moment.");
+      return;
+    }
+
+    // Lock this slide while we patch + send.
+    setLiveSlidesEditLockBySession((prev) => ({ ...prev, [sid]: slide.order }));
+
+    const baseRaw =
+      liveSlidesRawTextBySession[sid] && liveSlidesRawTextBySession[sid].trim().length
+        ? liveSlidesRawTextBySession[sid]
+        : buildRawTextFromSlides(it.slides);
+
+    const nextRaw = patchSlideIntoRawText(baseRaw, slide.order, newText);
+
+    // Optimistically update local slides (WS update will reconcile).
+    setPlaylists((prev) =>
+      prev.map((p) => {
+        if (p.id !== playlistId) return p;
+        return {
+          ...p,
+          items: p.items.map((x) => {
+            if (x.id !== itemId) return x;
+            return {
+              ...x,
+              slides: x.slides.map((s) => (s.id === slideId ? { ...s, text: newText } : s)),
+            };
+          }),
+        };
+      })
+    );
+
+    setLiveSlidesRawTextBySession((prev) => ({ ...prev, [sid]: nextRaw }));
+    ws.sendTextUpdate(nextRaw);
+
+    // Unlock after save; future updates can overwrite again.
+    setLiveSlidesEditLockBySession((prev) => ({ ...prev, [sid]: null }));
+  };
+
+  const getLayoutName = (count: number): string => {
+    const names: Record<number, string> = {
+      1: "one",
+      2: "two",
+      3: "three",
+      4: "four",
+      5: "five",
+      6: "six",
+    };
+    return names[Math.min(count, 6)] || "one";
+  };
+
+  const convertLiveSlidesToSlidesForItem = useMemo(() => {
+    return (sessionId: string, _templateName: string, liveSlides: LiveSlide[]): Slide[] => {
+      return liveSlides.map((liveSlide, idx) => {
+        const text = liveSlide.items
+          .map((item) => (item.is_sub_item ? `\t${item.text}` : item.text))
+          .join("\n");
+
+        const itemCount = liveSlide.items.length;
+        const candidate = `${getLayoutName(itemCount)}-line` as LayoutType;
+        const layout: LayoutType = candidate;
+
+        return {
+          id: `live-${sessionId}-${idx}`,
+          order: idx + 1,
+          text,
+          layout,
+          isAutoScripture: false,
+        };
+      });
+    };
+  }, [templates]);
+
+  // Live update any live-linked playlist items while the server is running.
+  useEffect(() => {
+    const linkedSessionIds = new Set<string>();
+    for (const p of playlists) {
+      for (const it of p.items) {
+        if (it.liveSlidesSessionId && (it.liveSlidesLinked ?? true)) {
+          linkedSessionIds.add(it.liveSlidesSessionId);
+        }
+      }
+    }
+
+    // Disconnect any sockets no longer needed.
+    for (const [sid, ws] of liveSlidesWsMapRef.current.entries()) {
+      if (!linkedSessionIds.has(sid) || !liveSlidesWsUrl) {
+        ws.disconnect();
+        liveSlidesWsMapRef.current.delete(sid);
+      }
+    }
+
+    if (!liveSlidesWsUrl || !liveSlidesServerRunning) return;
+
+    // Connect missing sockets.
+    linkedSessionIds.forEach((sid) => {
+      if (liveSlidesWsMapRef.current.has(sid)) return;
+      const ws = new LiveSlidesWebSocket(liveSlidesWsUrl, sid, "viewer");
+      liveSlidesWsMapRef.current.set(sid, ws);
+
+      ws.connect().catch(() => {
+        // Best-effort; status is surfaced via serverRunning polling + future UI
+      });
+
+      const unsub = ws.onSlidesUpdate((update) => {
+        if (update.session_id !== sid) return;
+        setPlaylists((prev) =>
+          prev.map((pl) => ({
+            ...pl,
+            items: pl.items.map((it) => {
+              if (it.liveSlidesSessionId !== sid || !(it.liveSlidesLinked ?? true)) return it;
+              let nextSlides = convertLiveSlidesToSlidesForItem(
+                sid,
+                it.templateName,
+                update.slides as unknown as LiveSlide[]
+              );
+              // Use refs to get current lock state without causing re-renders
+              const lockOrders = [
+                liveSlidesLockBySessionRef.current[sid],
+                liveSlidesEditLockBySessionRef.current[sid],
+              ].filter((x): x is number => typeof x === "number");
+              if (lockOrders.length) {
+                for (const lo of lockOrders) {
+                  const lockedExisting = it.slides.find((s) => s.order === lo);
+                  if (lockedExisting) {
+                    nextSlides = nextSlides.map((s) =>
+                      s.order === lo ? { ...lockedExisting } : s
+                    );
+                  }
+                }
+              }
+              const nextCached = buildRawTextFromSlides(nextSlides);
+              setLiveSlidesRawTextBySession((prevRaw) => ({
+                ...prevRaw,
+                [sid]: update.raw_text || nextCached,
+              }));
+              return { ...it, slides: nextSlides, liveSlidesCachedRawText: nextCached };
+            }),
+          }))
+        );
+      });
+
+      // Store unsubscribe by wrapping disconnect (simple; if we later need, refactor).
+      const originalDisconnect = ws.disconnect.bind(ws);
+      ws.disconnect = () => {
+        unsub();
+        originalDisconnect();
+      };
+    });
+  }, [
+    playlists,
+    liveSlidesWsUrl,
+    liveSlidesServerRunning,
+    convertLiveSlidesToSlidesForItem,
+    // Note: liveSlidesLockBySession and liveSlidesEditLockBySession are NOT in deps
+    // to avoid reconnecting WebSockets when locks change. We use refs to access current values.
+  ]);
 
   // Style objects using CSS variables. These could also be classes in App.css
   const pageLayoutStyle: React.CSSProperties = {
@@ -551,46 +999,6 @@ const MainApplicationPage: React.FC = () => {
                   }`
                 : "Select a Playlist"}
             </h3>
-            {currentPlaylist && !currentPlaylistItem && (
-              <button
-                onClick={handleOpenRenameSelectedPlaylist}
-                className="secondary btn-sm"
-                title="Rename playlist"
-              >
-                <FaEdit />
-                Edit
-              </button>
-            )}
-            {currentPlaylist && !currentPlaylistItem && (
-              <button
-                onClick={handleDeleteSelectedPlaylist}
-                className="secondary btn-sm"
-                title="Delete playlist"
-              >
-                <FaTrash />
-                Delete
-              </button>
-            )}
-            {currentPlaylist && currentPlaylistItem && (
-              <button
-                onClick={handleOpenRenameSelectedItem}
-                className="secondary btn-sm"
-                title="Rename item"
-              >
-                <FaEdit />
-                Edit
-              </button>
-            )}
-            {currentPlaylist && currentPlaylistItem && (
-              <button
-                onClick={handleDeleteSelectedItem}
-                className="secondary btn-sm"
-                title="Delete item"
-              >
-                <FaTrash />
-                Delete
-              </button>
-            )}
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
             <button
@@ -608,6 +1016,21 @@ const MainApplicationPage: React.FC = () => {
               <FaFileImport />
               Import
             </button>
+            <button
+              onClick={() => {
+                if (currentPlaylist) {
+                  setIsLiveSlidesImportOpen(true);
+                } else {
+                  alert("Please select a playlist first.");
+                }
+              }}
+              disabled={!currentPlaylist}
+              className="secondary"
+              title="Import from Live Slides session"
+            >
+              <FaDesktop />
+              Live Slides
+            </button>
             {currentPlaylistItem && currentPlaylistItem.slides.length > 0 && (
               <button
                 onClick={handleCopyToClipboardMain}
@@ -615,7 +1038,51 @@ const MainApplicationPage: React.FC = () => {
                 className="secondary"
               >
                 <FaCopy />
-                Copy Slides
+              </button>
+            )}
+            {currentPlaylist && !currentPlaylistItem && (
+              <button
+                onClick={handleOpenRenameSelectedPlaylist}
+                className="secondary btn-sm"
+                title="Rename playlist"
+              >
+                <FaEdit />
+              </button>
+            )}
+            {currentPlaylist && currentPlaylistItem && (
+              <button
+                onClick={handleOpenRenameSelectedItem}
+                className="secondary btn-sm"
+                title="Rename item"
+              >
+                <FaEdit />
+              </button>
+            )}
+            {currentPlaylist && !currentPlaylistItem && (
+              <button
+                onClick={handleDeleteSelectedPlaylist}
+                className="secondary btn-sm"
+                title="Delete playlist"
+              >
+                <FaTrash />
+              </button>
+            )}
+            {currentPlaylist && currentPlaylistItem && (
+              <button
+                onClick={handleDeleteSelectedItem}
+                className="secondary btn-sm"
+                title="Delete item"
+              >
+                <FaTrash />
+              </button>
+            )}
+            {currentPlaylistItem?.liveSlidesSessionId && (currentPlaylistItem.liveSlidesLinked ?? true) && (
+              <button
+                onClick={handleCopyLiveSlidesTypingLink}
+                title="Copy the typing link for this Live Slides session"
+                className="secondary"
+              >
+                <FaLink />
               </button>
             )}
             {copyStatusMain && (
@@ -640,14 +1107,68 @@ const MainApplicationPage: React.FC = () => {
             template={templates.find(
               (t) => t.name === currentPlaylistItem?.templateName
             )}
+            liveSlidesStatus={
+              currentPlaylistItem?.liveSlidesSessionId &&
+              (currentPlaylistItem.liveSlidesLinked ?? true)
+                ? {
+                    serverRunning: liveSlidesServerRunning,
+                    sessionExists: liveSlidesServerSessionIds.has(
+                      currentPlaylistItem.liveSlidesSessionId
+                    ),
+                  }
+                : undefined
+            }
+            onResumeLiveSlidesSession={
+              currentPlaylistItem?.liveSlidesSessionId &&
+              (currentPlaylistItem.liveSlidesLinked ?? true) &&
+              (!liveSlidesServerRunning ||
+                !liveSlidesServerSessionIds.has(currentPlaylistItem.liveSlidesSessionId))
+                ? handleResumeCurrentLiveSlidesSession
+                : undefined
+            }
+            onDetachLiveSlides={
+              currentPlaylistItem?.liveSlidesSessionId &&
+              (currentPlaylistItem.liveSlidesLinked ?? true)
+                ? handleDetachCurrentLiveSlides
+                : undefined
+            }
+            onBeginLiveSlideEdit={(slide) => {
+              const sid = currentPlaylistItem?.liveSlidesSessionId;
+              if (!sid) return;
+              if (!(currentPlaylistItem?.liveSlidesLinked ?? true)) return;
+              setLiveSlidesEditLockBySession((prev) => ({
+                ...prev,
+                [sid]: slide.order,
+              }));
+            }}
+            onEndLiveSlideEdit={() => {
+              const sid = currentPlaylistItem?.liveSlidesSessionId;
+              if (!sid) return;
+              setLiveSlidesEditLockBySession((prev) => ({
+                ...prev,
+                [sid]: null,
+              }));
+            }}
             onUpdateSlide={(slideId, newText) => {
               if (currentPlaylist && currentPlaylistItem) {
-                handleUpdateSlide(
-                  currentPlaylist.id,
-                  currentPlaylistItem.id,
-                  slideId,
-                  newText
-                );
+                if (
+                  currentPlaylistItem.liveSlidesSessionId &&
+                  (currentPlaylistItem.liveSlidesLinked ?? true)
+                ) {
+                  handleUpdateLiveSlidesSlide(
+                    currentPlaylist.id,
+                    currentPlaylistItem.id,
+                    slideId,
+                    newText
+                  );
+                } else {
+                  handleUpdateSlide(
+                    currentPlaylist.id,
+                    currentPlaylistItem.id,
+                    slideId,
+                    newText
+                  );
+                }
               }
             }}
             onMakeSlideLive={(slide) =>
@@ -662,6 +1183,12 @@ const MainApplicationPage: React.FC = () => {
       <ImportModal
         isOpen={isImportModalOpen}
         onClose={() => setIsImportModalOpen(false)}
+        templates={templates}
+        onImport={handleImportFromModal}
+      />
+      <ImportFromLiveSlidesModal
+        isOpen={isLiveSlidesImportOpen}
+        onClose={() => setIsLiveSlidesImportOpen(false)}
         templates={templates}
         onImport={handleImportFromModal}
       />
@@ -690,6 +1217,11 @@ const MainApplicationPage: React.FC = () => {
         cancelLabel="Cancel"
         onConfirm={performPendingDelete}
         onCancel={() => setPendingDelete(null)}
+      />
+      <TypingUrlModal
+        isOpen={!!typingUrlModal}
+        url={typingUrlModal?.url || ""}
+        onClose={() => setTypingUrlModal(null)}
       />
     </div>
   );

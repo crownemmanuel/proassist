@@ -16,7 +16,8 @@ export default defineConfig(async () => ({
   server: {
     port: 1420,
     strictPort: true,
-    host: host || false,
+    // Bind to 0.0.0.0 to allow access from other devices on the network (for Live Slides notepad)
+    host: host || "0.0.0.0",
     hmr: host
       ? {
           protocol: "ws",

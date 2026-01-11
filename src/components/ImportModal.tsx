@@ -9,7 +9,8 @@ import "../App.css"; // Ensure global styles are applied
 const MAX_PREVIEW_SLIDES = 10;
 
 // Define a type for the preview slide structure, omitting the id
-interface PreviewSlide extends Pick<Slide, "text" | "layout" | "isAutoScripture"> {
+interface PreviewSlide
+  extends Pick<Slide, "text" | "layout" | "isAutoScripture"> {
   order: number; // Order for preview sorting
 }
 
@@ -19,7 +20,8 @@ interface ImportModalProps {
   onImport: (
     itemName: string,
     templateName: string,
-    slides: Pick<Slide, "text" | "layout" | "isAutoScripture">[]
+    slides: Pick<Slide, "text" | "layout" | "isAutoScripture">[],
+    options?: { liveSlidesSessionId?: string; liveSlidesLinked?: boolean }
   ) => void;
   templates: Template[];
 }
@@ -47,7 +49,7 @@ const ImportModal: React.FC<ImportModalProps> = ({
 
   useEffect(() => {
     if (isOpen) {
-      setItemName("New Imported Item");
+      setItemName(""); // Start with empty name - user must enter one
       setSelectedTemplateName(templates.length > 0 ? templates[0].name : "");
       setCurrentInputText("");
       setPastedText("");
@@ -80,7 +82,8 @@ const ImportModal: React.FC<ImportModalProps> = ({
     setIsLoading(true);
     setPreviewSlides([]); // Clear previous preview
     setProcessedSlidesForImport([]); // Clear previous full results
-    let generatedSlides: Pick<Slide, "text" | "layout" | "isAutoScripture">[] = [];
+    let generatedSlides: Pick<Slide, "text" | "layout" | "isAutoScripture">[] =
+      [];
     try {
       if (template.processingType === "ai" || template.processWithAI) {
         generatedSlides = await generateSlidesFromText(
@@ -100,8 +103,14 @@ const ImportModal: React.FC<ImportModalProps> = ({
       console.log("Auto-load Bible verses checkbox:", autoLoadBibleVerses);
       if (autoLoadBibleVerses) {
         console.log("Processing slides for Bible references...");
-        generatedSlides = await processTextWithBibleReferences(generatedSlides, true);
-        console.log("After Bible processing, slides count:", generatedSlides.length);
+        generatedSlides = await processTextWithBibleReferences(
+          generatedSlides,
+          true
+        );
+        console.log(
+          "After Bible processing, slides count:",
+          generatedSlides.length
+        );
       }
 
       setPreviewSlides(
@@ -321,15 +330,30 @@ const ImportModal: React.FC<ImportModalProps> = ({
       <div className="modal-content">
         <h2>Import to Playlist</h2>
         <div className="form-group">
-          <label htmlFor="itemName">Item Name:</label>
+          <label htmlFor="itemName">
+            Item Name: <span style={{ color: "#EF4444" }}>*</span>
+          </label>
           <input
             type="text"
             id="itemName"
             value={itemName}
             onChange={(e) => setItemName(e.target.value)}
-            placeholder="e.g., Song Title, Sermon Topic"
+            placeholder="Sunday Service Announcements"
             disabled={isLoading}
+            required
           />
+          {!itemName.trim() && (
+            <span
+              style={{
+                color: "#EF4444",
+                fontSize: "0.85rem",
+                marginTop: "4px",
+                display: "block",
+              }}
+            >
+              Item name is required
+            </span>
+          )}
         </div>
         <div className="form-group">
           <label htmlFor="templateSelect">Template:</label>
@@ -531,7 +555,9 @@ const ImportModal: React.FC<ImportModalProps> = ({
               ) => (
                 <div
                   key={index}
-                  className={`preview-slide-item ${slide.isAutoScripture ? "scripture-slide" : ""}`}
+                  className={`preview-slide-item ${
+                    slide.isAutoScripture ? "scripture-slide" : ""
+                  }`}
                   style={
                     slide.isAutoScripture
                       ? {
