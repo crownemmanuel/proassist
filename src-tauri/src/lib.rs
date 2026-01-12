@@ -50,6 +50,35 @@ pub struct LiveSlidesState {
     pub local_ip: String,
 }
 
+// ============================================================================
+// Types for Schedule
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScheduleItem {
+    pub id: i32,
+    pub session: String,
+    pub start_time: String,
+    pub end_time: String,
+    pub duration: String,
+    pub minister: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScheduleState {
+    pub schedule: Vec<ScheduleItem>,
+    pub current_session_index: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TimerState {
+    pub is_running: bool,
+    pub time_left: i32, // seconds
+    pub session_name: Option<String>,
+    pub end_time: Option<String>,
+    pub is_overrun: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum WsMessage {
@@ -58,6 +87,8 @@ pub enum WsMessage {
     TextUpdate { session_id: String, text: String },
     #[serde(rename = "join_session")]
     JoinSession { session_id: String, client_type: String },
+    #[serde(rename = "join_schedule")]
+    JoinSchedule,
     
     // From server to clients
     #[serde(rename = "slides_update")]
@@ -66,6 +97,16 @@ pub enum WsMessage {
     SessionCreated { session: LiveSlideSession },
     #[serde(rename = "session_deleted")]
     SessionDeleted { session_id: String },
+    #[serde(rename = "schedule_update")]
+    ScheduleUpdate { 
+        schedule: Vec<ScheduleItem>, 
+        #[serde(rename = "currentSessionIndex")]
+        current_session_index: Option<usize> 
+    },
+    #[serde(rename = "timer_update")]
+    TimerUpdate { timer_state: TimerState },
+    #[serde(rename = "join_timer")]
+    JoinTimer,
     #[serde(rename = "error")]
     Error { message: String },
 }
@@ -73,6 +114,8 @@ pub enum WsMessage {
 // Global state for the WebSocket server
 struct ServerState {
     sessions: RwLock<HashMap<String, LiveSlideSession>>,
+    schedule: RwLock<ScheduleState>,
+    timer_state: RwLock<TimerState>,
     broadcast_tx: broadcast::Sender<String>,
     running: RwLock<bool>,
     port: RwLock<u16>,
@@ -82,6 +125,17 @@ struct ServerState {
 lazy_static::lazy_static! {
     static ref SERVER_STATE: Arc<ServerState> = Arc::new(ServerState {
         sessions: RwLock::new(HashMap::new()),
+        schedule: RwLock::new(ScheduleState {
+            schedule: Vec::new(),
+            current_session_index: None,
+        }),
+        timer_state: RwLock::new(TimerState {
+            is_running: false,
+            time_left: 0,
+            session_name: None,
+            end_time: None,
+            is_overrun: false,
+        }),
         broadcast_tx: broadcast::channel(100).0,
         running: RwLock::new(false),
         port: RwLock::new(9876),
@@ -308,6 +362,27 @@ async fn handle_ws_connection(ws: WebSocket, state: Arc<ServerState>) {
                                 }
                             }
                         }
+                        WsMessage::JoinSchedule => {
+                            // Send current schedule state to the joining client
+                            let schedule_state = state.schedule.read().await;
+                            let update = WsMessage::ScheduleUpdate {
+                                schedule: schedule_state.schedule.clone(),
+                                current_session_index: schedule_state.current_session_index,
+                            };
+                            if let Ok(json) = serde_json::to_string(&update) {
+                                let _ = state.broadcast_tx.send(json);
+                            }
+                        }
+                        WsMessage::JoinTimer => {
+                            // Send current timer state to the joining client
+                            let timer_state = state.timer_state.read().await;
+                            let update = WsMessage::TimerUpdate {
+                                timer_state: timer_state.clone(),
+                            };
+                            if let Ok(json) = serde_json::to_string(&update) {
+                                let _ = state.broadcast_tx.send(json);
+                            }
+                        }
                         _ => {}
                     }
                 }
@@ -357,6 +432,45 @@ async fn run_combined_server(port: u16) -> Result<(), String> {
         .map(move |ws: warp::ws::Ws| {
             let state_clone = ws_state.clone();
             ws.on_upgrade(move |socket| handle_ws_connection(socket, state_clone))
+        });
+    
+    // Schedule API route
+    let api_state = state.clone();
+    let schedule_api_route = warp::path("api")
+        .and(warp::path("schedule"))
+        .and(warp::path::end())
+        .and_then(move || {
+            let state_clone = api_state.clone();
+            async move {
+                let schedule_state = state_clone.schedule.read().await;
+                let response = serde_json::json!({
+                    "schedule": schedule_state.schedule,
+                    "currentSessionIndex": schedule_state.current_session_index,
+                });
+                Ok::<_, warp::Rejection>(warp::reply::json(&response))
+            }
+        });
+    
+    // Schedule view route - serve schedule-view.html
+    let schedule_view_route = warp::path("schedule")
+        .and(warp::path("view"))
+        .and(warp::path::end())
+        .map(|| {
+            match serve_embedded_file("schedule-view.html") {
+                Some((content, _)) => {
+                    warp::http::Response::builder()
+                        .header("Content-Type", "text/html")
+                        .header("Access-Control-Allow-Origin", "*")
+                        .body(content)
+                        .unwrap()
+                }
+                None => {
+                    warp::http::Response::builder()
+                        .status(404)
+                        .body(b"Schedule view not found".to_vec())
+                        .unwrap()
+                }
+            }
         });
     
     // Static files route - serve embedded frontend assets
@@ -417,8 +531,10 @@ async fn run_combined_server(port: u16) -> Result<(), String> {
         .allow_methods(vec!["GET", "POST", "OPTIONS"])
         .allow_headers(vec!["Content-Type"]);
     
-    // Combine routes: WebSocket first, then static files
+    // Combine routes: WebSocket first, then API, then schedule view, then static files
     let routes = ws_route
+        .or(schedule_api_route)
+        .or(schedule_view_route)
         .or(root_route)
         .or(static_route)
         .with(cors);
@@ -594,6 +710,69 @@ fn get_local_ip() -> String {
         .unwrap_or_else(|_| "localhost".to_string())
 }
 
+#[tauri::command]
+async fn update_schedule(
+    schedule: Vec<ScheduleItem>,
+    current_session_index: Option<usize>,
+) -> Result<(), String> {
+    let state = SERVER_STATE.clone();
+    
+    // Update schedule state
+    {
+        let mut schedule_state = state.schedule.write().await;
+        schedule_state.schedule = schedule.clone();
+        schedule_state.current_session_index = current_session_index;
+    }
+    
+    // Broadcast schedule update to all connected clients
+    let update = WsMessage::ScheduleUpdate {
+        schedule,
+        current_session_index,
+    };
+    if let Ok(json) = serde_json::to_string(&update) {
+        let _ = state.broadcast_tx.send(json);
+    }
+    
+    Ok(())
+}
+
+#[tauri::command]
+async fn update_timer_state(
+    is_running: bool,
+    time_left: i32,
+    session_name: Option<String>,
+    end_time: Option<String>,
+    is_overrun: bool,
+) -> Result<(), String> {
+    let state = SERVER_STATE.clone();
+    
+    // Update timer state
+    {
+        let mut timer_state = state.timer_state.write().await;
+        timer_state.is_running = is_running;
+        timer_state.time_left = time_left;
+        timer_state.session_name = session_name.clone();
+        timer_state.end_time = end_time.clone();
+        timer_state.is_overrun = is_overrun;
+    }
+    
+    // Broadcast timer update to all connected clients
+    let update = WsMessage::TimerUpdate {
+        timer_state: TimerState {
+            is_running,
+            time_left,
+            session_name,
+            end_time,
+            is_overrun,
+        },
+    };
+    if let Ok(json) = serde_json::to_string(&update) {
+        let _ = state.broadcast_tx.send(json);
+    }
+    
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -615,7 +794,9 @@ pub fn run() {
             delete_live_slide_session,
             get_live_slide_sessions,
             get_live_slides_server_info,
-            get_local_ip
+            get_local_ip,
+            update_schedule,
+            update_timer_state
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -101,6 +101,7 @@ const StageAssistContext = createContext<StageAssistContextValue | null>(null);
 export const StageAssistProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [schedule, setSchedule] = useState<ScheduleItem[]>([]);
   const [settings, setSettings] = useState<StageAssistSettings>(defaultSettings);
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
 
   const [timerState, setTimerState] = useState<TimerState>({
     isRunning: false,
@@ -142,6 +143,9 @@ export const StageAssistProvider: React.FC<{ children: React.ReactNode }> = ({ c
       // Keep default settings
     }
 
+    // Mark settings as loaded after initial load
+    setSettingsLoaded(true);
+
     // Restore runtime timer state so it survives navigation (and even app reload)
     const savedRuntime = localStorage.getItem(RUNTIME_STORAGE_KEY);
     if (savedRuntime) {
@@ -172,13 +176,28 @@ export const StageAssistProvider: React.FC<{ children: React.ReactNode }> = ({ c
     }
   }, [schedule]);
 
+  // Update schedule on server for remote viewing
   useEffect(() => {
+    // Dynamically import to avoid issues if server is not running
+    import("../services/scheduleService")
+      .then(({ updateSchedule }) => {
+        updateSchedule(schedule, currentSessionIndex);
+      })
+      .catch((error) => {
+        // Silently fail if server is not running
+        console.debug("Schedule service not available:", error);
+      });
+  }, [schedule, currentSessionIndex]);
+
+  // Persist settings only after initial load (to avoid overwriting saved settings)
+  useEffect(() => {
+    if (!settingsLoaded) return;
     try {
       localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings));
     } catch (error) {
       console.error("Error saving settings to localStorage:", error);
     }
-  }, [settings]);
+  }, [settings, settingsLoaded]);
 
   // Persist runtime timer state (for navigation + reload safety)
   useEffect(() => {
@@ -187,6 +206,19 @@ export const StageAssistProvider: React.FC<{ children: React.ReactNode }> = ({ c
       JSON.stringify({ timerState, currentSessionIndex, savedAt: Date.now() })
     );
   }, [timerState, currentSessionIndex]);
+
+  // Update timer state on server for remote viewing
+  useEffect(() => {
+    // Dynamically import to avoid issues if server is not running
+    import("../services/scheduleService")
+      .then(({ updateTimerState }) => {
+        updateTimerState(timerState);
+      })
+      .catch((error) => {
+        // Silently fail if server is not running
+        console.debug("Timer service not available:", error);
+      });
+  }, [timerState]);
 
   // Countdown ticking (lives at app level so it survives route changes)
   const tickIntervalRef = useRef<number | null>(null);

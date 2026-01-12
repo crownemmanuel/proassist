@@ -3,10 +3,10 @@ import SettingsDetail from "../components/SettingsDetail";
 import { Template } from "../types";
 import AISettingsForm from "../components/AISettingsForm";
 import LiveTestimoniesSettings from "../components/LiveTestimoniesSettings";
-import LiveSlidesSettings from "../components/LiveSlidesSettings";
+import NetworkSettings from "../components/NetworkSettings";
 import ProPresenterSettings from "../components/ProPresenterSettings";
 import VersionSettings from "../components/VersionSettings";
-import { FaList, FaRobot, FaMicrophone, FaDesktop, FaClock, FaInfoCircle } from "react-icons/fa";
+import { FaList, FaRobot, FaMicrophone, FaNetworkWired, FaClock, FaInfoCircle } from "react-icons/fa";
 import "../App.css"; // Ensure global styles are applied
 import {
   exportAllTemplatesToFile,
@@ -16,7 +16,7 @@ import {
 import TemplateListView from "../components/TemplateListView";
 import ConfirmDialog from "../components/ConfirmDialog";
 
-type SettingsView = "templates" | "aiConfiguration" | "liveTestimonies" | "liveSlides" | "proPresenter" | "version";
+type SettingsView = "templates" | "aiConfiguration" | "liveTestimonies" | "network" | "proPresenter" | "version";
 
 const SettingsPage: React.FC = () => {
   const [templates, setTemplates] = useState<Template[]>(() => {
@@ -235,11 +235,11 @@ const SettingsPage: React.FC = () => {
             Live Testimonies
           </button>
           <button
-            onClick={() => setCurrentView("liveSlides")}
-            className={currentView === "liveSlides" ? "active" : ""}
+            onClick={() => setCurrentView("network")}
+            className={currentView === "network" ? "active" : ""}
           >
-            <FaDesktop />
-            Live Slides
+            <FaNetworkWired />
+            Network
           </button>
           <button
             onClick={() => setCurrentView("proPresenter")}
@@ -314,7 +314,7 @@ const SettingsPage: React.FC = () => {
         )}
         {currentView === "aiConfiguration" && <AISettingsForm />}
         {currentView === "liveTestimonies" && <LiveTestimoniesSettings />}
-        {currentView === "liveSlides" && <LiveSlidesSettings />}
+        {currentView === "network" && <NetworkSettings />}
         {currentView === "proPresenter" && <ProPresenterSettings />}
         {currentView === "version" && <VersionSettings />}
       </div>

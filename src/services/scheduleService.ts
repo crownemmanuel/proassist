@@ -1,0 +1,54 @@
+import { invoke } from "@tauri-apps/api/core";
+import { ScheduleItem, TimerState } from "../types/propresenter";
+
+export interface ScheduleUpdatePayload {
+  schedule: ScheduleItem[];
+  currentSessionIndex: number | null;
+}
+
+/**
+ * Update the schedule on the server for remote viewing
+ */
+export async function updateSchedule(
+  schedule: ScheduleItem[],
+  currentSessionIndex: number | null
+): Promise<void> {
+  try {
+    // Convert ScheduleItem to match Rust structure
+    const rustSchedule = schedule.map((item) => ({
+      id: item.id,
+      session: item.session,
+      start_time: item.startTime,
+      end_time: item.endTime,
+      duration: item.duration,
+      minister: item.minister,
+    }));
+
+    await invoke("update_schedule", {
+      schedule: rustSchedule,
+      currentSessionIndex: currentSessionIndex !== null ? currentSessionIndex : undefined,
+    });
+  } catch (error) {
+    console.error("Failed to update schedule on server:", error);
+    // Don't throw - this is a non-critical feature
+  }
+}
+
+/**
+ * Update the timer state on the server for remote viewing
+ */
+export async function updateTimerState(timerState: TimerState): Promise<void> {
+  try {
+    console.log("Updating timer state on server:", timerState);
+    await invoke("update_timer_state", {
+      is_running: timerState.isRunning,
+      time_left: timerState.timeLeft,
+      session_name: timerState.sessionName || undefined,
+      end_time: timerState.endTime || undefined,
+      is_overrun: timerState.isOverrun || false,
+    });
+  } catch (error) {
+    console.error("Failed to update timer state on server:", error);
+    // Don't throw - this is a non-critical feature
+  }
+}

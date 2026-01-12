@@ -9,6 +9,7 @@ import {
   FaPaperPlane,
   FaUpload,
   FaCog,
+  FaLink,
 } from "react-icons/fa";
 import {
   ScheduleItem,
@@ -23,6 +24,7 @@ import { getAppSettings } from "../utils/aiConfig";
 import { AIProvider } from "../types";
 import LoadScheduleModal from "../components/LoadScheduleModal";
 import AIAssistantSettingsModal, { getAIAssistantSettings } from "../components/AIAssistantSettingsModal";
+import RemoteAccessLinkModal from "../components/RemoteAccessLinkModal";
 import "../App.css";
 
 interface ChatMessage {
@@ -127,6 +129,9 @@ const StageAssistPage: React.FC = () => {
 
   // Load Schedule Modal state
   const [showLoadScheduleModal, setShowLoadScheduleModal] = useState(false);
+  
+  // Remote Access Link Modal state
+  const [showRemoteAccessModal, setShowRemoteAccessModal] = useState(false);
 
   // Load connection count on mount
   useEffect(() => {
@@ -560,6 +565,9 @@ const StageAssistPage: React.FC = () => {
   };
 
   const nextSession = getNextSession();
+  const nextSessionIndex = currentSessionIndex !== null && nextSession 
+    ? schedule.findIndex(s => s.id === nextSession.id)
+    : -1;
 
   return (
     <div
@@ -598,6 +606,24 @@ const StageAssistPage: React.FC = () => {
             }}
           >
             <FaUpload /> Load Schedule
+          </button>
+          <button
+            onClick={() => setShowRemoteAccessModal(true)}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "6px",
+              padding: "6px 12px",
+              backgroundColor: "var(--app-button-bg-color)",
+              color: "var(--app-button-text-color)",
+              border: "1px solid var(--app-border-color)",
+              borderRadius: "6px",
+              cursor: "pointer",
+              fontSize: "0.875rem",
+              fontWeight: 500,
+            }}
+          >
+            <FaLink /> Remote Access Link
           </button>
           {enabledConnectionsCount > 0 && (
             <span
@@ -951,7 +977,9 @@ const StageAssistPage: React.FC = () => {
                 style={{
                   backgroundColor:
                     currentSessionIndex === index
-                      ? "rgba(59, 130, 246, 0.2)"
+                      ? "rgba(34, 197, 94, 0.2)"
+                      : nextSessionIndex === index
+                      ? "rgba(249, 115, 22, 0.15)"
                       : "transparent",
                   borderBottom: "1px solid var(--app-border-color)",
                 }}
@@ -1552,6 +1580,12 @@ const StageAssistPage: React.FC = () => {
       <AIAssistantSettingsModal
         isOpen={showAISettingsModal}
         onClose={() => setShowAISettingsModal(false)}
+      />
+
+      {/* Remote Access Link Modal */}
+      <RemoteAccessLinkModal
+        isOpen={showRemoteAccessModal}
+        onClose={() => setShowRemoteAccessModal(false)}
       />
     </div>
   );

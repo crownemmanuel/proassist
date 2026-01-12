@@ -1,0 +1,607 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Schedule View - ProAssist</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --bg-color: #252526;
+            --text-color: #cccccc;
+            --text-secondary: #999999;
+            --header-bg: #333333;
+            --border-color: #3c3c3c;
+            --primary-color: #007acc;
+            --current-session-bg: rgba(34, 197, 94, 0.2);
+            --next-session-bg: rgba(249, 115, 22, 0.15);
+            --card-bg: #333333;
+            --spacing-1: 4px;
+            --spacing-2: 8px;
+            --spacing-3: 12px;
+            --spacing-4: 16px;
+            --spacing-5: 24px;
+        }
+
+        body.theme-light {
+            --bg-color: #f4f4f5;
+            --text-color: #18181b;
+            --text-secondary: #52525b;
+            --header-bg: #e9e9ed;
+            --border-color: #d4d4d8;
+            --primary-color: #0067ab;
+            --current-session-bg: rgba(34, 197, 94, 0.15);
+            --next-session-bg: rgba(249, 115, 22, 0.1);
+            --card-bg: #ffffff;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            line-height: 1.5;
+            min-height: 100vh;
+            padding: var(--spacing-4);
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: var(--spacing-5);
+            padding-bottom: var(--spacing-4);
+            border-bottom: 2px solid var(--border-color);
+        }
+
+        .header h1 {
+            font-size: clamp(1.5rem, 4vw, 2rem);
+            margin-bottom: var(--spacing-2);
+            color: var(--text-color);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: var(--spacing-3);
+            flex-wrap: wrap;
+        }
+
+        .timer-display {
+            display: inline-flex;
+            align-items: center;
+            gap: var(--spacing-2);
+            padding: var(--spacing-2) var(--spacing-3);
+            background-color: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            font-family: monospace;
+            font-size: clamp(1rem, 2.5vw, 1.25rem);
+            font-weight: 600;
+        }
+
+        .timer-display.running {
+            border-color: #22c55e;
+            background-color: rgba(34, 197, 94, 0.1);
+        }
+
+        .timer-display.overrun {
+            border-color: #dc2626;
+            background-color: rgba(220, 38, 38, 0.1);
+            color: #dc2626;
+        }
+
+        .timer-label {
+            font-size: 0.75em;
+            opacity: 0.7;
+            font-weight: 400;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .header .subtitle {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+
+        .status-indicator {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: #4caf50;
+            margin-right: var(--spacing-2);
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .current-next-section {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: var(--spacing-4);
+            margin-bottom: var(--spacing-5);
+        }
+
+        .session-card {
+            background-color: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: var(--spacing-4);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        .session-card.current {
+            border-color: #22c55e;
+            background-color: var(--current-session-bg);
+        }
+
+        .session-card.next {
+            border-color: #f97316;
+            background-color: var(--next-session-bg);
+        }
+
+        .session-card h3 {
+            font-size: 0.875rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-secondary);
+            margin-bottom: var(--spacing-2);
+        }
+
+        .session-card .session-name {
+            font-size: clamp(1.125rem, 3vw, 1.5rem);
+            font-weight: 600;
+            margin-bottom: var(--spacing-3);
+            color: var(--text-color);
+        }
+
+        .session-card .session-time {
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            margin-bottom: var(--spacing-2);
+        }
+
+        .session-card .session-minister {
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+            font-style: italic;
+        }
+
+        .schedule-table-container {
+            background-color: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        .schedule-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .schedule-table thead {
+            background-color: rgba(0, 0, 0, 0.2);
+        }
+
+        .schedule-table th {
+            padding: var(--spacing-3);
+            text-align: left;
+            font-weight: 600;
+            font-size: 0.875rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-color);
+            border-bottom: 2px solid var(--border-color);
+        }
+
+        .schedule-table tbody tr {
+            border-bottom: 1px solid var(--border-color);
+            transition: background-color 0.2s;
+        }
+
+        .schedule-table tbody tr:hover {
+            background-color: rgba(255, 255, 255, 0.05);
+        }
+
+        body.theme-light .schedule-table tbody tr:hover {
+            background-color: rgba(0, 0, 0, 0.03);
+        }
+
+        .schedule-table tbody tr.current-session {
+            background-color: var(--current-session-bg);
+            font-weight: 500;
+        }
+
+        .schedule-table tbody tr.next-session {
+            background-color: var(--next-session-bg);
+        }
+
+        .schedule-table td {
+            padding: var(--spacing-3);
+            font-size: 0.9rem;
+        }
+
+        .schedule-table td:first-child {
+            font-weight: 500;
+        }
+
+        .error-message {
+            background-color: rgba(179, 38, 30, 0.1);
+            border: 1px solid rgba(179, 38, 30, 0.3);
+            color: #b3261e;
+            padding: var(--spacing-4);
+            border-radius: 8px;
+            text-align: center;
+            margin: var(--spacing-4) 0;
+        }
+
+        .loading {
+            text-align: center;
+            padding: var(--spacing-5);
+            color: var(--text-secondary);
+        }
+
+        /* Mobile responsive */
+        @media (max-width: 768px) {
+            body {
+                padding: var(--spacing-2);
+            }
+
+            .current-next-section {
+                grid-template-columns: 1fr;
+            }
+
+            .schedule-table-container {
+                overflow-x: auto;
+            }
+
+            .schedule-table {
+                min-width: 600px;
+            }
+
+            .schedule-table th,
+            .schedule-table td {
+                padding: var(--spacing-2);
+                font-size: 0.85rem;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .header h1 {
+                font-size: 1.25rem;
+            }
+
+            .session-card {
+                padding: var(--spacing-3);
+            }
+
+            .schedule-table {
+                min-width: 500px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>
+                Schedule View
+                <span id="timer-display" class="timer-display" style="display: none;">
+                    <span class="timer-label" id="timer-label">Timer:</span>
+                    <span id="timer-time">00:00</span>
+                </span>
+            </h1>
+            <div class="subtitle">
+                <span class="status-indicator"></span>
+                <span id="connection-status">Connected</span>
+            </div>
+        </div>
+
+        <div id="current-next-section" class="current-next-section" style="display: none;">
+            <div id="current-session-card" class="session-card current">
+                <h3>Current Session</h3>
+                <div class="session-name" id="current-session-name">-</div>
+                <div class="session-time" id="current-session-time">-</div>
+                <div class="session-minister" id="current-session-minister"></div>
+            </div>
+            <div id="next-session-card" class="session-card next">
+                <h3>Next Session</h3>
+                <div class="session-name" id="next-session-name">-</div>
+                <div class="session-time" id="next-session-time">-</div>
+                <div class="session-minister" id="next-session-minister"></div>
+            </div>
+        </div>
+
+        <div id="error-message" class="error-message" style="display: none;"></div>
+        <div id="loading" class="loading">Loading schedule...</div>
+
+        <div id="schedule-table-container" class="schedule-table-container" style="display: none;">
+            <table class="schedule-table">
+                <thead>
+                    <tr>
+                        <th>Session</th>
+                        <th>Time</th>
+                        <th>Duration</th>
+                        <th>Minister</th>
+                    </tr>
+                </thead>
+                <tbody id="schedule-tbody">
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        let schedule = [];
+        let currentSessionIndex = null;
+        let timerState = {
+            isRunning: false,
+            timeLeft: 0,
+            sessionName: null,
+            endTime: null,
+            isOverrun: false
+        };
+        let countdownInterval = null;
+
+        function updateConnectionStatus(connected) {
+            const statusEl = document.getElementById('connection-status');
+            const indicator = document.querySelector('.status-indicator');
+            if (connected) {
+                statusEl.textContent = 'Connected';
+                indicator.style.backgroundColor = '#4caf50';
+            } else {
+                statusEl.textContent = 'Disconnected';
+                indicator.style.backgroundColor = '#ef4444';
+            }
+        }
+
+        function showError(message) {
+            const errorEl = document.getElementById('error-message');
+            errorEl.textContent = message;
+            errorEl.style.display = 'block';
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('schedule-table-container').style.display = 'none';
+            document.getElementById('current-next-section').style.display = 'none';
+        }
+
+        function hideError() {
+            document.getElementById('error-message').style.display = 'none';
+        }
+
+        function renderSchedule() {
+            const tbody = document.getElementById('schedule-tbody');
+            tbody.innerHTML = '';
+
+            if (schedule.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; padding: var(--spacing-5); color: var(--text-secondary);">No schedule items</td></tr>';
+                return;
+            }
+
+            schedule.forEach((item, index) => {
+                const tr = document.createElement('tr');
+                
+                if (index === currentSessionIndex) {
+                    tr.classList.add('current-session');
+                } else if (index === currentSessionIndex + 1) {
+                    tr.classList.add('next-session');
+                }
+
+                tr.innerHTML = `
+                    <td>${escapeHtml(item.session)}</td>
+                    <td>${escapeHtml(item.start_time)} - ${escapeHtml(item.end_time)}</td>
+                    <td>${escapeHtml(item.duration)}</td>
+                    <td>${escapeHtml(item.minister || '-')}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+
+            updateCurrentNext();
+        }
+
+        function updateCurrentNext() {
+            const currentCard = document.getElementById('current-session-card');
+            const nextCard = document.getElementById('next-session-card');
+            const currentNextSection = document.getElementById('current-next-section');
+
+            if (currentSessionIndex !== null && currentSessionIndex < schedule.length) {
+                const current = schedule[currentSessionIndex];
+                document.getElementById('current-session-name').textContent = current.session;
+                document.getElementById('current-session-time').textContent = `${current.start_time} - ${current.end_time}`;
+                document.getElementById('current-session-minister').textContent = current.minister ? `Minister: ${current.minister}` : '';
+                currentCard.style.display = 'block';
+            } else {
+                currentCard.style.display = 'none';
+            }
+
+            const nextIndex = currentSessionIndex !== null ? currentSessionIndex + 1 : 0;
+            if (nextIndex < schedule.length) {
+                const next = schedule[nextIndex];
+                document.getElementById('next-session-name').textContent = next.session;
+                document.getElementById('next-session-time').textContent = `${next.start_time} - ${next.end_time}`;
+                document.getElementById('next-session-minister').textContent = next.minister ? `Minister: ${next.minister}` : '';
+                nextCard.style.display = 'block';
+            } else {
+                nextCard.style.display = 'none';
+            }
+
+            if (currentCard.style.display === 'block' || nextCard.style.display === 'block') {
+                currentNextSection.style.display = 'grid';
+            } else {
+                currentNextSection.style.display = 'none';
+            }
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function formatTime(seconds) {
+            const isNegative = seconds < 0;
+            const absoluteSeconds = Math.abs(seconds);
+            const minutes = Math.floor(absoluteSeconds / 60);
+            const remainingSeconds = absoluteSeconds % 60;
+            return `${isNegative ? '-' : ''}${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
+        }
+
+        function updateTimerDisplay() {
+            const timerDisplay = document.getElementById('timer-display');
+            const timerTime = document.getElementById('timer-time');
+            const timerLabel = document.getElementById('timer-label');
+
+            if (!timerState.isRunning) {
+                timerDisplay.style.display = 'none';
+                if (countdownInterval) {
+                    clearInterval(countdownInterval);
+                    countdownInterval = null;
+                }
+                return;
+            }
+
+            // Show timer if running (even if timeLeft is 0 or negative)
+            timerDisplay.style.display = 'inline-flex';
+            timerTime.textContent = formatTime(timerState.timeLeft);
+            
+            if (timerState.sessionName) {
+                timerLabel.textContent = timerState.sessionName + ':';
+            } else {
+                timerLabel.textContent = 'Timer:';
+            }
+
+            // Update classes
+            timerDisplay.classList.remove('running', 'overrun');
+            if (timerState.isOverrun || timerState.timeLeft < 0) {
+                timerDisplay.classList.add('overrun');
+            } else {
+                timerDisplay.classList.add('running');
+            }
+        }
+
+        function startCountdown() {
+            if (countdownInterval) {
+                clearInterval(countdownInterval);
+            }
+
+            if (!timerState.isRunning) {
+                console.log('Timer not running, not starting countdown');
+                updateTimerDisplay(); // Update display to hide timer
+                return;
+            }
+
+            console.log('Starting countdown with timeLeft:', timerState.timeLeft);
+            updateTimerDisplay(); // Show timer immediately
+            
+            countdownInterval = setInterval(() => {
+                if (timerState.isRunning && timerState.timeLeft > 0) {
+                    timerState.timeLeft--;
+                    updateTimerDisplay();
+                } else if (timerState.isRunning && timerState.timeLeft <= 0) {
+                    timerState.isOverrun = true;
+                    timerState.timeLeft--;
+                    updateTimerDisplay();
+                } else {
+                    clearInterval(countdownInterval);
+                    countdownInterval = null;
+                }
+            }, 1000);
+        }
+
+        async function fetchSchedule() {
+            try {
+                const response = await fetch('/api/schedule');
+                if (!response.ok) {
+                    throw new Error('Failed to fetch schedule');
+                }
+                const data = await response.json();
+                schedule = data.schedule || [];
+                currentSessionIndex = data.currentSessionIndex !== undefined ? data.currentSessionIndex : null;
+                
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('schedule-table-container').style.display = 'block';
+                hideError();
+                renderSchedule();
+            } catch (error) {
+                console.error('Error fetching schedule:', error);
+                showError('Failed to load schedule. Please refresh the page.');
+            }
+        }
+
+        function connectWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}/ws`;
+            
+            ws = new WebSocket(wsUrl);
+
+            ws.onopen = () => {
+                console.log('WebSocket connected');
+                updateConnectionStatus(true);
+                hideError();
+                
+                // Send join messages for schedule and timer updates
+                ws.send(JSON.stringify({
+                    type: 'join_schedule'
+                }));
+                ws.send(JSON.stringify({
+                    type: 'join_timer'
+                }));
+            };
+
+            ws.onmessage = (event) => {
+                try {
+                    const message = JSON.parse(event.data);
+                    if (message.type === 'schedule_update') {
+                        schedule = message.schedule || [];
+                        currentSessionIndex = message.currentSessionIndex !== undefined ? message.currentSessionIndex : null;
+                        renderSchedule();
+                    } else if (message.type === 'timer_update') {
+                        // Update timer state and restart countdown
+                        timerState = {
+                            isRunning: message.timer_state.is_running || false,
+                            timeLeft: message.timer_state.time_left || 0,
+                            sessionName: message.timer_state.session_name || null,
+                            endTime: message.timer_state.end_time || null,
+                            isOverrun: message.timer_state.is_overrun || false
+                        };
+                        console.log('Timer update received:', timerState);
+                        updateTimerDisplay();
+                        startCountdown();
+                    }
+                } catch (error) {
+                    console.error('Error parsing WebSocket message:', error);
+                }
+            };
+
+            ws.onerror = (error) => {
+                console.error('WebSocket error:', error);
+                updateConnectionStatus(false);
+            };
+
+            ws.onclose = () => {
+                console.log('WebSocket disconnected');
+                updateConnectionStatus(false);
+                // Attempt to reconnect after 3 seconds
+                setTimeout(connectWebSocket, 3000);
+            };
+        }
+
+        // Initial load
+        fetchSchedule();
+        connectWebSocket();
+
+        // Refresh schedule every 30 seconds as fallback
+        setInterval(fetchSchedule, 30000);
+    </script>
+</body>
+</html>
