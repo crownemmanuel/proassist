@@ -53,6 +53,10 @@ const ImportFromLiveSlidesModal: React.FC<ImportFromLiveSlidesModalProps> = ({
   const [toast, setToast] = useState<string>("");
   const [isStartingServer, setIsStartingServer] = useState(false);
   const [isCreatingSession, setIsCreatingSession] = useState(false);
+  const [createdSession, setCreatedSession] = useState<{
+    session: LiveSlideSession;
+    typingUrl: string;
+  } | null>(null);
 
   useEffect(() => {
     if (isOpen) {
@@ -61,6 +65,7 @@ const ImportFromLiveSlidesModal: React.FC<ImportFromLiveSlidesModalProps> = ({
       setItemName("");
       setNewSessionName("");
       setToast("");
+      setCreatedSession(null);
       fetchServerInfo();
     }
   }, [isOpen, templates]);
@@ -170,12 +175,14 @@ const ImportFromLiveSlidesModal: React.FC<ImportFromLiveSlidesModalProps> = ({
     setIsCreatingSession(true);
     setError(null);
     setToast("");
+    setCreatedSession(null);
     try {
       if (!serverInfo?.server_running) {
         await handleStartServer();
       }
 
       const session = await createLiveSlideSession(newSessionName.trim());
+      const typingUrl = buildTypingUrl(session.id);
 
       // Add to playlist as a live-linked item; slides will populate in Main via WS.
       onImport(newSessionName.trim(), LIVE_SLIDES_TEMPLATE_NAME, [], {
@@ -183,17 +190,15 @@ const ImportFromLiveSlidesModal: React.FC<ImportFromLiveSlidesModalProps> = ({
         liveSlidesLinked: true,
       });
 
-      // Convenience: copy typing URL immediately (non-blocking).
-      const typingUrl = buildTypingUrl(session.id);
+      // Show success state with the link
+      setCreatedSession({ session, typingUrl });
+
+      // Try to copy typing URL automatically (non-blocking)
       try {
         await navigator.clipboard.writeText(typingUrl);
-        setToast("Session added + typing URL copied");
       } catch (clipboardError) {
-        // Clipboard access denied - session still created successfully
-        setToast("Session added (copy URL manually)");
+        // Clipboard access denied - user can copy manually
       }
-      setTimeout(() => setToast(""), 2500);
-      onClose();
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       setError(`Failed to create session: ${msg}`);
@@ -283,6 +288,95 @@ const ImportFromLiveSlidesModal: React.FC<ImportFromLiveSlidesModalProps> = ({
           <div style={{ textAlign: "center", padding: "40px" }}>
             Loading sessions...
           </div>
+        ) : createdSession ? (
+          /* Success state - show session created message with link */
+          <div
+            style={{
+              padding: "24px",
+              borderRadius: "8px",
+              border: "1px solid rgba(34, 197, 94, 0.3)",
+              backgroundColor: "rgba(34, 197, 94, 0.1)",
+              textAlign: "center",
+            }}
+          >
+            <div
+              style={{
+                fontSize: "24px",
+                marginBottom: "12px",
+              }}
+            >
+              ✓
+            </div>
+            <div
+              style={{
+                fontWeight: 600,
+                fontSize: "1.1em",
+                marginBottom: "8px",
+                color: "#22c55e",
+              }}
+            >
+              Session Created!
+            </div>
+            <div
+              style={{
+                color: "var(--app-text-color-secondary)",
+                marginBottom: "20px",
+                fontSize: "0.9em",
+              }}
+            >
+              "{createdSession.session.name}" has been added to your playlist.
+              <br />
+              Here's the link to join:
+            </div>
+            <div
+              style={{
+                padding: "12px",
+                borderRadius: "6px",
+                backgroundColor: "var(--app-bg-color)",
+                border: "1px solid var(--app-border-color)",
+                marginBottom: "16px",
+                wordBreak: "break-all",
+                fontSize: "0.85em",
+                color: "var(--text-color)",
+                fontFamily: "monospace",
+              }}
+            >
+              {createdSession.typingUrl}
+            </div>
+            <div
+              style={{
+                display: "flex",
+                gap: "10px",
+                justifyContent: "center",
+              }}
+            >
+              <button
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(
+                      createdSession.typingUrl
+                    );
+                    setToast("Link copied to clipboard!");
+                    setTimeout(() => setToast(""), 2000);
+                  } catch (err) {
+                    setToast("Failed to copy link");
+                    setTimeout(() => setToast(""), 2000);
+                  }
+                }}
+                className="primary"
+              >
+                <FaCopy /> Copy Link
+              </button>
+              <button
+                onClick={() => {
+                  window.open(createdSession.typingUrl, "_blank");
+                }}
+                className="secondary"
+              >
+                <FaExternalLinkAlt /> Open Notepad
+              </button>
+            </div>
+          </div>
         ) : (
           <>
             {error && (
@@ -311,8 +405,25 @@ const ImportFromLiveSlidesModal: React.FC<ImportFromLiveSlidesModalProps> = ({
                   value={newSessionName}
                   onChange={(e) => setNewSessionName(e.target.value)}
                   placeholder="e.g., Sunday Service - AM"
+                  disabled={isCreatingSession}
                 />
               </div>
+
+              {isCreatingSession && (
+                <div
+                  style={{
+                    textAlign: "center",
+                    padding: "20px",
+                    color: "var(--app-text-color-secondary)",
+                  }}
+                >
+                  <div style={{ marginBottom: "8px" }}>⏳</div>
+                  <div style={{ fontWeight: 500 }}>Creating session...</div>
+                  <div style={{ fontSize: "0.9em", marginTop: "4px" }}>
+                    Please wait
+                  </div>
+                </div>
+              )}
 
               <div
                 style={{
@@ -481,18 +592,26 @@ const ImportFromLiveSlidesModal: React.FC<ImportFromLiveSlidesModalProps> = ({
         )}
 
         <div className="modal-actions">
-          <button onClick={onClose}>Cancel</button>
-          <button
-            onClick={handleJoin}
-            className="primary"
-            disabled={
-              !selectedSession ||
-              !itemName.trim() ||
-              !serverInfo?.server_running
-            }
-          >
-            Join Session
-          </button>
+          {createdSession ? (
+            <button onClick={onClose} className="primary">
+              Done
+            </button>
+          ) : (
+            <>
+              <button onClick={onClose}>Cancel</button>
+              <button
+                onClick={handleJoin}
+                className="primary"
+                disabled={
+                  !selectedSession ||
+                  !itemName.trim() ||
+                  !serverInfo?.server_running
+                }
+              >
+                Join Session
+              </button>
+            </>
+          )}
         </div>
       </div>
     </div>

@@ -100,10 +100,19 @@ export class LiveSlidesWebSocket {
   connect(): Promise<void> {
     return new Promise((resolve, reject) => {
       try {
+        // Validate URL format
+        if (!this.url.startsWith('ws://') && !this.url.startsWith('wss://')) {
+          const error = new Error(`Invalid WebSocket URL: ${this.url}`);
+          console.error('[WebSocket]', error);
+          reject(error);
+          return;
+        }
+
+        console.log('[WebSocket] Attempting to connect to:', this.url);
         this.ws = new WebSocket(this.url);
 
         this.ws.onopen = () => {
-          console.log("WebSocket connected to", this.url);
+          console.log('[WebSocket] Connected successfully to', this.url);
           this.reconnectAttempts = 0;
 
           // Join the session
@@ -121,20 +130,36 @@ export class LiveSlidesWebSocket {
             const message = JSON.parse(event.data) as WsMessage;
             this.messageHandlers.forEach((handler) => handler(message));
           } catch (e) {
-            console.error("Failed to parse WebSocket message:", e);
+            console.error('[WebSocket] Failed to parse message:', e, 'Raw data:', event.data);
           }
         };
 
         this.ws.onerror = (error) => {
-          console.error("WebSocket error:", error);
+          console.error('[WebSocket] Connection error:', error);
+          console.error('[WebSocket] Error details:', {
+            url: this.url,
+            sessionId: this.sessionId,
+            clientType: this.clientType,
+            readyState: this.ws?.readyState,
+            readyStateText: this.ws?.readyState === WebSocket.CONNECTING ? 'CONNECTING' :
+                           this.ws?.readyState === WebSocket.OPEN ? 'OPEN' :
+                           this.ws?.readyState === WebSocket.CLOSING ? 'CLOSING' :
+                           this.ws?.readyState === WebSocket.CLOSED ? 'CLOSED' : 'UNKNOWN',
+          });
           reject(error);
         };
 
-        this.ws.onclose = () => {
-          console.log("WebSocket closed");
+        this.ws.onclose = (event) => {
+          console.log('[WebSocket] Connection closed:', {
+            code: event.code,
+            reason: event.reason,
+            wasClean: event.wasClean,
+            url: this.url,
+          });
           this.attemptReconnect();
         };
       } catch (e) {
+        console.error('[WebSocket] Failed to create WebSocket:', e);
         reject(e);
       }
     });

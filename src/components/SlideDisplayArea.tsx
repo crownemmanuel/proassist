@@ -7,6 +7,7 @@ import {
   FaPlus,
   FaSearch,
   FaTimes,
+  FaCopy,
 } from "react-icons/fa";
 import "../App.css"; // Ensure global styles are applied
 import ContextMenu from "./ContextMenu"; // Import the new component
@@ -24,7 +25,12 @@ interface SlideDisplayAreaProps {
   onDetachLiveSlides?: () => void;
   onBeginLiveSlideEdit?: (slide: Slide) => void;
   onEndLiveSlideEdit?: () => void;
-  liveSlidesStatus?: { serverRunning: boolean; sessionExists: boolean };
+  liveSlidesStatus?: {
+    serverRunning: boolean;
+    sessionExists: boolean;
+    isCreating?: boolean;
+    typingUrl?: string;
+  };
   onResumeLiveSlidesSession?: () => void;
 }
 
@@ -447,12 +453,20 @@ const SlideDisplayArea: React.FC<SlideDisplayAreaProps> = ({
             style={{
               color: "var(--app-text-color-secondary)",
               fontSize: "0.9em",
+              flex: 1,
             }}
           >
             This item is <strong>Live Slides linked</strong>. It updates in
             real-time. Editing a slide will sync back to the session;
             add/delete/layout changes require detaching.
+            {liveSlidesStatus?.isCreating && (
+              <>
+                {" "}
+                <span style={{ color: "#3b82f6" }}>(Creating session...)</span>
+              </>
+            )}
             {liveSlidesStatus &&
+              !liveSlidesStatus.isCreating &&
               (!liveSlidesStatus.serverRunning ||
                 !liveSlidesStatus.sessionExists) && (
                 <>
@@ -465,6 +479,28 @@ const SlideDisplayArea: React.FC<SlideDisplayAreaProps> = ({
           </div>
           <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
             {liveSlidesStatus &&
+              liveSlidesStatus.serverRunning &&
+              liveSlidesStatus.sessionExists &&
+              liveSlidesStatus.typingUrl && (
+                <button
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(
+                        liveSlidesStatus.typingUrl!
+                      );
+                      // You could add a toast notification here if desired
+                    } catch (err) {
+                      console.error("Failed to copy URL:", err);
+                    }
+                  }}
+                  className="primary btn-sm"
+                  title="Copy typing URL to clipboard"
+                >
+                  <FaCopy /> Copy Link
+                </button>
+              )}
+            {liveSlidesStatus &&
+              !liveSlidesStatus.isCreating &&
               (!liveSlidesStatus.serverRunning ||
                 !liveSlidesStatus.sessionExists) &&
               onResumeLiveSlidesSession && (

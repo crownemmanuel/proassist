@@ -101,6 +101,14 @@ const MainApplicationPage: React.FC = () => {
   const [liveSlidesRawTextBySession, setLiveSlidesRawTextBySession] = useState<
     Record<string, string>
   >({});
+  // Track which sessions are being created
+  const [creatingLiveSlidesSessions, setCreatingLiveSlidesSessions] = useState<
+    Set<string>
+  >(new Set());
+  // Store typing URLs for each session
+  const [liveSlidesTypingUrls, setLiveSlidesTypingUrls] = useState<
+    Record<string, string>
+  >({});
 
   // Persist playlists to localStorage whenever they change
   useEffect(() => {
@@ -711,7 +719,12 @@ const MainApplicationPage: React.FC = () => {
   const handleResumeCurrentLiveSlidesSession = async () => {
     if (!currentPlaylist || !currentPlaylistItem?.liveSlidesSessionId) return;
 
+    const sessionId = currentPlaylistItem.liveSlidesSessionId;
+
     try {
+      // Mark session as being created
+      setCreatingLiveSlidesSessions((prev) => new Set(prev).add(sessionId));
+
       const settings = loadLiveSlidesSettings();
 
       // Ensure server is running.
@@ -729,6 +742,11 @@ const MainApplicationPage: React.FC = () => {
 
       if (!info.server_running) {
         alert("Failed to start Live Slides server.");
+        setCreatingLiveSlidesSessions((prev) => {
+          const next = new Set(prev);
+          next.delete(sessionId);
+          return next;
+        });
         return;
       }
 
@@ -772,12 +790,21 @@ const MainApplicationPage: React.FC = () => {
         await new Promise((resolve) => setTimeout(resolve, 300));
       }
 
-      // Show typing URL modal
+      // Store typing URL for this session
       const typingUrl = `http://${info.local_ip}:${
         window.location.port || "1420"
       }/live-slides/notepad/${session.id}?wsHost=${info.local_ip}&wsPort=${
         settings.serverPort
       }`;
+      setLiveSlidesTypingUrls((prev) => ({
+        ...prev,
+        [session.id]: typingUrl,
+      }));
+
+      // Update server session IDs to include the new session
+      setLiveSlidesServerSessionIds((prev) => new Set(prev).add(session.id));
+
+      // Show typing URL modal
       setTypingUrlModal({ url: typingUrl });
 
       // Try to copy to clipboard automatically (non-blocking)
@@ -786,9 +813,24 @@ const MainApplicationPage: React.FC = () => {
       } catch (clipboardError) {
         // Clipboard access denied - user can copy from modal
       }
+
+      // Mark session creation as complete
+      setCreatingLiveSlidesSessions((prev) => {
+        const next = new Set(prev);
+        next.delete(sessionId);
+        if (session.id !== sessionId) {
+          next.delete(session.id);
+        }
+        return next;
+      });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       alert(`Failed to restart Live Slides session: ${msg}`);
+      setCreatingLiveSlidesSessions((prev) => {
+        const next = new Set(prev);
+        next.delete(sessionId);
+        return next;
+      });
     }
   };
 
@@ -1184,6 +1226,13 @@ const MainApplicationPage: React.FC = () => {
                     sessionExists: liveSlidesServerSessionIds.has(
                       currentPlaylistItem.liveSlidesSessionId
                     ),
+                    isCreating: creatingLiveSlidesSessions.has(
+                      currentPlaylistItem.liveSlidesSessionId
+                    ),
+                    typingUrl:
+                      liveSlidesTypingUrls[
+                        currentPlaylistItem.liveSlidesSessionId
+                      ],
                   }
                 : undefined
             }

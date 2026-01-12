@@ -131,7 +131,7 @@ const HelpPage: React.FC = () => {
             same files.
           </li>
           <li>
-            Wrong line showing? Confirm the slide’s layout and which text box
+            Wrong line showing? Confirm the slide's layout and which text box
             links to <code>prefix1.txt</code>, <code>prefix2.txt</code>, …
           </li>
           <li>
@@ -139,6 +139,35 @@ const HelpPage: React.FC = () => {
             permission to the Output Path.
           </li>
         </ul>
+      </Section>
+
+      <Section title="Developer Tools">
+        <p>
+          If you're experiencing issues or need to debug the application, you can enable Developer Mode to view console logs and error messages.
+        </p>
+        <ol>
+          <li>
+            Go to <strong>Settings</strong> → <strong>Version</strong>
+          </li>
+          <li>
+            Click <strong>Enable Developer Mode</strong> in the Developer Tools section
+          </li>
+          <li>
+            The log viewer will display all console output, including:
+            <ul>
+              <li>Update check logs (prefixed with <code>[Updater]</code>)</li>
+              <li>Error messages and stack traces</li>
+              <li>General application logs</li>
+              <li>Debug information</li>
+            </ul>
+          </li>
+          <li>
+            You can filter logs by level (Error, Warn, Info, etc.), search for specific terms, export logs to a file, or clear the log history
+          </li>
+        </ol>
+        <p style={{ marginTop: '16px', padding: '12px', backgroundColor: 'rgba(139, 92, 246, 0.1)', borderRadius: '6px', border: '1px solid rgba(139, 92, 246, 0.3)' }}>
+          <strong>Tip:</strong> When reporting issues, you can export the logs and include them in your bug report to help developers diagnose the problem.
+        </p>
       </Section>
     </div>
   );

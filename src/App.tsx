@@ -37,6 +37,7 @@ import {
   loadLiveSlidesSettings,
   startLiveSlidesServer,
 } from "./services/liveSlideService";
+import UpdateNotification from "./components/UpdateNotification";
 
 // Navigation component that uses useLocation
 function Navigation({
@@ -248,6 +249,7 @@ function App() {
     <Router>
       <StageAssistProvider>
         <AppContent theme={theme} toggleTheme={toggleTheme} />
+        <UpdateNotification />
       </StageAssistProvider>
     </Router>
   );

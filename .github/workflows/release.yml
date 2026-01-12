@@ -35,7 +35,19 @@ jobs:
 
                       ## Download
 
-                      Download the appropriate installer for your platform below.`;
+                      Download the appropriate installer for your platform below.
+
+                      ### macOS Installation Note
+
+                      **Important**: This is an open-source project and does not have an Apple Developer account signing the app. To run on macOS:
+
+                      **Option 1** (Recommended): Right-click the DMG file → **Open** (instead of double-clicking)
+
+                      **Option 2**: Run in Terminal:
+                      \`\`\`bash
+                      xattr -cr /path/to/proassist.app
+                      \`\`\`
+                      Replace \`/path/to/proassist.app\` with the actual path to the application after mounting the DMG.`;
 
                       const release = await github.rest.repos.createRelease({
                         owner: context.repo.owner,

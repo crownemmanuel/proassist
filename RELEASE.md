@@ -9,8 +9,9 @@ This document provides step-by-step instructions for creating a new release of P
 Before creating a release, ensure:
 
 - [ ] All changes are committed and pushed to `main` branch
-- [ ] Version number updated in `src-tauri/tauri.conf.json`
-- [ ] `CHANGELOG.md` updated with new features/fixes (if maintained)
+- [ ] Version number updated in `src-tauri/tauri.conf.json`, `package.json`, and `src/components/VersionSettings.tsx`
+- [ ] **Local build passes**: Run `npm run build` and verify no errors
+- [ ] **CHANGELOG.md updated**: Always include changelog entry describing what changed in this release
 - [ ] All tests pass (if applicable)
 - [ ] GitHub Secrets are configured:
   - [ ] `TAURI_SIGNING_PRIVATE_KEY` is set
@@ -37,10 +38,72 @@ Update the version in `src-tauri/tauri.conf.json`:
 ### 2. Commit Version Change
 
 ```bash
-git add src-tauri/tauri.conf.json
+git add src-tauri/tauri.conf.json package.json src/components/VersionSettings.tsx
 git commit -m "Bump version to 0.2.0"
 git push origin main
 ```
+
+### 2.5. ⚠️ CRITICAL: Update CHANGELOG.md
+
+**ALWAYS update the CHANGELOG.md file before creating a release.** This documents what changed for users and helps track version history.
+
+1. Open `CHANGELOG.md` (create it if it doesn't exist)
+2. Add a new section at the top for the new version:
+
+```markdown
+## [0.2.0] - YYYY-MM-DD
+
+### Added
+
+- New feature description
+
+### Changed
+
+- Improvement description
+
+### Fixed
+
+- Bug fix description
+```
+
+3. Commit the changelog update:
+
+```bash
+git add CHANGELOG.md
+git commit -m "Update CHANGELOG for v0.2.0"
+git push origin main
+```
+
+### 2.6. ⚠️ CRITICAL: Run Local Build Before Tagging
+
+**ALWAYS run a local build before creating and pushing a tag.** This catches TypeScript errors and build issues before they break the CI/CD pipeline.
+
+```bash
+# Run the build locally
+npm run build
+```
+
+**If the build fails:**
+
+1. Fix all TypeScript/build errors
+2. Commit the fixes: `git add -A && git commit -m "Fix build errors"`
+3. Push the fixes: `git push origin main`
+4. Run `npm run build` again to verify it passes
+5. Only then proceed to create the tag
+
+**If you already pushed a tag with build errors:**
+
+1. Delete the tag locally: `git tag -d v0.2.0`
+2. Delete the tag remotely: `git push origin --delete v0.2.0`
+3. Fix the build errors and commit
+4. Recreate the tag: `git tag -a v0.2.0 -m "Release message"`
+5. Push the tag again: `git push origin v0.2.0`
+
+**Why this matters:**
+
+- GitHub Actions will fail if the build has errors
+- Fixing errors locally is faster than waiting for CI to fail
+- Prevents broken releases and wasted CI resources
 
 ### 3. Create and Push Git Tag
 
@@ -210,13 +273,25 @@ Keep track of releases:
 
 ```bash
 # Full release workflow
-git add src-tauri/tauri.conf.json
+# 1. Update version numbers
+git add src-tauri/tauri.conf.json package.json src/components/VersionSettings.tsx
 git commit -m "Bump version to X.Y.Z"
 git push origin main
-git tag vX.Y.Z
+
+# 2. Update CHANGELOG.md (REQUIRED)
+# Edit CHANGELOG.md with release notes, then:
+git add CHANGELOG.md
+git commit -m "Update CHANGELOG for vX.Y.Z"
+git push origin main
+
+# 3. ⚠️ CRITICAL: Always run build before tagging
+npm run build
+
+# 4. If build passes, create and push tag
+git tag -a vX.Y.Z -m "Release version X.Y.Z - Description"
 git push origin vX.Y.Z
 
-# Then monitor Actions → Release workflow
+# 5. Monitor Actions → Release workflow
 ```
 
 ---

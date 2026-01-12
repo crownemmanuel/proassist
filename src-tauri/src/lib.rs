@@ -349,7 +349,11 @@ async fn start_live_slides_server(port: u16) -> Result<String, String> {
     // Get local IP
     let local_ip = local_ip_address::local_ip()
         .map(|ip| ip.to_string())
-        .unwrap_or_else(|_| "localhost".to_string());
+        .unwrap_or_else(|_| {
+            // Fallback to localhost if IP detection fails
+            eprintln!("Warning: Failed to detect local IP, using 127.0.0.1");
+            "127.0.0.1".to_string()
+        });
     
     Ok(format!("ws://{}:{}", local_ip, port))
 }

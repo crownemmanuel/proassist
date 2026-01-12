@@ -17,9 +17,16 @@ export interface UpdateResult {
  */
 export async function checkForUpdates(): Promise<UpdateResult> {
   try {
+    console.log('[Updater] Checking for updates...');
     const update = await check();
     
     if (update) {
+      console.log('[Updater] Update available:', {
+        version: update.version,
+        date: update.date,
+        body: update.body,
+        currentVersion: update.currentVersion,
+      });
       return {
         available: true,
         update: {
@@ -30,9 +37,15 @@ export async function checkForUpdates(): Promise<UpdateResult> {
       };
     }
     
+    console.log('[Updater] No update available - already on latest version');
     return { available: false };
   } catch (error) {
-    console.error('Failed to check for updates:', error);
+    console.error('[Updater] Failed to check for updates:', error);
+    // Log more details about the error
+    if (error instanceof Error) {
+      console.error('[Updater] Error message:', error.message);
+      console.error('[Updater] Error stack:', error.stack);
+    }
     return { available: false };
   }
 }
@@ -44,14 +57,15 @@ export async function downloadAndInstallUpdate(
   onProgress?: (progress: number, total: number) => void
 ): Promise<boolean> {
   try {
+    console.log('[Updater] Checking for update before download...');
     const update = await check();
     
     if (!update) {
-      console.log('No update available');
+      console.log('[Updater] No update available for download');
       return false;
     }
 
-    console.log(`Downloading update ${update.version}...`);
+    console.log(`[Updater] Downloading update ${update.version}...`);
     
     let downloaded = 0;
     let contentLength = 0;
@@ -60,26 +74,31 @@ export async function downloadAndInstallUpdate(
       switch (event.event) {
         case 'Started':
           contentLength = event.data.contentLength || 0;
-          console.log(`Download started, size: ${contentLength}`);
+          console.log(`[Updater] Download started, size: ${contentLength} bytes`);
           break;
         case 'Progress':
           downloaded += event.data.chunkLength;
           if (onProgress && contentLength > 0) {
             onProgress(downloaded, contentLength);
           }
-          console.log(`Downloaded ${downloaded} of ${contentLength}`);
+          const percent = contentLength > 0 ? Math.round((downloaded / contentLength) * 100) : 0;
+          console.log(`[Updater] Download progress: ${downloaded}/${contentLength} bytes (${percent}%)`);
           break;
         case 'Finished':
-          console.log('Download finished');
+          console.log('[Updater] Download finished');
           break;
       }
     });
 
-    console.log('Update installed, relaunching...');
+    console.log('[Updater] Update installed successfully, relaunching app...');
     await relaunch();
     return true;
   } catch (error) {
-    console.error('Failed to download and install update:', error);
+    console.error('[Updater] Failed to download and install update:', error);
+    if (error instanceof Error) {
+      console.error('[Updater] Error message:', error.message);
+      console.error('[Updater] Error stack:', error.stack);
+    }
     return false;
   }
 }
@@ -89,6 +108,8 @@ export async function downloadAndInstallUpdate(
  */
 export async function checkForUpdatesOnStartup(): Promise<UpdateResult> {
   // Add a small delay to avoid blocking app startup
+  console.log('[Updater] Scheduling startup update check in 2 seconds...');
   await new Promise(resolve => setTimeout(resolve, 2000));
+  console.log('[Updater] Performing startup update check...');
   return checkForUpdates();
 }

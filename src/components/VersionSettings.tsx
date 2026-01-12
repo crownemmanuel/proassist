@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { checkForUpdates, downloadAndInstallUpdate, UpdateResult } from '../utils/updater';
+import LogViewer from './LogViewer';
 import '../App.css';
 
 // Current app version - matches package.json and tauri.conf.json
-const APP_VERSION = '0.2.4';
+const APP_VERSION = '0.2.5';
 
 const VersionSettings: React.FC = () => {
   const [currentVersion, setCurrentVersion] = useState<string>(APP_VERSION);
@@ -12,6 +13,9 @@ const VersionSettings: React.FC = () => {
   const [isDownloading, setIsDownloading] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [developerMode, setDeveloperMode] = useState<boolean>(() => {
+    return localStorage.getItem('developer-mode') === 'true';
+  });
 
   useEffect(() => {
     // Try to get version from Tauri API if available
@@ -31,6 +35,10 @@ const VersionSettings: React.FC = () => {
     
     loadVersion();
   }, []);
+
+  useEffect(() => {
+    localStorage.setItem('developer-mode', developerMode.toString());
+  }, [developerMode]);
 
   const handleCheckForUpdates = async () => {
     setIsChecking(true);
@@ -75,6 +83,34 @@ const VersionSettings: React.FC = () => {
     }
   };
 
+  if (developerMode) {
+    return (
+      <div style={{ height: 'calc(100vh - 51px)', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ padding: 'var(--spacing-4)', borderBottom: '1px solid var(--app-border-color)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <h2 style={{ margin: 0 }}>Developer Mode</h2>
+            <button
+              onClick={() => setDeveloperMode(false)}
+              style={{
+                padding: 'var(--spacing-2) var(--spacing-4)',
+                borderRadius: '6px',
+                border: '1px solid var(--app-border-color)',
+                backgroundColor: 'var(--button-bg-color)',
+                color: 'var(--button-text-color)',
+                cursor: 'pointer',
+              }}
+            >
+              Exit Developer Mode
+            </button>
+          </div>
+        </div>
+        <div style={{ flex: 1, overflow: 'hidden' }}>
+          <LogViewer />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={styles.container}>
       <div style={styles.section}>
@@ -97,7 +133,8 @@ const VersionSettings: React.FC = () => {
             disabled={isChecking || isDownloading}
             style={{
               ...styles.button,
-              ...styles.checkButton,
+              backgroundColor: '#8b5cf6',
+              color: '#ffffff',
               ...(isChecking || isDownloading ? styles.buttonDisabled : {}),
             }}
           >
@@ -176,6 +213,23 @@ const VersionSettings: React.FC = () => {
           </div>
         )}
       </div>
+
+      <div style={styles.section}>
+        <h2 style={styles.title}>Developer Tools</h2>
+        <p style={styles.description}>
+          Enable developer mode to view console logs and debug information.
+        </p>
+        <button
+          onClick={() => setDeveloperMode(true)}
+          style={{
+            ...styles.button,
+            backgroundColor: '#4b5563',
+            color: '#ffffff',
+          }}
+        >
+          Enable Developer Mode
+        </button>
+      </div>
     </div>
   );
 };
@@ -230,10 +284,6 @@ const styles: { [key: string]: React.CSSProperties } = {
     fontWeight: 500,
     cursor: 'pointer',
     transition: 'all 0.2s',
-  },
-  checkButton: {
-    backgroundColor: 'var(--button-bg-color)',
-    color: 'var(--button-text-color)',
   },
   updateButton: {
     backgroundColor: '#6366f1',

@@ -1,0 +1,78 @@
+# ProAssist Development Rules
+
+## Release Process
+
+**BEFORE creating any release tag, you MUST:**
+
+1. **Update CHANGELOG.md** - Always document what changed in this release
+
+   - Add a new section at the top with version number and date
+   - Include Added/Changed/Fixed sections as appropriate
+   - Commit the changelog update before tagging
+
+2. **Run local build** - Always verify the build passes locally
+
+   ```bash
+   npm run build
+   ```
+
+   - Fix any TypeScript/build errors before creating a tag
+   - Never push a tag if the build fails locally
+
+3. **Update version numbers** in:
+
+   - `src-tauri/tauri.conf.json`
+   - `package.json`
+   - `src/components/VersionSettings.tsx` (APP_VERSION constant)
+
+4. **Commit all changes** before creating the tag
+
+5. **Create and push tag** only after:
+   - ✅ CHANGELOG.md is updated
+   - ✅ Local build passes (`npm run build`)
+   - ✅ All version numbers are updated
+   - ✅ All changes are committed
+
+## Release Workflow
+
+```bash
+# 1. Update version numbers
+git add src-tauri/tauri.conf.json package.json src/components/VersionSettings.tsx
+git commit -m "Bump version to X.Y.Z"
+git push origin main
+
+# 2. Update CHANGELOG.md (REQUIRED)
+# Edit CHANGELOG.md, then:
+git add CHANGELOG.md
+git commit -m "Update CHANGELOG for vX.Y.Z"
+git push origin main
+
+# 3. Run build locally (REQUIRED)
+npm run build
+
+# 4. If build passes, create and push tag
+git tag -a vX.Y.Z -m "Release version X.Y.Z - Description"
+git push origin vX.Y.Z
+```
+
+## If Build Fails After Tagging
+
+If you already pushed a tag with build errors:
+
+1. Delete tag locally: `git tag -d vX.Y.Z`
+2. Delete tag remotely: `git push origin --delete vX.Y.Z`
+3. Fix build errors and commit
+4. Recreate tag: `git tag -a vX.Y.Z -m "Release message"`
+5. Push tag again: `git push origin vX.Y.Z`
+
+## Important Reminders
+
+- **Never skip the changelog** - Users need to know what changed
+- **Never skip the local build** - CI will fail if build has errors
+- **Always update all version files** - Keep them in sync
+- **Test before release** - Verify the build works locally first
+
+## See Also
+
+- `RELEASE.md` - Complete release documentation
+- `.github/workflows/release.yml` - CI/CD workflow configuration
