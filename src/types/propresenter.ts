@@ -50,6 +50,28 @@ export interface ProPresenterVersionResponse {
   api_version?: string; // Optional, may be present in some API versions
 }
 
+// ProPresenter Presentation Activation Types
+export interface ProPresenterPresentationId {
+  uuid: string;
+  name: string;
+  index: number;
+}
+
+export interface ProPresenterPresentationIndex {
+  index: number;
+  presentation_id: ProPresenterPresentationId;
+}
+
+export interface ProPresenterSlideIndexResponse {
+  presentation_index: ProPresenterPresentationIndex;
+}
+
+export interface ProPresenterActivationConfig {
+  presentationUuid: string;
+  slideIndex: number;
+  presentationName?: string;
+}
+
 // Stage Assist Schedule Types
 export interface ScheduleItem {
   id: number;

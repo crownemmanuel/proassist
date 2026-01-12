@@ -11,6 +11,8 @@ import {
   ProPresenterTimerPayload,
   ProPresenterTimerResponse,
   ProPresenterVersionResponse,
+  ProPresenterSlideIndexResponse,
+  ProPresenterActivationConfig,
 } from "../types/propresenter";
 
 // Storage keys
@@ -417,4 +419,89 @@ export async function getStageStatus(connection: ProPresenterConnection): Promis
     console.error(`Error getting stage status from ${connection.name}:`, error);
     return null;
   }
+}
+
+/**
+ * Get current slide index from ProPresenter
+ * This gets the currently active presentation and slide index
+ */
+export async function getCurrentSlideIndex(
+  connection: ProPresenterConnection
+): Promise<ProPresenterSlideIndexResponse | null> {
+  try {
+    const response = await fetch(
+      `${connection.apiUrl}/v1/presentation/slide_index?chunked=false`,
+      {
+        method: "GET",
+        headers: { "Accept": "application/json" },
+      }
+    );
+
+    if (response.ok) {
+      return await response.json();
+    }
+    return null;
+  } catch (error) {
+    console.error(`Error getting current slide index from ${connection.name}:`, error);
+    return null;
+  }
+}
+
+/**
+ * Trigger/activate a presentation slide in ProPresenter
+ */
+export async function triggerPresentationSlide(
+  connection: ProPresenterConnection,
+  config: ProPresenterActivationConfig
+): Promise<boolean> {
+  try {
+    const response = await fetch(
+      `${connection.apiUrl}/v1/presentation/${config.presentationUuid}/${config.slideIndex}/trigger`,
+      {
+        method: "GET",
+        headers: { "Accept": "*/*" },
+      }
+    );
+    return response.ok;
+  } catch (error) {
+    console.error(
+      `Error triggering presentation slide on ${connection.name}:`,
+      error
+    );
+    return false;
+  }
+}
+
+/**
+ * Trigger presentation activation on all enabled ProPresenter instances
+ */
+export async function triggerPresentationOnAllEnabled(
+  config: ProPresenterActivationConfig
+): Promise<{ success: number; failed: number; errors: string[] }> {
+  const enabledConnections = getEnabledConnections();
+  const results = { success: 0, failed: 0, errors: [] as string[] };
+
+  if (enabledConnections.length === 0) {
+    return results;
+  }
+
+  const promises = enabledConnections.map(async (connection) => {
+    try {
+      const success = await triggerPresentationSlide(connection, config);
+      if (success) {
+        results.success++;
+      } else {
+        results.failed++;
+        results.errors.push(`Failed to trigger presentation on ${connection.name}`);
+      }
+    } catch (error) {
+      results.failed++;
+      results.errors.push(
+        `Error on ${connection.name}: ${error instanceof Error ? error.message : "Unknown error"}`
+      );
+    }
+  });
+
+  await Promise.allSettled(promises);
+  return results;
 }

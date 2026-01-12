@@ -6,6 +6,7 @@ import ImportFromLiveSlidesModal from "../components/ImportFromLiveSlidesModal";
 import RenameModal from "../components/RenameModal";
 import ConfirmDialog from "../components/ConfirmDialog";
 import TypingUrlModal from "../components/TypingUrlModal";
+import ActivatePresentationModal from "../components/ActivatePresentationModal";
 import { Playlist, PlaylistItem, Slide, Template, LayoutType } from "../types"; // Using types defined earlier
 import {
   FaFileImport,
@@ -29,6 +30,7 @@ import {
 } from "../services/liveSlideService";
 import { LiveSlide } from "../types/liveSlides";
 import { calculateSlideBoundaries } from "../utils/liveSlideParser";
+import { triggerPresentationOnAllEnabled } from "../services/propresenterService";
 
 const MainApplicationPage: React.FC = () => {
   const [playlists, setPlaylists] = useState<Playlist[]>(() => {
@@ -40,11 +42,27 @@ const MainApplicationPage: React.FC = () => {
     }
   });
   const [selectedPlaylistId, setSelectedPlaylistId] = useState<string | null>(
-    null
+    () => {
+      try {
+        const saved = localStorage.getItem("proassist-selected-playlist-id");
+        return saved || null;
+      } catch {
+        return null;
+      }
+    }
   );
-  const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
+  const [selectedItemId, setSelectedItemId] = useState<string | null>(() => {
+    try {
+      const saved = localStorage.getItem("proassist-selected-item-id");
+      return saved || null;
+    } catch {
+      return null;
+    }
+  });
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [isLiveSlidesImportOpen, setIsLiveSlidesImportOpen] = useState(false);
+  const [isActivatePresentationModalOpen, setIsActivatePresentationModalOpen] =
+    useState(false);
   const [copyStatusMain, setCopyStatusMain] = useState<string>(""); // Added state for feedback
   const [typingUrlModal, setTypingUrlModal] = useState<{ url: string } | null>(
     null
@@ -120,6 +138,34 @@ const MainApplicationPage: React.FC = () => {
       console.error("Failed to save playlists:", err);
     }
   }, [playlists]);
+
+  // Persist selected playlist and item IDs to localStorage
+  useEffect(() => {
+    try {
+      if (selectedPlaylistId) {
+        localStorage.setItem(
+          "proassist-selected-playlist-id",
+          selectedPlaylistId
+        );
+      } else {
+        localStorage.removeItem("proassist-selected-playlist-id");
+      }
+    } catch (err) {
+      console.error("Failed to save selected playlist ID:", err);
+    }
+  }, [selectedPlaylistId]);
+
+  useEffect(() => {
+    try {
+      if (selectedItemId) {
+        localStorage.setItem("proassist-selected-item-id", selectedItemId);
+      } else {
+        localStorage.removeItem("proassist-selected-item-id");
+      }
+    } catch (err) {
+      console.error("Failed to save selected item ID:", err);
+    }
+  }, [selectedItemId]);
 
   // Best-effort: keep track of the Live Slides server URL for viewer connections.
   useEffect(() => {
@@ -461,6 +507,32 @@ const MainApplicationPage: React.FC = () => {
       }
 
       // Success: no UI notification required
+
+      // Trigger ProPresenter presentation activation if configured
+      const activationConfig =
+        slide.proPresenterActivation ||
+        playlistItem.defaultProPresenterActivation;
+      if (activationConfig) {
+        try {
+          const result = await triggerPresentationOnAllEnabled(
+            activationConfig
+          );
+          if (result.success > 0) {
+            console.log(
+              `Presentation activated on ${result.success} ProPresenter instance(s)`
+            );
+          }
+          if (result.failed > 0) {
+            console.warn(
+              `Failed to activate presentation on ${result.failed} instance(s):`,
+              result.errors
+            );
+          }
+        } catch (error) {
+          console.error("Failed to trigger ProPresenter presentation:", error);
+          // Don't block the "Go Live" action if presentation activation fails
+        }
+      }
     } catch (error) {
       console.error("Failed to write slide content to file(s):", error);
       alert("Error making slide live. Check console for details.");
@@ -585,6 +657,77 @@ const MainApplicationPage: React.FC = () => {
                   slides: item.slides.map((s) =>
                     s.id === slideIdToChange
                       ? { ...s, timerSessionIndex: sessionIndex }
+                      : s
+                  ),
+                };
+              }
+              return item;
+            }),
+          };
+        }
+        return p;
+      })
+    );
+  };
+
+  const handleSaveDefaultActivation = (
+    config:
+      | {
+          presentationUuid: string;
+          slideIndex: number;
+          presentationName?: string;
+        }
+      | undefined
+  ) => {
+    if (!selectedPlaylistId || !selectedItemId) {
+      return;
+    }
+    setPlaylists((prevPlaylists) =>
+      prevPlaylists.map((p) => {
+        if (p.id === selectedPlaylistId) {
+          return {
+            ...p,
+            items: p.items.map((item) => {
+              if (item.id === selectedItemId) {
+                return {
+                  ...item,
+                  defaultProPresenterActivation: config,
+                };
+              }
+              return item;
+            }),
+          };
+        }
+        return p;
+      })
+    );
+  };
+
+  const handleChangeProPresenterActivation = (
+    slideIdToChange: string,
+    config:
+      | {
+          presentationUuid: string;
+          slideIndex: number;
+          presentationName?: string;
+        }
+      | undefined
+  ) => {
+    if (!selectedPlaylistId || !selectedItemId) {
+      return;
+    }
+    setPlaylists((prevPlaylists) =>
+      prevPlaylists.map((p) => {
+        if (p.id === selectedPlaylistId) {
+          return {
+            ...p,
+            items: p.items.map((item) => {
+              if (item.id === selectedItemId) {
+                return {
+                  ...item,
+                  slides: item.slides.map((s) =>
+                    s.id === slideIdToChange
+                      ? { ...s, proPresenterActivation: config }
                       : s
                   ),
                 };
@@ -1180,6 +1323,21 @@ const MainApplicationPage: React.FC = () => {
               <FaDesktop />
               Live Slides
             </button>
+            <button
+              onClick={() => {
+                if (currentPlaylist && currentPlaylistItem) {
+                  setIsActivatePresentationModalOpen(true);
+                } else {
+                  alert("Please select a playlist item first.");
+                }
+              }}
+              disabled={!currentPlaylist || !currentPlaylistItem}
+              className="secondary"
+              title="Activate presentation on ProPresenter when slides go live"
+              style={{ padding: "8px 10px" }}
+            >
+              <FaDesktop />
+            </button>
             {currentPlaylistItem && currentPlaylistItem.slides.length > 0 && (
               <button
                 onClick={handleCopyToClipboardMain}
@@ -1337,6 +1495,7 @@ const MainApplicationPage: React.FC = () => {
             onDeleteSlide={handleDeleteSlide}
             onChangeSlideLayout={handleChangeSlideLayout}
             onChangeTimerSession={handleChangeTimerSession}
+            onChangeProPresenterActivation={handleChangeProPresenterActivation}
           />
         </div>
       </div>
@@ -1351,6 +1510,12 @@ const MainApplicationPage: React.FC = () => {
         onClose={() => setIsLiveSlidesImportOpen(false)}
         templates={templates}
         onImport={handleImportFromModal}
+      />
+      <ActivatePresentationModal
+        isOpen={isActivatePresentationModalOpen}
+        onClose={() => setIsActivatePresentationModalOpen(false)}
+        onSave={handleSaveDefaultActivation}
+        currentConfig={currentPlaylistItem?.defaultProPresenterActivation}
       />
       <RenameModal
         isOpen={isRenameOpen}

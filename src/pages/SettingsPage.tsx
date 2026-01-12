@@ -30,12 +30,31 @@ const SettingsPage: React.FC = () => {
   const [deletingTemplateId, setDeletingTemplateId] = useState<string | null>(
     null
   );
-  const [currentView, setCurrentView] = useState<SettingsView>("templates");
+  const [currentView, setCurrentView] = useState<SettingsView>(() => {
+    try {
+      const saved = localStorage.getItem("proassist-settings-current-view");
+      if (saved && ["templates", "aiConfiguration", "liveTestimonies", "liveSlides", "proPresenter", "version"].includes(saved)) {
+        return saved as SettingsView;
+      }
+    } catch {
+      // ignore
+    }
+    return "templates";
+  });
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     localStorage.setItem("proassist-templates", JSON.stringify(templates));
   }, [templates]);
+
+  // Persist current view to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem("proassist-settings-current-view", currentView);
+    } catch (err) {
+      console.error("Failed to save current view:", err);
+    }
+  }, [currentView]);
 
   const handleSelectTemplate = (templateId: string) => {
     setSelectedTemplateIds((prev) =>

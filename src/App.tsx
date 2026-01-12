@@ -208,16 +208,32 @@ function AppContent({
     );
   }
 
+  // Determine which page is active based on route
+  const isMainPage = location.pathname === "/";
+  const isSettingsPage = location.pathname === "/settings";
+  const isLiveTestimoniesPage = location.pathname === "/live-testimonies";
+  const isStageAssistPage = location.pathname === "/stage-assist";
+  const isHelpPage = location.pathname === "/help";
+
   return (
     <div className="container">
       <Navigation theme={theme} toggleTheme={toggleTheme} />
-      <Routes>
-        <Route path="/" element={<MainApplicationPage />} />
-        <Route path="/settings" element={<SettingsPage />} />
-        <Route path="/live-testimonies" element={<MediaView />} />
-        <Route path="/stage-assist" element={<StageAssistPage />} />
-        <Route path="/help" element={<HelpPage />} />
-      </Routes>
+      {/* Keep all components mounted but show/hide based on route */}
+      <div style={{ display: isMainPage ? "block" : "none" }}>
+        <MainApplicationPage />
+      </div>
+      <div style={{ display: isSettingsPage ? "block" : "none" }}>
+        <SettingsPage />
+      </div>
+      <div style={{ display: isLiveTestimoniesPage ? "block" : "none" }}>
+        <MediaView />
+      </div>
+      <div style={{ display: isStageAssistPage ? "block" : "none" }}>
+        <StageAssistPage />
+      </div>
+      <div style={{ display: isHelpPage ? "block" : "none" }}>
+        <HelpPage />
+      </div>
     </div>
   );
 }

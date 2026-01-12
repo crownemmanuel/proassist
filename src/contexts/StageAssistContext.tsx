@@ -119,16 +119,27 @@ export const StageAssistProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
   // Load persisted schedule/settings on mount
   useEffect(() => {
-    const savedSchedule = localStorage.getItem(SCHEDULE_STORAGE_KEY);
-    if (savedSchedule) {
-      setSchedule(JSON.parse(savedSchedule));
-    } else {
+    try {
+      const savedSchedule = localStorage.getItem(SCHEDULE_STORAGE_KEY);
+      if (savedSchedule) {
+        setSchedule(JSON.parse(savedSchedule));
+      } else {
+        setSchedule(defaultSchedule);
+      }
+    } catch (error) {
+      console.error("Error loading schedule from localStorage:", error);
       setSchedule(defaultSchedule);
     }
 
-    const savedSettings = localStorage.getItem(SETTINGS_STORAGE_KEY);
-    if (savedSettings) {
-      setSettings({ ...defaultSettings, ...JSON.parse(savedSettings) });
+    try {
+      const savedSettings = localStorage.getItem(SETTINGS_STORAGE_KEY);
+      if (savedSettings) {
+        const parsed = JSON.parse(savedSettings);
+        setSettings({ ...defaultSettings, ...parsed });
+      }
+    } catch (error) {
+      console.error("Error loading settings from localStorage:", error);
+      // Keep default settings
     }
 
     // Restore runtime timer state so it survives navigation (and even app reload)
@@ -153,12 +164,20 @@ export const StageAssistProvider: React.FC<{ children: React.ReactNode }> = ({ c
   // Persist schedule/settings
   useEffect(() => {
     if (schedule.length > 0) {
-      localStorage.setItem(SCHEDULE_STORAGE_KEY, JSON.stringify(schedule));
+      try {
+        localStorage.setItem(SCHEDULE_STORAGE_KEY, JSON.stringify(schedule));
+      } catch (error) {
+        console.error("Error saving schedule to localStorage:", error);
+      }
     }
   }, [schedule]);
 
   useEffect(() => {
-    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+    try {
+      localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+    } catch (error) {
+      console.error("Error saving settings to localStorage:", error);
+    }
   }, [settings]);
 
   // Persist runtime timer state (for navigation + reload safety)

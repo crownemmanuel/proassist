@@ -33,6 +33,11 @@ export interface Slide {
   order: number; // To maintain order within a playlist item
   isAutoScripture?: boolean; // True if this slide was auto-generated from detected scripture reference
   timerSessionIndex?: number; // Index of schedule session to trigger when going live (from Stage Assist timer tab)
+  proPresenterActivation?: {
+    presentationUuid: string;
+    slideIndex: number;
+    presentationName?: string;
+  }; // Per-slide override for ProPresenter presentation activation
 }
 
 export interface PlaylistItem {
@@ -53,6 +58,15 @@ export interface PlaylistItem {
    * This is the canonical serialization for Live Slides (blank line = new slide).
    */
   liveSlidesCachedRawText?: string;
+  /**
+   * Default ProPresenter presentation activation config for all slides in this item.
+   * Individual slides can override this with their own proPresenterActivation property.
+   */
+  defaultProPresenterActivation?: {
+    presentationUuid: string;
+    slideIndex: number;
+    presentationName?: string;
+  };
 }
 
 export interface Playlist {

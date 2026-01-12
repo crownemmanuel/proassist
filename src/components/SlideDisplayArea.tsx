@@ -8,11 +8,14 @@ import {
   FaSearch,
   FaTimes,
   FaCopy,
+  FaDesktop,
 } from "react-icons/fa";
 import "../App.css"; // Ensure global styles are applied
 import ContextMenu from "./ContextMenu"; // Import the new component
 import TimerDropdown from "./TimerDropdown";
 import { useStageAssist } from "../contexts/StageAssistContext";
+import ActivatePresentationModal from "./ActivatePresentationModal";
+import { ProPresenterActivationConfig } from "../types/propresenter";
 
 const MAX_LINES_FOR_EDIT = 6;
 
@@ -28,6 +31,10 @@ interface SlideDisplayAreaProps {
     slideId: string,
     sessionIndex: number | undefined
   ) => void; // New prop for timer session
+  onChangeProPresenterActivation?: (
+    slideId: string,
+    config: ProPresenterActivationConfig | undefined
+  ) => void; // New prop for ProPresenter activation
   onDetachLiveSlides?: () => void;
   onBeginLiveSlideEdit?: (slide: Slide) => void;
   onEndLiveSlideEdit?: () => void;
@@ -56,6 +63,7 @@ const SlideDisplayArea: React.FC<SlideDisplayAreaProps> = ({
   onDeleteSlide,
   onChangeSlideLayout, // New prop
   onChangeTimerSession, // New prop for timer session
+  onChangeProPresenterActivation, // New prop for ProPresenter activation
   onDetachLiveSlides,
   onBeginLiveSlideEdit,
   onEndLiveSlideEdit,
@@ -63,6 +71,10 @@ const SlideDisplayArea: React.FC<SlideDisplayAreaProps> = ({
   onResumeLiveSlidesSession,
 }) => {
   const { startSession } = useStageAssist();
+  const [
+    activatePresentationModalSlideId,
+    setActivatePresentationModalSlideId,
+  ] = useState<string | null>(null);
   // Mark unused prop as intentionally unused to satisfy TypeScript
   void template;
   const [editingSlideId, setEditingSlideId] = useState<string | null>(null);
@@ -674,6 +686,48 @@ const SlideDisplayArea: React.FC<SlideDisplayAreaProps> = ({
                       disabled={liveSlideId === slide.id || isLiveLinked}
                     />
                   )}
+                  {onChangeProPresenterActivation && (
+                    <button
+                      onClick={() =>
+                        setActivatePresentationModalSlideId(slide.id)
+                      }
+                      className="secondary"
+                      disabled={liveSlideId === slide.id || isLiveLinked}
+                      title={
+                        slide.proPresenterActivation
+                          ? `ProPresenter: ${
+                              slide.proPresenterActivation.presentationName ||
+                              slide.proPresenterActivation.presentationUuid
+                            } (Slide ${
+                              slide.proPresenterActivation.slideIndex
+                            })`
+                          : playlistItem?.defaultProPresenterActivation
+                          ? `ProPresenter: Default (${
+                              playlistItem.defaultProPresenterActivation
+                                .presentationName ||
+                              playlistItem.defaultProPresenterActivation
+                                .presentationUuid
+                            })`
+                          : "Set ProPresenter activation (default: none)"
+                      }
+                      style={{
+                        padding: "8px 10px",
+                        fontSize: "0.85em",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "6px",
+                      }}
+                    >
+                      <FaDesktop />
+                      <span>
+                        {slide.proPresenterActivation
+                          ? "Custom"
+                          : playlistItem?.defaultProPresenterActivation
+                          ? "Default"
+                          : "None"}
+                      </span>
+                    </button>
+                  )}
                   <button
                     onClick={() => onDeleteSlide(slide.id)}
                     className="icon-button"
@@ -727,6 +781,23 @@ const SlideDisplayArea: React.FC<SlideDisplayAreaProps> = ({
         menuItems={contextMenuItems}
         onClose={closeContextMenu}
       />
+      {onChangeProPresenterActivation && activatePresentationModalSlideId && (
+        <ActivatePresentationModal
+          isOpen={!!activatePresentationModalSlideId}
+          onClose={() => setActivatePresentationModalSlideId(null)}
+          onSave={(config) => {
+            const slideId = activatePresentationModalSlideId;
+            onChangeProPresenterActivation(slideId, config);
+            setActivatePresentationModalSlideId(null);
+          }}
+          currentConfig={
+            playlistItem?.slides.find(
+              (s) => s.id === activatePresentationModalSlideId
+            )?.proPresenterActivation
+          }
+          title="Activate Presentation for This Slide"
+        />
+      )}
     </div>
   );
 };

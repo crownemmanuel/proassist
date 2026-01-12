@@ -26,8 +26,22 @@ function getTodayDate(): string {
 }
 
 const MediaView: React.FC = () => {
-  const [date, setDate] = useState(getTodayDate());
-  const [service, setService] = useState("");
+  const [date, setDate] = useState(() => {
+    try {
+      const saved = localStorage.getItem("proassist-testimonies-date");
+      return saved || getTodayDate();
+    } catch {
+      return getTodayDate();
+    }
+  });
+  const [service, setService] = useState(() => {
+    try {
+      const saved = localStorage.getItem("proassist-testimonies-service");
+      return saved || "";
+    } catch {
+      return "";
+    }
+  });
   const [testimonies, setTestimonies] = useState<Testimony[]>([]);
   const [services, setServices] = useState<ServiceType[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -35,7 +49,14 @@ const MediaView: React.FC = () => {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [firebaseConfig, setFirebaseConfig] = useState<FirebaseConfig | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [selectedIndex, setSelectedIndex] = useState<number>(-1);
+  const [selectedIndex, setSelectedIndex] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem("proassist-testimonies-selected-index");
+      return saved ? parseInt(saved, 10) : -1;
+    } catch {
+      return -1;
+    }
+  });
   const [isSubscribed, setIsSubscribed] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const unsubscribeTestimoniesRef = useRef<(() => void) | null>(null);
@@ -55,7 +76,13 @@ const MediaView: React.FC = () => {
         const loadedServices = await getServices(config);
         setServices(loadedServices);
         if (loadedServices.length > 0) {
-          setService(loadedServices[0].key);
+          // Only set to first service if no service is currently selected or if saved service is not in the list
+          setService((currentService) => {
+            if (currentService && loadedServices.some((s) => s.key === currentService)) {
+              return currentService; // Keep the saved service if it's still valid
+            }
+            return loadedServices[0].key; // Otherwise use the first available service
+          });
         }
       } catch (err) {
         console.error("Failed to load services:", err);
@@ -129,6 +156,39 @@ const MediaView: React.FC = () => {
       setSelectedIndex(testimonies.length - 1);
     }
   }, [testimonies]);
+
+  // Persist date, service, and selectedIndex to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem("proassist-testimonies-date", date);
+    } catch (err) {
+      console.error("Failed to save date:", err);
+    }
+  }, [date]);
+
+  useEffect(() => {
+    try {
+      if (service) {
+        localStorage.setItem("proassist-testimonies-service", service);
+      } else {
+        localStorage.removeItem("proassist-testimonies-service");
+      }
+    } catch (err) {
+      console.error("Failed to save service:", err);
+    }
+  }, [service]);
+
+  useEffect(() => {
+    try {
+      if (selectedIndex >= 0) {
+        localStorage.setItem("proassist-testimonies-selected-index", selectedIndex.toString());
+      } else {
+        localStorage.removeItem("proassist-testimonies-selected-index");
+      }
+    } catch (err) {
+      console.error("Failed to save selected index:", err);
+    }
+  }, [selectedIndex]);
 
   const loadTestimonies = async () => {
     if (!firebaseConfig || !service) return;
