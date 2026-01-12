@@ -89,8 +89,13 @@ const MainApplicationPage: React.FC = () => {
   >(null);
   // Load templates from localStorage and keep them in sync
   const [templates, setTemplates] = useState<Template[]>(() => {
-    const savedTemplates = localStorage.getItem("proassist-templates");
-    return savedTemplates ? JSON.parse(savedTemplates) : [];
+    try {
+      const savedTemplates = localStorage.getItem("proassist-templates");
+      return savedTemplates ? JSON.parse(savedTemplates) : [];
+    } catch (error) {
+      console.error("Failed to parse templates from localStorage:", error);
+      return [];
+    }
   });
 
   // Function to reload templates from localStorage

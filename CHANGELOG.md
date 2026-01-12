@@ -2,6 +2,17 @@
 
 All notable changes to ProAssist will be documented in this file.
 
+## [0.3.2] - 2025-01-XX
+
+### Fixed
+- Improved error handling for localStorage template parsing with try-catch blocks
+- Enhanced error logging for Live Slides auto-start server failures
+- Added error logging for WebSocket reconnection failures in Live Slides and Network Sync services
+- Better error messages when template loading fails
+
+### Changed
+- Improved error handling and logging throughout the application for better debugging
+
 ## [0.3.1] - 2025-01-XX
 
 ### Added

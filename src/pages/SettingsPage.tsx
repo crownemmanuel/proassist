@@ -20,8 +20,13 @@ type SettingsView = "templates" | "aiConfiguration" | "liveTestimonies" | "netwo
 
 const SettingsPage: React.FC = () => {
   const [templates, setTemplates] = useState<Template[]>(() => {
-    const savedTemplates = localStorage.getItem("proassist-templates");
-    return savedTemplates ? JSON.parse(savedTemplates) : [];
+    try {
+      const savedTemplates = localStorage.getItem("proassist-templates");
+      return savedTemplates ? JSON.parse(savedTemplates) : [];
+    } catch (error) {
+      console.error("Failed to parse templates from localStorage:", error);
+      return [];
+    }
   });
   const [selectedTemplateIds, setSelectedTemplateIds] = useState<string[]>([]);
   const [editingTemplateId, setEditingTemplateId] = useState<string | null>(

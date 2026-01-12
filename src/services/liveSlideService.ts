@@ -176,7 +176,9 @@ export class LiveSlidesWebSocket {
 
     console.log(`Attempting to reconnect in ${delay}ms...`);
     this.reconnectTimeout = setTimeout(() => {
-      this.connect().catch(() => {});
+      this.connect().catch((err) => {
+        console.warn("[WebSocket] Reconnection attempt failed:", err);
+      });
     }, delay);
   }
 

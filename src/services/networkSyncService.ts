@@ -235,7 +235,9 @@ export class NetworkSyncWebSocket {
 
     console.log(`[NetworkSync] Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`);
     this.reconnectTimeout = setTimeout(() => {
-      this.connect().catch(() => {});
+      this.connect().catch((err) => {
+        console.warn("[NetworkSync] Reconnection attempt failed:", err);
+      });
     }, delay);
   }
 

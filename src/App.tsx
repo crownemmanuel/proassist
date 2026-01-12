@@ -248,7 +248,12 @@ function App() {
     const settings = loadLiveSlidesSettings();
     if (!settings.autoStartServer) return;
     // Best-effort: if it fails (already running / port in use), we'll let Settings/Import UI surface it.
-    startLiveSlidesServer(settings.serverPort).catch(() => {});
+    startLiveSlidesServer(settings.serverPort).catch((err) => {
+      console.warn(
+        "[LiveSlides] Auto-start server failed (may already be running):",
+        err
+      );
+    });
   }, []);
 
   useEffect(() => {
