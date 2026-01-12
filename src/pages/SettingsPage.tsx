@@ -5,7 +5,8 @@ import AISettingsForm from "../components/AISettingsForm";
 import LiveTestimoniesSettings from "../components/LiveTestimoniesSettings";
 import LiveSlidesSettings from "../components/LiveSlidesSettings";
 import ProPresenterSettings from "../components/ProPresenterSettings";
-import { FaList, FaRobot, FaMicrophone, FaDesktop, FaClock } from "react-icons/fa";
+import VersionSettings from "../components/VersionSettings";
+import { FaList, FaRobot, FaMicrophone, FaDesktop, FaClock, FaInfoCircle } from "react-icons/fa";
 import "../App.css"; // Ensure global styles are applied
 import {
   exportAllTemplatesToFile,
@@ -15,7 +16,7 @@ import {
 import TemplateListView from "../components/TemplateListView";
 import ConfirmDialog from "../components/ConfirmDialog";
 
-type SettingsView = "templates" | "aiConfiguration" | "liveTestimonies" | "liveSlides" | "proPresenter";
+type SettingsView = "templates" | "aiConfiguration" | "liveTestimonies" | "liveSlides" | "proPresenter" | "version";
 
 const SettingsPage: React.FC = () => {
   const [templates, setTemplates] = useState<Template[]>(() => {
@@ -228,6 +229,13 @@ const SettingsPage: React.FC = () => {
             <FaClock />
             ProPresenter
           </button>
+          <button
+            onClick={() => setCurrentView("version")}
+            className={currentView === "version" ? "active" : ""}
+          >
+            <FaInfoCircle />
+            Version
+          </button>
         </div>
       </div>
       <div style={rightColumnStyle}>
@@ -289,6 +297,7 @@ const SettingsPage: React.FC = () => {
         {currentView === "liveTestimonies" && <LiveTestimoniesSettings />}
         {currentView === "liveSlides" && <LiveSlidesSettings />}
         {currentView === "proPresenter" && <ProPresenterSettings />}
+        {currentView === "version" && <VersionSettings />}
       </div>
       {deletingTemplateId && (
         <ConfirmDialog
