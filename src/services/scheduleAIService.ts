@@ -1,6 +1,6 @@
 /**
  * Schedule AI Service
- * 
+ *
  * Uses the existing AI infrastructure (Gemini/GPT) to parse schedules from
  * images or text input.
  */
@@ -42,37 +42,40 @@ function getAIAssistantSettings(): AIAssistantSettings {
 function buildSystemPrompt(currentSchedule?: ScheduleItem[]): string {
   const settings = getAIAssistantSettings();
   const customPrompt = settings.customSystemPrompt?.trim() || "";
-  
-  const contextPrompt = currentSchedule 
+
+  const contextPrompt = currentSchedule
     ? `\n\nCurrent schedule: ${JSON.stringify(currentSchedule)}`
     : "";
-  
+
   // Include smart automations in context
   const smartAutomations = loadSmartAutomations();
-  const automationsContext = smartAutomations.length > 0
-    ? `\n\nSaved ProPresenter slide automations that can be attached to schedule items:\n${JSON.stringify(smartAutomations.map(r => ({
-        pattern: r.sessionNamePattern,
-        matchType: r.isExactMatch ? "exact" : "contains",
-        presentationUuid: r.automation.presentationUuid,
-        slideIndex: r.automation.slideIndex,
-        presentationName: r.automation.presentationName,
-      })), null, 2)}`
-    : "";
-  
+  const automationsContext =
+    smartAutomations.length > 0
+      ? `\n\nSaved ProPresenter automations that can be attached to schedule items:\n${JSON.stringify(
+          smartAutomations.map((r) => ({
+            pattern: r.sessionNamePattern,
+            matchType: r.isExactMatch ? "exact" : "contains",
+            automations: r.automations,
+          })),
+          null,
+          2
+        )}`
+      : "";
+
   let finalPrompt = SYSTEM_PROMPT;
-  
+
   if (customPrompt) {
     finalPrompt = finalPrompt + "\n\n" + customPrompt;
   }
-  
+
   if (automationsContext) {
     finalPrompt = finalPrompt + automationsContext;
   }
-  
+
   if (contextPrompt) {
     finalPrompt = finalPrompt + contextPrompt;
   }
-  
+
   return finalPrompt;
 }
 
@@ -80,28 +83,31 @@ function buildSystemPrompt(currentSchedule?: ScheduleItem[]): string {
  * Get AI configuration from app settings
  * @param preferredProvider Optional provider to use. If not provided, uses default from settings.
  */
-function getAIConfig(preferredProvider?: AIProvider): { provider: AIProvider; apiKey: string; model: string } | null {
+function getAIConfig(
+  preferredProvider?: AIProvider
+): { provider: AIProvider; apiKey: string; model: string } | null {
   // Get from the main app settings using the utility function
   const appSettings = getAppSettings();
-  
+
   // Check if timer assistant model is configured
   const timerAssistantSettings = appSettings.timerAssistantModel;
-  
+
   // Determine provider: prefer configured timer assistant, then preferred, then default
   let provider: AIProvider;
   let model: string;
-  
+
   if (timerAssistantSettings?.provider && timerAssistantSettings?.model) {
     provider = timerAssistantSettings.provider;
     model = timerAssistantSettings.model;
   } else if (preferredProvider) {
     provider = preferredProvider;
-    model = preferredProvider === "openai" ? "gpt-4o" : "gemini-1.5-flash-latest";
+    model =
+      preferredProvider === "openai" ? "gpt-4o" : "gemini-1.5-flash-latest";
   } else {
     provider = appSettings.defaultAIProvider || null;
     model = provider === "openai" ? "gpt-4o" : "gemini-1.5-flash-latest";
   }
-  
+
   if (!provider) {
     // Try any available provider
     if (appSettings.openAIConfig?.apiKey) {
@@ -120,12 +126,13 @@ function getAIConfig(preferredProvider?: AIProvider): { provider: AIProvider; ap
     }
     return null;
   }
-  
+
   // Get API key for the chosen provider
-  const apiKey = provider === "openai" 
-    ? appSettings.openAIConfig?.apiKey 
-    : appSettings.geminiConfig?.apiKey;
-  
+  const apiKey =
+    provider === "openai"
+      ? appSettings.openAIConfig?.apiKey
+      : appSettings.geminiConfig?.apiKey;
+
   if (!apiKey) {
     // Try fallback to other provider
     if (provider === "openai" && appSettings.geminiConfig?.apiKey) {
@@ -154,14 +161,14 @@ function getAIConfig(preferredProvider?: AIProvider): { provider: AIProvider; ap
 export function getAvailableProviders(): AIProvider[] {
   const appSettings = getAppSettings();
   const providers: AIProvider[] = [];
-  
+
   if (appSettings.openAIConfig?.apiKey) {
     providers.push("openai");
   }
   if (appSettings.geminiConfig?.apiKey) {
     providers.push("gemini");
   }
-  
+
   return providers;
 }
 
@@ -189,15 +196,27 @@ For UpdateSchedule, actionValue should be an array of schedule items with this s
     "duration": "XXmins",
     "minister": "Optional Minister Name",
     "automation": {
+      "type": "slide" | "stageLayout",
+      // For slide type:
       "presentationUuid": "UUID of ProPresenter presentation",
       "slideIndex": number,
       "presentationName": "Optional presentation name",
       "activationClicks": number (optional, default 1)
+      // OR for stageLayout type:
+      "screenUuid": "UUID of stage screen",
+      "screenName": "Optional screen name",
+      "screenIndex": number,
+      "layoutUuid": "UUID of stage layout",
+      "layoutName": "Optional layout name",
+      "layoutIndex": number
     }
   }
 ]
 
-The "automation" field is optional and is used to trigger a ProPresenter slide when the session starts.
+The "automation" field is optional and is used to trigger a ProPresenter action when the session starts.
+Automation can be either:
+- "slide": Triggers a specific slide in a presentation
+- "stageLayout": Changes the stage layout for a specific screen
 If you have saved automations in context, you can attach them to matching schedule items.
 
 When creating or modifying a schedule:
@@ -209,7 +228,7 @@ When creating or modifying a schedule:
 6. Ensure times are sequential (each session's startTime should match the previous session's endTime)
 7. If saved automations are available and match a session name, include the automation field
 
-You will receive the current schedule and any saved ProPresenter slide automations as context. 
+You will receive the current schedule and any saved ProPresenter automations (slides or stage layouts) as context. 
 When modifying the schedule, preserve existing IDs and structure where possible.
 When matching automations to sessions, use case-insensitive matching.`;
 
@@ -223,17 +242,19 @@ export async function parseScheduleFromImage(
   preferredProvider?: AIProvider
 ): Promise<AIScheduleResponse> {
   const config = getAIConfig(preferredProvider);
-  
+
   if (!config) {
     return {
       action: "none",
-      responseText: "AI is not configured. Please add your API key in Settings > AI Configuration.",
+      responseText:
+        "AI is not configured. Please add your API key in Settings > AI Configuration.",
     };
   }
 
   try {
     const currentPeriod = new Date().getHours() >= 12 ? "PM" : "AM";
-    const userMessage = additionalInstructions || 
+    const userMessage =
+      additionalInstructions ||
       `Create the schedule based on the provided image. If a time does not specify AM or PM, use ${currentPeriod}.`;
 
     if (config.provider === "openai") {
@@ -288,7 +309,9 @@ export async function parseScheduleFromImage(
     console.error("Error parsing schedule from image:", error);
     return {
       action: "none",
-      responseText: `Error parsing schedule: ${error instanceof Error ? error.message : "Unknown error"}`,
+      responseText: `Error parsing schedule: ${
+        error instanceof Error ? error.message : "Unknown error"
+      }`,
     };
   }
 }
@@ -302,11 +325,12 @@ export async function parseScheduleFromText(
   preferredProvider?: AIProvider
 ): Promise<AIScheduleResponse> {
   const config = getAIConfig(preferredProvider);
-  
+
   if (!config) {
     return {
       action: "none",
-      responseText: "AI is not configured. Please add your API key in Settings > AI Configuration.",
+      responseText:
+        "AI is not configured. Please add your API key in Settings > AI Configuration.",
     };
   }
 
@@ -336,7 +360,9 @@ export async function parseScheduleFromText(
     console.error("Error parsing schedule from text:", error);
     return {
       action: "none",
-      responseText: `Error processing request: ${error instanceof Error ? error.message : "Unknown error"}`,
+      responseText: `Error processing request: ${
+        error instanceof Error ? error.message : "Unknown error"
+      }`,
     };
   }
 }
@@ -348,7 +374,7 @@ function parseAIResponse(response: any): AIScheduleResponse {
   try {
     const content = response.content;
     let text = "";
-    
+
     if (typeof content === "string") {
       text = content;
     } else if (Array.isArray(content) && content[0]?.text) {
@@ -391,7 +417,12 @@ export async function processAIChatMessage(
   preferredProvider?: AIProvider
 ): Promise<AIScheduleResponse> {
   if (image) {
-    return parseScheduleFromImage(image, message, currentSchedule, preferredProvider);
+    return parseScheduleFromImage(
+      image,
+      message,
+      currentSchedule,
+      preferredProvider
+    );
   }
   return parseScheduleFromText(message, currentSchedule, preferredProvider);
 }

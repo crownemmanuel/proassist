@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { ScheduleItem, TimerState, TimeAdjustmentMode } from "../types/propresenter";
+import { ScheduleItem, TimerState, TimeAdjustmentMode, ScheduleItemAutomation } from "../types/propresenter";
 import { startTimerOnAllEnabled, stopTimerOnAllEnabled } from "../services/propresenterService";
 import { loadNetworkSyncSettings, networkSyncManager } from "../services/networkSyncService";
 
@@ -7,6 +7,77 @@ import { loadNetworkSyncSettings, networkSyncManager } from "../services/network
 const SCHEDULE_STORAGE_KEY = "proassist-stage-assist-schedule";
 const SETTINGS_STORAGE_KEY = "proassist-stage-assist-settings";
 const RUNTIME_STORAGE_KEY = "proassist-stage-assist-runtime";
+
+function normalizeAutomation(raw: any): ScheduleItemAutomation | null {
+  if (!raw || typeof raw !== "object") return null;
+
+  // already in the new shape
+  if (raw.type === "slide" || raw.type === "stageLayout") {
+    return raw as ScheduleItemAutomation;
+  }
+
+  // legacy slide automation (no `type`)
+  if (typeof raw.presentationUuid === "string" && typeof raw.slideIndex === "number") {
+    return {
+      type: "slide",
+      presentationUuid: raw.presentationUuid,
+      slideIndex: raw.slideIndex,
+      presentationName: raw.presentationName,
+      activationClicks: raw.activationClicks,
+    };
+  }
+
+  // legacy stage layout automation (unlikely, but safe)
+  if (typeof raw.screenIndex === "number" && typeof raw.layoutIndex === "number") {
+    return {
+      type: "stageLayout",
+      screenUuid: raw.screenUuid ?? "",
+      screenName: raw.screenName,
+      screenIndex: raw.screenIndex,
+      layoutUuid: raw.layoutUuid ?? "",
+      layoutName: raw.layoutName,
+      layoutIndex: raw.layoutIndex,
+    };
+  }
+
+  return null;
+}
+
+function normalizeItemAutomations(item: any): ScheduleItemAutomation[] {
+  const list: ScheduleItemAutomation[] = [];
+
+  if (Array.isArray(item?.automations)) {
+    for (const a of item.automations) {
+      const normalized = normalizeAutomation(a);
+      if (normalized) list.push(normalized);
+    }
+  } else if (item?.automation) {
+    const normalized = normalizeAutomation(item.automation);
+    if (normalized) list.push(normalized);
+  }
+
+  // ensure unique by type (one slide + one stageLayout max for now)
+  const byType = new Map<ScheduleItemAutomation["type"], ScheduleItemAutomation>();
+  for (const a of list) byType.set(a.type, a);
+  return Array.from(byType.values());
+}
+
+function normalizeSchedule(rawSchedule: any): ScheduleItem[] {
+  if (!Array.isArray(rawSchedule)) return defaultSchedule;
+  return rawSchedule.map((item: any) => {
+    const automations = normalizeItemAutomations(item);
+    const normalized: ScheduleItem = {
+      id: item.id,
+      session: item.session,
+      startTime: item.startTime,
+      endTime: item.endTime,
+      duration: item.duration,
+      minister: item.minister,
+      automations: automations.length > 0 ? automations : undefined,
+    };
+    return normalized;
+  });
+}
 
 export interface StageAssistSettings {
   timeAdjustmentMode: TimeAdjustmentMode;
@@ -124,7 +195,8 @@ export const StageAssistProvider: React.FC<{ children: React.ReactNode }> = ({ c
     try {
       const savedSchedule = localStorage.getItem(SCHEDULE_STORAGE_KEY);
       if (savedSchedule) {
-        setSchedule(JSON.parse(savedSchedule));
+        const parsed = JSON.parse(savedSchedule);
+        setSchedule(normalizeSchedule(parsed));
       } else {
         setSchedule(defaultSchedule);
       }

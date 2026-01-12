@@ -13,6 +13,8 @@ import {
   ProPresenterVersionResponse,
   ProPresenterSlideIndexResponse,
   ProPresenterActivationConfig,
+  ProPresenterStageScreen,
+  ProPresenterStageLayout,
 } from "../types/propresenter";
 
 // Storage keys
@@ -551,4 +553,106 @@ export async function triggerPresentationOnAllEnabled(
   config: ProPresenterActivationConfig
 ): Promise<{ success: number; failed: number; errors: string[] }> {
   return triggerPresentationOnConnections(config);
+}
+
+/**
+ * Get all stage screens from a ProPresenter instance
+ */
+export async function getStageScreens(
+  connection: ProPresenterConnection
+): Promise<ProPresenterStageScreen[]> {
+  try {
+    const response = await fetch(`${connection.apiUrl}/v1/stage/screens?chunked=false`, {
+      method: "GET",
+      headers: { "Accept": "application/json" },
+    });
+
+    if (response.ok) {
+      return await response.json();
+    }
+    return [];
+  } catch (error) {
+    console.error(`Error getting stage screens from ${connection.name}:`, error);
+    return [];
+  }
+}
+
+/**
+ * Get all stage layouts from a ProPresenter instance
+ */
+export async function getStageLayouts(
+  connection: ProPresenterConnection
+): Promise<ProPresenterStageLayout[]> {
+  try {
+    const response = await fetch(`${connection.apiUrl}/v1/stage/layouts?chunked=false`, {
+      method: "GET",
+      headers: { "Accept": "application/json" },
+    });
+
+    if (response.ok) {
+      return await response.json();
+    }
+    return [];
+  } catch (error) {
+    console.error(`Error getting stage layouts from ${connection.name}:`, error);
+    return [];
+  }
+}
+
+/**
+ * Change the stage layout for a specific screen
+ */
+export async function changeStageLayout(
+  connection: ProPresenterConnection,
+  screenIndex: number,
+  layoutIndex: number
+): Promise<boolean> {
+  try {
+    const response = await fetch(
+      `${connection.apiUrl}/v1/stage/screen/${screenIndex}/layout/${layoutIndex}`,
+      {
+        method: "GET",
+        headers: { "Accept": "*/*" },
+      }
+    );
+    return response.ok;
+  } catch (error) {
+    console.error(`Error changing stage layout on ${connection.name}:`, error);
+    return false;
+  }
+}
+
+/**
+ * Change stage layout on all enabled ProPresenter instances
+ */
+export async function changeStageLayoutOnAllEnabled(
+  screenIndex: number,
+  layoutIndex: number
+): Promise<{ success: number; failed: number; errors: string[] }> {
+  const enabledConnections = getEnabledConnections();
+  const results = { success: 0, failed: 0, errors: [] as string[] };
+
+  if (enabledConnections.length === 0) {
+    return results;
+  }
+
+  const promises = enabledConnections.map(async (connection) => {
+    try {
+      const success = await changeStageLayout(connection, screenIndex, layoutIndex);
+      if (success) {
+        results.success++;
+      } else {
+        results.failed++;
+        results.errors.push(`Failed to change stage layout on ${connection.name}`);
+      }
+    } catch (error) {
+      results.failed++;
+      results.errors.push(
+        `Error on ${connection.name}: ${error instanceof Error ? error.message : "Unknown error"}`
+      );
+    }
+  });
+
+  await Promise.allSettled(promises);
+  return results;
 }

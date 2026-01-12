@@ -23,19 +23,78 @@ import {
 import {
   getEnabledConnections,
   triggerPresentationOnConnections,
+  changeStageLayoutOnAllEnabled,
 } from "../services/propresenterService";
-import { processAIChatMessage, getAvailableProviders } from "../services/scheduleAIService";
-import { formatStageAssistTime, useStageAssist } from "../contexts/StageAssistContext";
+import {
+  processAIChatMessage,
+  getAvailableProviders,
+} from "../services/scheduleAIService";
+import {
+  formatStageAssistTime,
+  useStageAssist,
+} from "../contexts/StageAssistContext";
 import { getAppSettings } from "../utils/aiConfig";
 import { AIProvider } from "../types";
 import { loadNetworkSyncSettings } from "../services/networkSyncService";
 import { loadLiveSlidesSettings } from "../services/liveSlideService";
 import LoadScheduleModal from "../components/LoadScheduleModal";
-import AIAssistantSettingsModal, { getAIAssistantSettings } from "../components/AIAssistantSettingsModal";
+import AIAssistantSettingsModal, {
+  getAIAssistantSettings,
+} from "../components/AIAssistantSettingsModal";
 import RemoteAccessLinkModal from "../components/RemoteAccessLinkModal";
 import ScheduleAutomationModal from "../components/ScheduleAutomationModal";
 import { findMatchingAutomation } from "../utils/testimoniesStorage";
 import "../App.css";
+
+function normalizeAutomations(item: ScheduleItem): ScheduleItemAutomation[] {
+  const rawList = Array.isArray(item.automations)
+    ? item.automations
+    : item.automation
+    ? [item.automation]
+    : [];
+
+  // unique by type (slide + stageLayout)
+  const byType = new Map<
+    ScheduleItemAutomation["type"],
+    ScheduleItemAutomation
+  >();
+  for (const a of rawList) {
+    // tolerate legacy slide automations missing `type` (older saved schedules)
+    const normalized =
+      (a as any)?.type === "slide" || (a as any)?.type === "stageLayout"
+        ? (a as ScheduleItemAutomation)
+        : (a as any)?.presentationUuid &&
+          typeof (a as any)?.slideIndex === "number"
+        ? ({
+            type: "slide",
+            presentationUuid: (a as any).presentationUuid,
+            slideIndex: (a as any).slideIndex,
+            presentationName: (a as any).presentationName,
+            activationClicks: (a as any).activationClicks,
+          } as ScheduleItemAutomation)
+        : null;
+
+    if (normalized) byType.set(normalized.type, normalized);
+  }
+
+  return Array.from(byType.values());
+}
+
+function mergeAutomations(
+  existing: ScheduleItemAutomation[],
+  incoming: ScheduleItemAutomation[]
+): ScheduleItemAutomation[] {
+  const byType = new Map<
+    ScheduleItemAutomation["type"],
+    ScheduleItemAutomation
+  >();
+  for (const a of existing) byType.set(a.type, a);
+  for (const a of incoming) {
+    // do not override an existing automation of the same type
+    if (!byType.has(a.type)) byType.set(a.type, a);
+  }
+  return Array.from(byType.values());
+}
 
 interface ChatMessage {
   role: "user" | "assistant";
@@ -70,7 +129,10 @@ const StageAssistPage: React.FC = () => {
     getNextSession,
   } = useStageAssist();
 
-  const [editingCell, setEditingCell] = useState<{ id: number; field: string } | null>(null);
+  const [editingCell, setEditingCell] = useState<{
+    id: number;
+    field: string;
+  } | null>(null);
   const [nextId, setNextId] = useState(100);
 
   // AI Chat state
@@ -80,21 +142,25 @@ const StageAssistPage: React.FC = () => {
   const [attachedImage, setAttachedImage] = useState<string | null>(null);
   const [isChatLoading, setIsChatLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  
+
   // AI Provider selection
-  const [availableProviders, setAvailableProviders] = useState<AIProvider[]>([]);
-  const [selectedProvider, setSelectedProvider] = useState<AIProvider | undefined>(undefined);
+  const [availableProviders, setAvailableProviders] = useState<AIProvider[]>(
+    []
+  );
+  const [selectedProvider, setSelectedProvider] = useState<
+    AIProvider | undefined
+  >(undefined);
   const [showProviderMenu, setShowProviderMenu] = useState(false);
   const providerMenuRef = useRef<HTMLDivElement>(null);
-  
+
   // AI Assistant Settings Modal
   const [showAISettingsModal, setShowAISettingsModal] = useState(false);
-  
+
   // Initialize available providers and selected provider
   useEffect(() => {
     const providers = getAvailableProviders();
     setAvailableProviders(providers);
-    
+
     if (providers.length > 0) {
       const appSettings = getAppSettings();
       // Use default provider if available, otherwise use first available
@@ -118,7 +184,10 @@ const StageAssistPage: React.FC = () => {
   // Close provider menu when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (providerMenuRef.current && !providerMenuRef.current.contains(event.target as Node)) {
+      if (
+        providerMenuRef.current &&
+        !providerMenuRef.current.contains(event.target as Node)
+      ) {
         setShowProviderMenu(false);
       }
     };
@@ -131,36 +200,44 @@ const StageAssistPage: React.FC = () => {
     }
   }, [showProviderMenu]);
 
-
   // Toast state
-  const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null);
+  const [toast, setToast] = useState<{
+    message: string;
+    type: "success" | "error" | "info";
+  } | null>(null);
 
   // ProPresenter connection count
   const [enabledConnectionsCount, setEnabledConnectionsCount] = useState(0);
 
   // Load Schedule Modal state
   const [showLoadScheduleModal, setShowLoadScheduleModal] = useState(false);
-  const [showLoadScheduleDropdown, setShowLoadScheduleDropdown] = useState(false);
+  const [showLoadScheduleDropdown, setShowLoadScheduleDropdown] =
+    useState(false);
   const loadScheduleDropdownRef = useRef<HTMLDivElement>(null);
   const [isLoadingFromMaster, setIsLoadingFromMaster] = useState(false);
-  
+
   // Remote Access Link Modal state
   const [showRemoteAccessModal, setShowRemoteAccessModal] = useState(false);
-  
+
   // Schedule Automation Modal state
-  const [automationModalItem, setAutomationModalItem] = useState<ScheduleItem | null>(null);
-  
+  const [automationModalItem, setAutomationModalItem] =
+    useState<ScheduleItem | null>(null);
+
   // Network sync settings for "Get from Master" feature
   const networkSyncSettings = loadNetworkSyncSettings();
   const liveSlidesSettings = loadLiveSlidesSettings();
-  const canLoadFromMaster = 
-    (networkSyncSettings.mode === "slave" || networkSyncSettings.mode === "peer") && 
+  const canLoadFromMaster =
+    (networkSyncSettings.mode === "slave" ||
+      networkSyncSettings.mode === "peer") &&
     networkSyncSettings.remoteHost.trim() !== "";
 
   // Close load schedule dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (loadScheduleDropdownRef.current && !loadScheduleDropdownRef.current.contains(event.target as Node)) {
+      if (
+        loadScheduleDropdownRef.current &&
+        !loadScheduleDropdownRef.current.contains(event.target as Node)
+      ) {
         setShowLoadScheduleDropdown(false);
       }
     };
@@ -176,58 +253,65 @@ const StageAssistPage: React.FC = () => {
   // Fetch schedule from master server
   const handleLoadFromMaster = async () => {
     if (!canLoadFromMaster) return;
-    
+
     setIsLoadingFromMaster(true);
     setShowLoadScheduleDropdown(false);
-    
+
     try {
       // Use the master's web server port (default 9876 if not available)
       const masterWebPort = liveSlidesSettings.serverPort || 9876;
       const masterHost = networkSyncSettings.remoteHost;
       const url = `http://${masterHost}:${masterWebPort}/api/schedule`;
-      
+
       const response = await fetch(url, {
         method: "GET",
         headers: {
-          "Accept": "application/json",
+          Accept: "application/json",
         },
       });
-      
+
       if (!response.ok) {
-        throw new Error(`Failed to fetch schedule: ${response.status} ${response.statusText}`);
+        throw new Error(
+          `Failed to fetch schedule: ${response.status} ${response.statusText}`
+        );
       }
-      
+
       const data = await response.json();
-      
+
       if (!data.schedule || !Array.isArray(data.schedule)) {
         throw new Error("Invalid schedule data received from master");
       }
-      
+
       // Transform snake_case from API to camelCase used in frontend
-      const transformedSchedule: ScheduleItem[] = data.schedule.map((item: {
-        id: number;
-        session: string;
-        start_time: string;
-        end_time: string;
-        duration: string;
-        minister?: string;
-      }) => ({
-        id: item.id,
-        session: item.session,
-        startTime: item.start_time,
-        endTime: item.end_time,
-        duration: item.duration,
-        minister: item.minister,
-      }));
-      
+      const transformedSchedule: ScheduleItem[] = data.schedule.map(
+        (item: {
+          id: number;
+          session: string;
+          start_time: string;
+          end_time: string;
+          duration: string;
+          minister?: string;
+        }) => ({
+          id: item.id,
+          session: item.session,
+          startTime: item.start_time,
+          endTime: item.end_time,
+          duration: item.duration,
+          minister: item.minister,
+        })
+      );
+
       setSchedule(transformedSchedule);
-      
+
       // Update current session index if provided
       if (typeof data.currentSessionIndex === "number") {
         setCurrentSessionIndex(data.currentSessionIndex);
       }
-      
-      showToast(`Successfully loaded ${transformedSchedule.length} schedule items from master`, "success");
+
+      showToast(
+        `Successfully loaded ${transformedSchedule.length} schedule items from master`,
+        "success"
+      );
     } catch (error) {
       console.error("Failed to load schedule from master:", error);
       const message = error instanceof Error ? error.message : "Unknown error";
@@ -264,7 +348,8 @@ const StageAssistPage: React.FC = () => {
     }
     if (countdownToTime && !countdownToTime.includes(":")) {
       const formatted = formatTimeInput(countdownToTime);
-      if (formatted && formatted !== countdownToTime) setCountdownToTime(formatted);
+      if (formatted && formatted !== countdownToTime)
+        setCountdownToTime(formatted);
     }
   }, []); // Only on mount
 
@@ -282,11 +367,11 @@ const StageAssistPage: React.FC = () => {
   const formatTimeInput = (value: string): string => {
     // Remove all non-digit characters
     const digits = value.replace(/\D/g, "");
-    
+
     if (digits.length === 0) return "";
     if (digits.length === 1) return digits;
     if (digits.length === 2) return `${digits}:`;
-    
+
     // Format as HH:MM
     const hours = digits.slice(0, 2);
     const minutes = digits.slice(2, 4);
@@ -361,7 +446,8 @@ const StageAssistPage: React.FC = () => {
     // Calculate end time
     const end = new Date(`${new Date().toDateString()} ${session.endTime}`);
     const now = new Date();
-    const timeLeft = duration || Math.floor((end.getTime() - now.getTime()) / 1000);
+    const timeLeft =
+      duration || Math.floor((end.getTime() - now.getTime()) / 1000);
 
     // keep UI timer state responsive even if API calls take a moment
     setTimerState({
@@ -376,28 +462,64 @@ const StageAssistPage: React.FC = () => {
     const result = await startSession(index);
 
     if (result.success > 0) {
-      showToast(`Timer started on ${result.success} ProPresenter instance(s)`, "success");
+      showToast(
+        `Timer started on ${result.success} ProPresenter instance(s)`,
+        "success"
+      );
     } else if (result.errors.length > 0) {
       showToast(result.errors[0], "error");
     }
-    
-    // Trigger ProPresenter automation if configured
-    if (session.automation) {
+
+    // Trigger ProPresenter automation(s) if configured
+    const sessionAutomations = normalizeAutomations(session);
+    if (sessionAutomations.length > 0) {
       try {
-        const automationResult = await triggerPresentationOnConnections(
-          {
-            presentationUuid: session.automation.presentationUuid,
-            slideIndex: session.automation.slideIndex,
-          },
-          undefined, // Use all enabled connections
-          session.automation.activationClicks || 1,
-          100 // 100ms delay between clicks
-        );
-        if (automationResult.success > 0) {
-          console.log(`Session automation: Triggered slide on ${automationResult.success} instance(s)`);
-        }
-        if (automationResult.failed > 0) {
-          console.warn(`Session automation: Failed on ${automationResult.failed} instance(s):`, automationResult.errors);
+        // Run stage layout first (so the stage is set before slide triggers)
+        const ordered = [...sessionAutomations].sort((a, b) => {
+          const order = (x: ScheduleItemAutomation) =>
+            x.type === "stageLayout" ? 0 : 1;
+          return order(a) - order(b);
+        });
+
+        for (const automation of ordered) {
+          if (automation.type === "stageLayout") {
+            const automationResult = await changeStageLayoutOnAllEnabled(
+              automation.screenIndex,
+              automation.layoutIndex
+            );
+            if (automationResult.success > 0) {
+              console.log(
+                `Session automation: Changed stage layout on ${automationResult.success} instance(s)`
+              );
+            }
+            if (automationResult.failed > 0) {
+              console.warn(
+                `Session automation: Stage layout failed on ${automationResult.failed} instance(s):`,
+                automationResult.errors
+              );
+            }
+          } else if (automation.type === "slide") {
+            const automationResult = await triggerPresentationOnConnections(
+              {
+                presentationUuid: automation.presentationUuid,
+                slideIndex: automation.slideIndex,
+              },
+              undefined, // Use all enabled connections
+              automation.activationClicks || 1,
+              100 // 100ms delay between clicks
+            );
+            if (automationResult.success > 0) {
+              console.log(
+                `Session automation: Triggered slide on ${automationResult.success} instance(s)`
+              );
+            }
+            if (automationResult.failed > 0) {
+              console.warn(
+                `Session automation: Slide trigger failed on ${automationResult.failed} instance(s):`,
+                automationResult.errors
+              );
+            }
+          }
         }
       } catch (err) {
         console.error("Failed to trigger session automation:", err);
@@ -405,39 +527,43 @@ const StageAssistPage: React.FC = () => {
       }
     }
   };
-  
+
   // Save automation for a schedule item
-  const handleSaveAutomation = (itemId: number, automation: ScheduleItemAutomation | undefined) => {
+  const handleSaveAutomation = (
+    itemId: number,
+    automations: ScheduleItemAutomation[] | undefined
+  ) => {
     setSchedule((prev) =>
-      prev.map((item) =>
-        item.id === itemId ? { ...item, automation } : item
-      )
+      prev.map((item) => (item.id === itemId ? { ...item, automations } : item))
     );
-    if (automation) {
+    if (automations && automations.length > 0) {
       showToast("Automation saved", "success");
     } else {
       showToast("Automation removed", "info");
     }
   };
-  
+
   // Apply smart automations when schedule changes
   useEffect(() => {
     // Check each schedule item for matching smart rules
     setSchedule((prev) => {
       let hasChanges = false;
       const updated = prev.map((item) => {
-        // Skip if already has automation
-        if (item.automation) return item;
-        
         // Check for matching smart rule
-        const matchingAutomation = findMatchingAutomation(item.session);
-        if (matchingAutomation) {
-          hasChanges = true;
-          return { ...item, automation: matchingAutomation };
-        }
-        return item;
+        const matchingAutomations = findMatchingAutomation(item.session);
+        if (!matchingAutomations || matchingAutomations.length === 0)
+          return item;
+
+        const existing = normalizeAutomations(item);
+        const merged = mergeAutomations(existing, matchingAutomations);
+
+        // only update if we added something new
+        if (merged.length === existing.length) return item;
+
+        hasChanges = true;
+        return { ...item, automations: merged };
       });
-      
+
       return hasChanges ? updated : prev;
     });
   }, [schedule.length]); // Re-run when schedule items are added
@@ -453,15 +579,24 @@ const StageAssistPage: React.FC = () => {
 
     const result = await startCountdown(totalSeconds);
     if (result.success > 0) {
-      showToast(`Timer started on ${result.success} ProPresenter instance(s)`, "success");
+      showToast(
+        `Timer started on ${result.success} ProPresenter instance(s)`,
+        "success"
+      );
     }
   };
 
   // Start countdown to time
   const handleStartCountdownToTime = async () => {
-    const result = await startCountdownToTime(countdownToTime, countdownToPeriod);
+    const result = await startCountdownToTime(
+      countdownToTime,
+      countdownToPeriod
+    );
     if (result.success > 0) {
-      showToast(`Timer started on ${result.success} ProPresenter instance(s)`, "success");
+      showToast(
+        `Timer started on ${result.success} ProPresenter instance(s)`,
+        "success"
+      );
     }
   };
 
@@ -490,38 +625,45 @@ const StageAssistPage: React.FC = () => {
       // Create a copy of the schedule
       const newSchedule = [...prev];
       const currentItem = { ...newSchedule[currentIndex] };
-      
+
       // Update the current item
       if (field === "startTime" || field === "endTime") {
-        let newStartTime = field === "startTime" ? value : currentItem.startTime;
+        let newStartTime =
+          field === "startTime" ? value : currentItem.startTime;
         let newEndTime = field === "endTime" ? value : currentItem.endTime;
-        
+
         // Recalculate duration based on the actual time difference
         // This handles cases where user manually edits both startTime and endTime
         const newDuration = calculateDuration(newStartTime, newEndTime);
-        
+
         // Update the item with new times and recalculated duration
         currentItem.startTime = newStartTime;
         currentItem.endTime = newEndTime;
         currentItem.duration = newDuration;
         newSchedule[currentIndex] = currentItem;
-        
+
         // If editing startTime or endTime, ALWAYS recalculate all subsequent sessions
-        if ((field === "startTime" || field === "endTime") && currentIndex < newSchedule.length - 1) {
+        if (
+          (field === "startTime" || field === "endTime") &&
+          currentIndex < newSchedule.length - 1
+        ) {
           try {
             // Start from the next session and cascade through all remaining sessions
             let previousEndTime = newEndTime;
-            
+
             for (let i = currentIndex + 1; i < newSchedule.length; i++) {
               const session = newSchedule[i];
               const durationMinutes = parseDurationToMinutes(session.duration);
-              
+
               // Set start time to previous session's end time
               const newStartTimeForSession = previousEndTime;
-              
+
               // Calculate new end time based on duration
-              const newEndTimeForSession = addMinutesToTime(newStartTimeForSession, durationMinutes);
-              
+              const newEndTimeForSession = addMinutesToTime(
+                newStartTimeForSession,
+                durationMinutes
+              );
+
               // Update the session
               newSchedule[i] = {
                 ...session,
@@ -529,7 +671,7 @@ const StageAssistPage: React.FC = () => {
                 endTime: newEndTimeForSession,
                 duration: session.duration, // Keep the same duration
               };
-              
+
               // Use this end time as the start time for the next session
               previousEndTime = newEndTimeForSession;
             }
@@ -544,23 +686,26 @@ const StageAssistPage: React.FC = () => {
         currentItem.duration = value;
         currentItem.endTime = newEndTime;
         newSchedule[currentIndex] = currentItem;
-        
+
         // ALWAYS recalculate all subsequent sessions when duration (and thus endTime) changes
         if (currentIndex < newSchedule.length - 1) {
           try {
             // Start from the next session and cascade through all remaining sessions
             let previousEndTime = newEndTime;
-            
+
             for (let i = currentIndex + 1; i < newSchedule.length; i++) {
               const session = newSchedule[i];
               const durationMinutes = parseDurationToMinutes(session.duration);
-              
+
               // Set start time to previous session's end time
               const newStartTimeForSession = previousEndTime;
-              
+
               // Calculate new end time based on duration
-              const newEndTimeForSession = addMinutesToTime(newStartTimeForSession, durationMinutes);
-              
+              const newEndTimeForSession = addMinutesToTime(
+                newStartTimeForSession,
+                durationMinutes
+              );
+
               // Update the session
               newSchedule[i] = {
                 ...session,
@@ -568,7 +713,7 @@ const StageAssistPage: React.FC = () => {
                 endTime: newEndTimeForSession,
                 duration: session.duration, // Keep the same duration
               };
-              
+
               // Use this end time as the start time for the next session
               previousEndTime = newEndTimeForSession;
             }
@@ -585,7 +730,7 @@ const StageAssistPage: React.FC = () => {
         }
         newSchedule[currentIndex] = currentItem;
       }
-      
+
       return newSchedule;
     });
   };
@@ -596,7 +741,9 @@ const StageAssistPage: React.FC = () => {
       id: nextId,
       session: "New Session",
       startTime: lastItem?.endTime || "12:00 PM",
-      endTime: lastItem?.endTime ? addMinutesToTime(lastItem.endTime, 15) : "12:15 PM",
+      endTime: lastItem?.endTime
+        ? addMinutesToTime(lastItem.endTime, 15)
+        : "12:15 PM",
       duration: "15mins",
     };
     setSchedule([...schedule, newItem]);
@@ -615,7 +762,11 @@ const StageAssistPage: React.FC = () => {
     const date = new Date();
     date.setHours(period === "PM" && hours !== 12 ? hours + 12 : hours);
     date.setMinutes(mins + minutes);
-    return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: true });
+    return date.toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: true,
+    });
   };
 
   // Toast helper
@@ -640,20 +791,35 @@ const StageAssistPage: React.FC = () => {
     setIsChatLoading(true);
 
     try {
-      const response = await processAIChatMessage(chatInput, attachedImage || undefined, schedule, selectedProvider);
+      const response = await processAIChatMessage(
+        chatInput,
+        attachedImage || undefined,
+        schedule,
+        selectedProvider
+      );
 
       // Handle actions
       switch (response.action) {
         case "SetCountDown":
           if (typeof response.actionValue === "number") {
             await startCountdown(response.actionValue);
-            showToast(`Timer started for ${Math.floor(response.actionValue / 60)}:${(response.actionValue % 60).toString().padStart(2, "0")}`, "success");
+            showToast(
+              `Timer started for ${Math.floor(response.actionValue / 60)}:${(
+                response.actionValue % 60
+              )
+                .toString()
+                .padStart(2, "0")}`,
+              "success"
+            );
           }
           break;
         case "CountDownToTime":
           if (typeof response.actionValue === "string") {
             await startCountdownToTime(response.actionValue);
-            showToast(`Timer set to countdown to ${response.actionValue}`, "success");
+            showToast(
+              `Timer set to countdown to ${response.actionValue}`,
+              "success"
+            );
           }
           break;
         case "UpdateSchedule":
@@ -671,7 +837,10 @@ const StageAssistPage: React.FC = () => {
     } catch (error) {
       setChatMessages((prev) => [
         ...prev,
-        { role: "assistant", content: "Sorry, I encountered an error processing your request." },
+        {
+          role: "assistant",
+          content: "Sorry, I encountered an error processing your request.",
+        },
       ]);
     } finally {
       setIsChatLoading(false);
@@ -729,9 +898,10 @@ const StageAssistPage: React.FC = () => {
   };
 
   const nextSession = getNextSession();
-  const nextSessionIndex = currentSessionIndex !== null && nextSession 
-    ? schedule.findIndex(s => s.id === nextSession.id)
-    : -1;
+  const nextSessionIndex =
+    currentSessionIndex !== null && nextSession
+      ? schedule.findIndex((s) => s.id === nextSession.id)
+      : -1;
 
   return (
     <div
@@ -751,15 +921,22 @@ const StageAssistPage: React.FC = () => {
           marginBottom: "var(--spacing-4)",
         }}
       >
-        <h1 style={{ margin: 0, fontSize: "1.5rem", fontWeight: 700 }}>Timer</h1>
-        <div style={{ display: "flex", gap: "var(--spacing-2)", alignItems: "center" }}>
+        <h1 style={{ margin: 0, fontSize: "1.5rem", fontWeight: 700 }}>
+          Timer
+        </h1>
+        <div
+          style={{
+            display: "flex",
+            gap: "var(--spacing-2)",
+            alignItems: "center",
+          }}
+        >
           {/* Load Schedule Dropdown */}
-          <div 
-            ref={loadScheduleDropdownRef}
-            style={{ position: "relative" }}
-          >
+          <div ref={loadScheduleDropdownRef} style={{ position: "relative" }}>
             <button
-              onClick={() => setShowLoadScheduleDropdown(!showLoadScheduleDropdown)}
+              onClick={() =>
+                setShowLoadScheduleDropdown(!showLoadScheduleDropdown)
+              }
               disabled={isLoadingFromMaster}
               style={{
                 display: "flex",
@@ -776,11 +953,11 @@ const StageAssistPage: React.FC = () => {
                 opacity: isLoadingFromMaster ? 0.7 : 1,
               }}
             >
-              <FaUpload /> 
-              {isLoadingFromMaster ? "Loading..." : "Load Schedule"} 
+              <FaUpload />
+              {isLoadingFromMaster ? "Loading..." : "Load Schedule"}
               <FaCaretDown style={{ marginLeft: "4px" }} />
             </button>
-            
+
             {showLoadScheduleDropdown && (
               <div
                 style={{
@@ -817,7 +994,8 @@ const StageAssistPage: React.FC = () => {
                     textAlign: "left",
                   }}
                   onMouseEnter={(e) => {
-                    e.currentTarget.style.backgroundColor = "var(--app-hover-bg-color)";
+                    e.currentTarget.style.backgroundColor =
+                      "var(--app-hover-bg-color)";
                   }}
                   onMouseLeave={(e) => {
                     e.currentTarget.style.backgroundColor = "transparent";
@@ -835,7 +1013,9 @@ const StageAssistPage: React.FC = () => {
                     width: "100%",
                     padding: "10px 14px",
                     backgroundColor: "transparent",
-                    color: canLoadFromMaster ? "var(--app-text-color)" : "var(--app-text-color-secondary)",
+                    color: canLoadFromMaster
+                      ? "var(--app-text-color)"
+                      : "var(--app-text-color-secondary)",
                     border: "none",
                     cursor: canLoadFromMaster ? "pointer" : "not-allowed",
                     fontSize: "0.875rem",
@@ -844,22 +1024,29 @@ const StageAssistPage: React.FC = () => {
                   }}
                   onMouseEnter={(e) => {
                     if (canLoadFromMaster) {
-                      e.currentTarget.style.backgroundColor = "var(--app-hover-bg-color)";
+                      e.currentTarget.style.backgroundColor =
+                        "var(--app-hover-bg-color)";
                     }
                   }}
                   onMouseLeave={(e) => {
                     e.currentTarget.style.backgroundColor = "transparent";
                   }}
-                  title={!canLoadFromMaster ? "Configure network sync as slave/peer with a remote host in Settings → Network" : ""}
+                  title={
+                    !canLoadFromMaster
+                      ? "Configure network sync as slave/peer with a remote host in Settings → Network"
+                      : ""
+                  }
                 >
-                  <FaCloud style={{ opacity: 0.7 }} /> 
+                  <FaCloud style={{ opacity: 0.7 }} />
                   Get Latest from Master
                   {!canLoadFromMaster && (
-                    <span style={{ 
-                      fontSize: "0.7rem", 
-                      marginLeft: "auto",
-                      color: "var(--app-text-color-secondary)",
-                    }}>
+                    <span
+                      style={{
+                        fontSize: "0.7rem",
+                        marginLeft: "auto",
+                        color: "var(--app-text-color-secondary)",
+                      }}
+                    >
                       (Not configured)
                     </span>
                   )}
@@ -920,13 +1107,28 @@ const StageAssistPage: React.FC = () => {
             color: "white",
           }}
         >
-          <div style={{ fontSize: "1rem", fontWeight: 600, marginBottom: "var(--spacing-2)" }}>NEXT</div>
+          <div
+            style={{
+              fontSize: "1rem",
+              fontWeight: 600,
+              marginBottom: "var(--spacing-2)",
+            }}
+          >
+            NEXT
+          </div>
           {nextSession ? (
             <>
-              <div style={{ fontSize: "1.25rem", marginBottom: "var(--spacing-1)" }}>
+              <div
+                style={{
+                  fontSize: "1.25rem",
+                  marginBottom: "var(--spacing-1)",
+                }}
+              >
                 {nextSession.session}
               </div>
-              <div style={{ fontSize: "1.5rem", fontWeight: 700 }}>{nextSession.startTime}</div>
+              <div style={{ fontSize: "1.5rem", fontWeight: 700 }}>
+                {nextSession.startTime}
+              </div>
             </>
           ) : (
             <div style={{ opacity: 0.7 }}>No next session</div>
@@ -936,7 +1138,9 @@ const StageAssistPage: React.FC = () => {
         {/* Current Timer */}
         <div
           style={{
-            backgroundColor: timerState.isOverrun ? "#770a0a" : "rgb(34, 197, 94)",
+            backgroundColor: timerState.isOverrun
+              ? "#770a0a"
+              : "rgb(34, 197, 94)",
             borderRadius: "12px",
             padding: "var(--spacing-6)",
             textAlign: "center",
@@ -946,7 +1150,13 @@ const StageAssistPage: React.FC = () => {
           <div style={{ fontSize: "1rem", marginBottom: "var(--spacing-2)" }}>
             {timerState.sessionName || "Timer"}
           </div>
-          <div style={{ fontSize: "4rem", fontWeight: 700, fontFamily: "monospace" }}>
+          <div
+            style={{
+              fontSize: "4rem",
+              fontWeight: 700,
+              fontFamily: "monospace",
+            }}
+          >
             {formatTime(timerState.timeLeft)}
           </div>
           <div style={{ fontSize: "0.875rem", opacity: 0.8 }}>
@@ -973,21 +1183,50 @@ const StageAssistPage: React.FC = () => {
             color: "white",
           }}
         >
-          <div style={{ fontSize: "1rem", fontWeight: 600, marginBottom: "var(--spacing-3)", textAlign: "center" }}>
+          <div
+            style={{
+              fontSize: "1rem",
+              fontWeight: 600,
+              marginBottom: "var(--spacing-3)",
+              textAlign: "center",
+            }}
+          >
             Count Down Timer
           </div>
-          <div style={{ display: "flex", gap: "var(--spacing-2)", alignItems: "center", justifyContent: "center" }}>
+          <div
+            style={{
+              display: "flex",
+              gap: "var(--spacing-2)",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
             <div style={{ textAlign: "center" }}>
-              <label style={{ display: "block", fontSize: "0.8rem", opacity: 0.95, fontWeight: 600, marginBottom: "6px" }}>Hours</label>
+              <label
+                style={{
+                  display: "block",
+                  fontSize: "0.8rem",
+                  opacity: 0.95,
+                  fontWeight: 600,
+                  marginBottom: "6px",
+                }}
+              >
+                Hours
+              </label>
               <input
                 type="text"
                 inputMode="numeric"
                 pattern="[0-9]*"
                 autoComplete="off"
                 value={countdownHours}
-                onChange={(e) => handleNumberInputChange(e.target.value, setCountdownHours, 23)}
+                onChange={(e) =>
+                  handleNumberInputChange(e.target.value, setCountdownHours, 23)
+                }
                 onBlur={(e) => {
-                  const formatted = formatNumberInput(e.target.value || "0", 23);
+                  const formatted = formatNumberInput(
+                    e.target.value || "0",
+                    23
+                  );
                   setCountdownHours(formatted);
                 }}
                 className="countdown-input"
@@ -1007,18 +1246,45 @@ const StageAssistPage: React.FC = () => {
                 }}
               />
             </div>
-            <span style={{ fontSize: "1.5rem", paddingTop: "20px", fontWeight: 700 }}>:</span>
+            <span
+              style={{
+                fontSize: "1.5rem",
+                paddingTop: "20px",
+                fontWeight: 700,
+              }}
+            >
+              :
+            </span>
             <div style={{ textAlign: "center" }}>
-              <label style={{ display: "block", fontSize: "0.8rem", opacity: 0.95, fontWeight: 600, marginBottom: "6px" }}>Minutes</label>
+              <label
+                style={{
+                  display: "block",
+                  fontSize: "0.8rem",
+                  opacity: 0.95,
+                  fontWeight: 600,
+                  marginBottom: "6px",
+                }}
+              >
+                Minutes
+              </label>
               <input
                 type="text"
                 inputMode="numeric"
                 pattern="[0-9]*"
                 autoComplete="off"
                 value={countdownMinutes}
-                onChange={(e) => handleNumberInputChange(e.target.value, setCountdownMinutes, 59)}
+                onChange={(e) =>
+                  handleNumberInputChange(
+                    e.target.value,
+                    setCountdownMinutes,
+                    59
+                  )
+                }
                 onBlur={(e) => {
-                  const formatted = formatNumberInput(e.target.value || "0", 59);
+                  const formatted = formatNumberInput(
+                    e.target.value || "0",
+                    59
+                  );
                   setCountdownMinutes(formatted);
                 }}
                 className="countdown-input"
@@ -1038,18 +1304,45 @@ const StageAssistPage: React.FC = () => {
                 }}
               />
             </div>
-            <span style={{ fontSize: "1.5rem", paddingTop: "20px", fontWeight: 700 }}>:</span>
+            <span
+              style={{
+                fontSize: "1.5rem",
+                paddingTop: "20px",
+                fontWeight: 700,
+              }}
+            >
+              :
+            </span>
             <div style={{ textAlign: "center" }}>
-              <label style={{ display: "block", fontSize: "0.8rem", opacity: 0.95, fontWeight: 600, marginBottom: "6px" }}>Seconds</label>
+              <label
+                style={{
+                  display: "block",
+                  fontSize: "0.8rem",
+                  opacity: 0.95,
+                  fontWeight: 600,
+                  marginBottom: "6px",
+                }}
+              >
+                Seconds
+              </label>
               <input
                 type="text"
                 inputMode="numeric"
                 pattern="[0-9]*"
                 autoComplete="off"
                 value={countdownSeconds}
-                onChange={(e) => handleNumberInputChange(e.target.value, setCountdownSeconds, 59)}
+                onChange={(e) =>
+                  handleNumberInputChange(
+                    e.target.value,
+                    setCountdownSeconds,
+                    59
+                  )
+                }
                 onBlur={(e) => {
-                  const formatted = formatNumberInput(e.target.value || "0", 59);
+                  const formatted = formatNumberInput(
+                    e.target.value || "0",
+                    59
+                  );
                   setCountdownSeconds(formatted);
                 }}
                 className="countdown-input"
@@ -1069,7 +1362,13 @@ const StageAssistPage: React.FC = () => {
                 }}
               />
             </div>
-            <div style={{ display: "flex", gap: "var(--spacing-2)", marginLeft: "var(--spacing-4)" }}>
+            <div
+              style={{
+                display: "flex",
+                gap: "var(--spacing-2)",
+                marginLeft: "var(--spacing-4)",
+              }}
+            >
               <button
                 onClick={handleStartCountdown}
                 style={{
@@ -1111,12 +1410,36 @@ const StageAssistPage: React.FC = () => {
             color: "white",
           }}
         >
-          <div style={{ fontSize: "1rem", fontWeight: 600, marginBottom: "var(--spacing-3)", textAlign: "center" }}>
+          <div
+            style={{
+              fontSize: "1rem",
+              fontWeight: 600,
+              marginBottom: "var(--spacing-3)",
+              textAlign: "center",
+            }}
+          >
             Count Down to Time
           </div>
-          <div style={{ display: "flex", gap: "var(--spacing-2)", alignItems: "center", justifyContent: "center" }}>
+          <div
+            style={{
+              display: "flex",
+              gap: "var(--spacing-2)",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
             <div style={{ textAlign: "center" }}>
-              <label style={{ display: "block", fontSize: "0.8rem", opacity: 0.95, fontWeight: 600, marginBottom: "6px" }}>Time</label>
+              <label
+                style={{
+                  display: "block",
+                  fontSize: "0.8rem",
+                  opacity: 0.95,
+                  fontWeight: 600,
+                  marginBottom: "6px",
+                }}
+              >
+                Time
+              </label>
               <input
                 type="text"
                 value={countdownToTime}
@@ -1151,10 +1474,22 @@ const StageAssistPage: React.FC = () => {
               />
             </div>
             <div style={{ textAlign: "center" }}>
-              <label style={{ display: "block", fontSize: "0.8rem", opacity: 0.95, fontWeight: 600, marginBottom: "6px" }}>Period</label>
+              <label
+                style={{
+                  display: "block",
+                  fontSize: "0.8rem",
+                  opacity: 0.95,
+                  fontWeight: 600,
+                  marginBottom: "6px",
+                }}
+              >
+                Period
+              </label>
               <select
                 value={countdownToPeriod}
-                onChange={(e) => setCountdownToPeriod(e.target.value as "AM" | "PM")}
+                onChange={(e) =>
+                  setCountdownToPeriod(e.target.value as "AM" | "PM")
+                }
                 className="countdown-input"
                 style={{
                   width: "104px",
@@ -1172,11 +1507,33 @@ const StageAssistPage: React.FC = () => {
                   cursor: "pointer",
                 }}
               >
-                <option value="AM" style={{ backgroundColor: "rgb(29, 78, 216)", color: "#ffffff" }}>AM</option>
-                <option value="PM" style={{ backgroundColor: "rgb(29, 78, 216)", color: "#ffffff" }}>PM</option>
+                <option
+                  value="AM"
+                  style={{
+                    backgroundColor: "rgb(29, 78, 216)",
+                    color: "#ffffff",
+                  }}
+                >
+                  AM
+                </option>
+                <option
+                  value="PM"
+                  style={{
+                    backgroundColor: "rgb(29, 78, 216)",
+                    color: "#ffffff",
+                  }}
+                >
+                  PM
+                </option>
               </select>
             </div>
-            <div style={{ display: "flex", gap: "var(--spacing-2)", marginLeft: "var(--spacing-4)" }}>
+            <div
+              style={{
+                display: "flex",
+                gap: "var(--spacing-2)",
+                marginLeft: "var(--spacing-4)",
+              }}
+            >
               <button
                 onClick={handleStartCountdownToTime}
                 style={{
@@ -1223,11 +1580,51 @@ const StageAssistPage: React.FC = () => {
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr style={{ backgroundColor: "rgba(0,0,0,0.2)" }}>
-              <th style={{ padding: "var(--spacing-3)", textAlign: "left", fontWeight: 600 }}>Session</th>
-              <th style={{ padding: "var(--spacing-3)", textAlign: "left", fontWeight: 600 }}>Time</th>
-              <th style={{ padding: "var(--spacing-3)", textAlign: "left", fontWeight: 600 }}>Duration</th>
-              <th style={{ padding: "var(--spacing-3)", textAlign: "left", fontWeight: 600 }}>Minister</th>
-              <th style={{ padding: "var(--spacing-3)", textAlign: "center", fontWeight: 600 }}>Actions</th>
+              <th
+                style={{
+                  padding: "var(--spacing-3)",
+                  textAlign: "left",
+                  fontWeight: 600,
+                }}
+              >
+                Session
+              </th>
+              <th
+                style={{
+                  padding: "var(--spacing-3)",
+                  textAlign: "left",
+                  fontWeight: 600,
+                }}
+              >
+                Time
+              </th>
+              <th
+                style={{
+                  padding: "var(--spacing-3)",
+                  textAlign: "left",
+                  fontWeight: 600,
+                }}
+              >
+                Duration
+              </th>
+              <th
+                style={{
+                  padding: "var(--spacing-3)",
+                  textAlign: "left",
+                  fontWeight: 600,
+                }}
+              >
+                Minister
+              </th>
+              <th
+                style={{
+                  padding: "var(--spacing-3)",
+                  textAlign: "center",
+                  fontWeight: 600,
+                }}
+              >
+                Actions
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -1245,13 +1642,18 @@ const StageAssistPage: React.FC = () => {
                 }}
               >
                 <td style={{ padding: "var(--spacing-3)" }}>
-                  {editingCell?.id === item.id && editingCell.field === "session" ? (
+                  {editingCell?.id === item.id &&
+                  editingCell.field === "session" ? (
                     <input
                       type="text"
                       value={item.session}
-                      onChange={(e) => handleEditCell(item.id, "session", e.target.value)}
+                      onChange={(e) =>
+                        handleEditCell(item.id, "session", e.target.value)
+                      }
                       onBlur={() => setEditingCell(null)}
-                      onKeyDown={(e) => e.key === "Enter" && setEditingCell(null)}
+                      onKeyDown={(e) =>
+                        e.key === "Enter" && setEditingCell(null)
+                      }
                       autoFocus
                       style={{
                         padding: "var(--spacing-2)",
@@ -1264,7 +1666,9 @@ const StageAssistPage: React.FC = () => {
                     />
                   ) : (
                     <span
-                      onClick={() => setEditingCell({ id: item.id, field: "session" })}
+                      onClick={() =>
+                        setEditingCell({ id: item.id, field: "session" })
+                      }
                       style={{ cursor: "pointer" }}
                     >
                       {item.session}
@@ -1272,12 +1676,21 @@ const StageAssistPage: React.FC = () => {
                   )}
                 </td>
                 <td style={{ padding: "var(--spacing-3)" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: "var(--spacing-2)" }}>
-                    {editingCell?.id === item.id && editingCell.field === "startTime" ? (
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "var(--spacing-2)",
+                    }}
+                  >
+                    {editingCell?.id === item.id &&
+                    editingCell.field === "startTime" ? (
                       <input
                         type="text"
                         value={item.startTime}
-                        onChange={(e) => handleEditCell(item.id, "startTime", e.target.value)}
+                        onChange={(e) =>
+                          handleEditCell(item.id, "startTime", e.target.value)
+                        }
                         onBlur={() => setEditingCell(null)}
                         autoFocus
                         style={{
@@ -1291,18 +1704,23 @@ const StageAssistPage: React.FC = () => {
                       />
                     ) : (
                       <span
-                        onClick={() => setEditingCell({ id: item.id, field: "startTime" })}
+                        onClick={() =>
+                          setEditingCell({ id: item.id, field: "startTime" })
+                        }
                         style={{ cursor: "pointer" }}
                       >
                         {item.startTime}
                       </span>
                     )}
                     <span>-</span>
-                    {editingCell?.id === item.id && editingCell.field === "endTime" ? (
+                    {editingCell?.id === item.id &&
+                    editingCell.field === "endTime" ? (
                       <input
                         type="text"
                         value={item.endTime}
-                        onChange={(e) => handleEditCell(item.id, "endTime", e.target.value)}
+                        onChange={(e) =>
+                          handleEditCell(item.id, "endTime", e.target.value)
+                        }
                         onBlur={() => setEditingCell(null)}
                         autoFocus
                         style={{
@@ -1316,7 +1734,9 @@ const StageAssistPage: React.FC = () => {
                       />
                     ) : (
                       <span
-                        onClick={() => setEditingCell({ id: item.id, field: "endTime" })}
+                        onClick={() =>
+                          setEditingCell({ id: item.id, field: "endTime" })
+                        }
                         style={{ cursor: "pointer" }}
                       >
                         {item.endTime}
@@ -1325,16 +1745,23 @@ const StageAssistPage: React.FC = () => {
                   </div>
                 </td>
                 <td style={{ padding: "var(--spacing-3)" }}>
-                  {editingCell?.id === item.id && editingCell.field === "duration" ? (
+                  {editingCell?.id === item.id &&
+                  editingCell.field === "duration" ? (
                     <input
                       type="text"
                       value={item.duration}
-                      onChange={(e) => handleEditCell(item.id, "duration", e.target.value)}
+                      onChange={(e) =>
+                        handleEditCell(item.id, "duration", e.target.value)
+                      }
                       onBlur={() => {
                         // Ensure duration is properly formatted on blur
-                        const currentItem = schedule.find((s) => s.id === item.id);
+                        const currentItem = schedule.find(
+                          (s) => s.id === item.id
+                        );
                         if (currentItem) {
-                          const minutes = parseDurationToMinutes(currentItem.duration);
+                          const minutes = parseDurationToMinutes(
+                            currentItem.duration
+                          );
                           const formatted = formatDuration(minutes);
                           if (formatted !== currentItem.duration) {
                             handleEditCell(item.id, "duration", formatted);
@@ -1344,9 +1771,13 @@ const StageAssistPage: React.FC = () => {
                       }}
                       onKeyDown={(e) => {
                         if (e.key === "Enter") {
-                          const currentItem = schedule.find((s) => s.id === item.id);
+                          const currentItem = schedule.find(
+                            (s) => s.id === item.id
+                          );
                           if (currentItem) {
-                            const minutes = parseDurationToMinutes(currentItem.duration);
+                            const minutes = parseDurationToMinutes(
+                              currentItem.duration
+                            );
                             const formatted = formatDuration(minutes);
                             if (formatted !== currentItem.duration) {
                               handleEditCell(item.id, "duration", formatted);
@@ -1367,7 +1798,9 @@ const StageAssistPage: React.FC = () => {
                     />
                   ) : (
                     <span
-                      onClick={() => setEditingCell({ id: item.id, field: "duration" })}
+                      onClick={() =>
+                        setEditingCell({ id: item.id, field: "duration" })
+                      }
                       style={{ cursor: "pointer" }}
                     >
                       {item.duration}
@@ -1375,11 +1808,14 @@ const StageAssistPage: React.FC = () => {
                   )}
                 </td>
                 <td style={{ padding: "var(--spacing-3)" }}>
-                  {editingCell?.id === item.id && editingCell.field === "minister" ? (
+                  {editingCell?.id === item.id &&
+                  editingCell.field === "minister" ? (
                     <input
                       type="text"
                       value={item.minister || ""}
-                      onChange={(e) => handleEditCell(item.id, "minister", e.target.value)}
+                      onChange={(e) =>
+                        handleEditCell(item.id, "minister", e.target.value)
+                      }
                       onBlur={() => setEditingCell(null)}
                       autoFocus
                       style={{
@@ -1393,15 +1829,28 @@ const StageAssistPage: React.FC = () => {
                     />
                   ) : (
                     <span
-                      onClick={() => setEditingCell({ id: item.id, field: "minister" })}
-                      style={{ cursor: "pointer", opacity: item.minister ? 1 : 0.5 }}
+                      onClick={() =>
+                        setEditingCell({ id: item.id, field: "minister" })
+                      }
+                      style={{
+                        cursor: "pointer",
+                        opacity: item.minister ? 1 : 0.5,
+                      }}
                     >
                       {item.minister || "Click to add"}
                     </span>
                   )}
                 </td>
-                <td style={{ padding: "var(--spacing-3)", textAlign: "center" }}>
-                  <div style={{ display: "flex", gap: "var(--spacing-2)", justifyContent: "center" }}>
+                <td
+                  style={{ padding: "var(--spacing-3)", textAlign: "center" }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      gap: "var(--spacing-2)",
+                      justifyContent: "center",
+                    }}
+                  >
                     <button
                       onClick={() => handleStartSession(index)}
                       style={{
@@ -1434,12 +1883,30 @@ const StageAssistPage: React.FC = () => {
                     </button>
                     <button
                       onClick={() => setAutomationModalItem(item)}
-                      title={item.automation ? `Automation: ${item.automation.presentationName || "Configured"}` : "Configure automation"}
+                      title={
+                        (item.automations && item.automations.length > 0) ||
+                        item.automation
+                          ? `Automation: ${normalizeAutomations(item)
+                              .map((a) =>
+                                a.type === "slide" ? "Slide" : "Stage Layout"
+                              )
+                              .join(" + ")}`
+                          : "Configure automation"
+                      }
                       style={{
                         padding: "var(--spacing-2) var(--spacing-3)",
-                        backgroundColor: item.automation ? "rgb(147, 51, 234)" : "var(--app-button-bg-color)",
-                        color: item.automation ? "white" : "var(--app-button-text-color)",
-                        border: item.automation ? "none" : "1px solid var(--app-border-color)",
+                        backgroundColor:
+                          normalizeAutomations(item).length > 0
+                            ? "rgb(147, 51, 234)"
+                            : "var(--app-button-bg-color)",
+                        color:
+                          normalizeAutomations(item).length > 0
+                            ? "white"
+                            : "var(--app-button-text-color)",
+                        border:
+                          normalizeAutomations(item).length > 0
+                            ? "none"
+                            : "1px solid var(--app-border-color)",
                         borderRadius: "6px",
                         cursor: "pointer",
                         fontWeight: 500,
@@ -1459,18 +1926,30 @@ const StageAssistPage: React.FC = () => {
         </table>
         <div style={{ padding: "var(--spacing-3)" }}>
           <button onClick={handleAddSession} className="secondary">
-            <FaPlus style={{ marginRight: "var(--spacing-1)" }} /> Add New Session
+            <FaPlus style={{ marginRight: "var(--spacing-1)" }} /> Add New
+            Session
           </button>
         </div>
       </div>
 
       {/* Controls */}
-      <div style={{ display: "flex", gap: "var(--spacing-3)", flexWrap: "wrap", marginBottom: "var(--spacing-4)" }}>
+      <div
+        style={{
+          display: "flex",
+          gap: "var(--spacing-3)",
+          flexWrap: "wrap",
+          marginBottom: "var(--spacing-4)",
+        }}
+      >
         <button
-          onClick={() => setSettings((s) => ({ ...s, isAutoPlay: !s.isAutoPlay }))}
+          onClick={() =>
+            setSettings((s) => ({ ...s, isAutoPlay: !s.isAutoPlay }))
+          }
           style={{
             padding: "var(--spacing-2) var(--spacing-4)",
-            backgroundColor: settings.isAutoPlay ? "rgb(34, 197, 94)" : "rgb(29, 78, 216)",
+            backgroundColor: settings.isAutoPlay
+              ? "rgb(34, 197, 94)"
+              : "rgb(29, 78, 216)",
             color: "white",
             border: "none",
             borderRadius: "8px",
@@ -1490,7 +1969,9 @@ const StageAssistPage: React.FC = () => {
           }}
           style={{
             padding: "var(--spacing-2) var(--spacing-4)",
-            backgroundColor: settings.isAllowOverrun ? "rgb(34, 197, 94)" : "rgb(29, 78, 216)",
+            backgroundColor: settings.isAllowOverrun
+              ? "rgb(34, 197, 94)"
+              : "rgb(29, 78, 216)",
             color: "white",
             border: "none",
             borderRadius: "8px",
@@ -1500,12 +1981,21 @@ const StageAssistPage: React.FC = () => {
         >
           Allow Overrun: {settings.isAllowOverrun ? "ON" : "OFF"}
         </button>
-        <div style={{ display: "flex", alignItems: "center", gap: "var(--spacing-2)" }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "var(--spacing-2)",
+          }}
+        >
           <span style={{ fontSize: "0.875rem" }}>Dynamic Time Adjustment:</span>
           <select
             value={settings.timeAdjustmentMode}
             onChange={(e) =>
-              setSettings((s) => ({ ...s, timeAdjustmentMode: e.target.value as TimeAdjustmentMode }))
+              setSettings((s) => ({
+                ...s,
+                timeAdjustmentMode: e.target.value as TimeAdjustmentMode,
+              }))
             }
             style={{
               padding: "var(--spacing-2)",
@@ -1521,11 +2011,20 @@ const StageAssistPage: React.FC = () => {
             <option value="BOTH">Both Early & Overrun</option>
           </select>
         </div>
-        <label style={{ display: "flex", alignItems: "center", gap: "var(--spacing-1)", cursor: "pointer" }}>
+        <label
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "var(--spacing-1)",
+            cursor: "pointer",
+          }}
+        >
           <input
             type="checkbox"
             checked={settings.useDurations}
-            onChange={(e) => setSettings((s) => ({ ...s, useDurations: e.target.checked }))}
+            onChange={(e) =>
+              setSettings((s) => ({ ...s, useDurations: e.target.checked }))
+            }
             style={{ width: "18px", height: "18px" }}
           />
           <span style={{ fontSize: "0.875rem" }}>Use Durations</span>
@@ -1560,10 +2059,23 @@ const StageAssistPage: React.FC = () => {
               borderBottom: "1px solid var(--app-border-color)",
             }}
           >
-            <div style={{ display: "flex", alignItems: "center", gap: "var(--spacing-2)", flex: 1 }}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "var(--spacing-2)",
+                flex: 1,
+              }}
+            >
               <span style={{ fontWeight: 600 }}>AI Assistant</span>
               {selectedProvider && (
-                <div style={{ display: "flex", alignItems: "center", gap: "var(--spacing-1)" }}>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "var(--spacing-1)",
+                  }}
+                >
                   <span
                     style={{
                       fontSize: "0.75rem",
@@ -1615,8 +2127,14 @@ const StageAssistPage: React.FC = () => {
                                 width: "100%",
                                 padding: "var(--spacing-2)",
                                 textAlign: "left",
-                                background: provider === selectedProvider ? "var(--app-primary-color)" : "transparent",
-                                color: provider === selectedProvider ? "white" : "var(--app-text-color)",
+                                background:
+                                  provider === selectedProvider
+                                    ? "var(--app-primary-color)"
+                                    : "transparent",
+                                color:
+                                  provider === selectedProvider
+                                    ? "white"
+                                    : "var(--app-text-color)",
                                 border: "none",
                                 borderRadius: "4px",
                                 cursor: "pointer",
@@ -1676,8 +2194,16 @@ const StageAssistPage: React.FC = () => {
             }}
           >
             {chatMessages.length === 0 && (
-              <div style={{ textAlign: "center", opacity: 0.6, padding: "var(--spacing-4)" }}>
-                <FaRobot style={{ fontSize: "2rem", marginBottom: "var(--spacing-2)" }} />
+              <div
+                style={{
+                  textAlign: "center",
+                  opacity: 0.6,
+                  padding: "var(--spacing-4)",
+                }}
+              >
+                <FaRobot
+                  style={{ fontSize: "2rem", marginBottom: "var(--spacing-2)" }}
+                />
                 <p>Paste a schedule image or type a command</p>
               </div>
             )}
@@ -1689,29 +2215,58 @@ const StageAssistPage: React.FC = () => {
                   maxWidth: "80%",
                   padding: "var(--spacing-2) var(--spacing-3)",
                   borderRadius: "12px",
-                  backgroundColor: msg.role === "user" ? "rgb(29, 78, 216)" : "var(--app-header-bg)",
-                  color: msg.role === "user" ? "white" : "var(--app-text-color)",
+                  backgroundColor:
+                    msg.role === "user"
+                      ? "rgb(29, 78, 216)"
+                      : "var(--app-header-bg)",
+                  color:
+                    msg.role === "user" ? "white" : "var(--app-text-color)",
                 }}
               >
                 {msg.image && (
                   <img
                     src={msg.image}
                     alt="Attached"
-                    style={{ maxWidth: "100%", maxHeight: "150px", borderRadius: "8px", marginBottom: "var(--spacing-2)" }}
+                    style={{
+                      maxWidth: "100%",
+                      maxHeight: "150px",
+                      borderRadius: "8px",
+                      marginBottom: "var(--spacing-2)",
+                    }}
                   />
                 )}
-                <p style={{ margin: 0, fontSize: "0.875rem", whiteSpace: "pre-wrap" }}>{msg.content}</p>
+                <p
+                  style={{
+                    margin: 0,
+                    fontSize: "0.875rem",
+                    whiteSpace: "pre-wrap",
+                  }}
+                >
+                  {msg.content}
+                </p>
               </div>
             ))}
             {isChatLoading && (
-              <div style={{ opacity: 0.6, fontSize: "0.875rem" }}>Thinking...</div>
+              <div style={{ opacity: 0.6, fontSize: "0.875rem" }}>
+                Thinking...
+              </div>
             )}
           </div>
 
           {/* Chat Input */}
-          <div style={{ padding: "var(--spacing-3)", borderTop: "1px solid var(--app-border-color)" }}>
+          <div
+            style={{
+              padding: "var(--spacing-3)",
+              borderTop: "1px solid var(--app-border-color)",
+            }}
+          >
             {attachedImage && (
-              <div style={{ position: "relative", marginBottom: "var(--spacing-2)" }}>
+              <div
+                style={{
+                  position: "relative",
+                  marginBottom: "var(--spacing-2)",
+                }}
+              >
                 <img
                   src={attachedImage}
                   alt="Attached"
@@ -1737,7 +2292,13 @@ const StageAssistPage: React.FC = () => {
               </div>
             )}
             <div style={{ display: "flex", gap: "var(--spacing-2)" }}>
-              <input type="file" ref={fileInputRef} accept="image/*" style={{ display: "none" }} onChange={handleFileSelect} />
+              <input
+                type="file"
+                ref={fileInputRef}
+                accept="image/*"
+                style={{ display: "none" }}
+                onChange={handleFileSelect}
+              />
               <button
                 onClick={() => fileInputRef.current?.click()}
                 style={{
@@ -1774,7 +2335,9 @@ const StageAssistPage: React.FC = () => {
               />
               <button
                 onClick={handleChatSend}
-                disabled={isChatLoading || (!chatInput.trim() && !attachedImage)}
+                disabled={
+                  isChatLoading || (!chatInput.trim() && !attachedImage)
+                }
                 style={{
                   padding: "var(--spacing-2)",
                   backgroundColor: "rgb(29, 78, 216)",
@@ -1782,7 +2345,10 @@ const StageAssistPage: React.FC = () => {
                   border: "none",
                   borderRadius: "8px",
                   cursor: "pointer",
-                  opacity: isChatLoading || (!chatInput.trim() && !attachedImage) ? 0.5 : 1,
+                  opacity:
+                    isChatLoading || (!chatInput.trim() && !attachedImage)
+                      ? 0.5
+                      : 1,
                 }}
               >
                 <FaPaperPlane />
@@ -1872,8 +2438,10 @@ const StageAssistPage: React.FC = () => {
         <ScheduleAutomationModal
           isOpen={!!automationModalItem}
           onClose={() => setAutomationModalItem(null)}
-          onSave={(automation) => handleSaveAutomation(automationModalItem.id, automation)}
-          currentAutomation={automationModalItem.automation}
+          onSave={(automations) =>
+            handleSaveAutomation(automationModalItem.id, automations)
+          }
+          currentAutomations={normalizeAutomations(automationModalItem)}
           sessionName={automationModalItem.session}
         />
       )}

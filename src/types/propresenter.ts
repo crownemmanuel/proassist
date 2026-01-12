@@ -82,7 +82,8 @@ export interface ScheduleItem {
   endTime: string;
   duration: string;
   minister?: string;
-  automation?: ScheduleItemAutomation; // Optional ProPresenter slide trigger on start
+  automations?: ScheduleItemAutomation[]; // Optional ProPresenter automations on start (can run multiple)
+  automation?: ScheduleItemAutomation; // Legacy single-automation field (auto-migrated on load)
 }
 
 export interface TimerState {
@@ -104,19 +105,46 @@ export interface AIScheduleResponse {
   responseText: string;
 }
 
-// Schedule item automation configuration
-export interface ScheduleItemAutomation {
-  presentationUuid: string;
-  slideIndex: number;
-  presentationName?: string;
-  activationClicks?: number; // Number of clicks when starting (default: 1)
+// Stage screen and layout types
+export interface ProPresenterStageScreen {
+  uuid: string;
+  name: string;
+  index: number;
 }
+
+export interface ProPresenterStageLayout {
+  id: {
+    uuid: string;
+    name: string;
+    index: number;
+  };
+}
+
+// Schedule item automation configuration - discriminated union
+export type ScheduleItemAutomation =
+  | {
+      type: "slide";
+      presentationUuid: string;
+      slideIndex: number;
+      presentationName?: string;
+      activationClicks?: number; // Number of clicks when starting (default: 1)
+    }
+  | {
+      type: "stageLayout";
+      screenUuid: string;
+      screenName?: string;
+      screenIndex: number;
+      layoutUuid: string;
+      layoutName?: string;
+      layoutIndex: number;
+    };
 
 // Smart automation rule - trigger based on session name matching
 export interface SmartAutomationRule {
   id: string;
   sessionNamePattern: string; // The session name to match (case-insensitive)
   isExactMatch: boolean; // True for exact match, false for contains match
-  automation: ScheduleItemAutomation;
+  automations: ScheduleItemAutomation[];
+  automation?: ScheduleItemAutomation; // Legacy single-automation field (auto-migrated on load)
   createdAt: number;
 }

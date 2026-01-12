@@ -41,11 +41,12 @@ export async function updateTimerState(timerState: TimerState): Promise<void> {
   try {
     console.log("Updating timer state on server:", timerState);
     await invoke("update_timer_state", {
-      is_running: timerState.isRunning,
-      time_left: timerState.timeLeft,
-      session_name: timerState.sessionName || undefined,
-      end_time: timerState.endTime || undefined,
-      is_overrun: timerState.isOverrun || false,
+      // Tauri command args are camelCased on the JS side
+      isRunning: timerState.isRunning,
+      timeLeft: timerState.timeLeft,
+      sessionName: timerState.sessionName || undefined,
+      endTime: timerState.endTime || undefined,
+      isOverrun: timerState.isOverrun || false,
     });
   } catch (error) {
     console.error("Failed to update timer state on server:", error);

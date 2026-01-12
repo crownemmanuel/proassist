@@ -82,7 +82,82 @@ export function loadSmartAutomations(): SmartAutomationRule[] {
   try {
     const saved = localStorage.getItem(STORAGE_KEY_SMART_AUTOMATIONS);
     if (saved) {
-      return JSON.parse(saved) as SmartAutomationRule[];
+      const parsed = JSON.parse(saved) as any[];
+      if (!Array.isArray(parsed)) return [];
+
+      // Migrate legacy rules: `automation` -> `automations[]`, and add missing `type` for slide rules.
+      const migrated: SmartAutomationRule[] = parsed
+        .map((rule: any) => {
+          if (!rule || typeof rule !== "object") return null;
+
+          const rawAutomations: any[] = Array.isArray(rule.automations)
+            ? rule.automations
+            : rule.automation
+              ? [rule.automation]
+              : [];
+
+          const normalizedAutomations: ScheduleItemAutomation[] = [];
+          for (const raw of rawAutomations) {
+            if (!raw || typeof raw !== "object") continue;
+
+            // already discriminated
+            if (raw.type === "slide" || raw.type === "stageLayout") {
+              normalizedAutomations.push(raw as ScheduleItemAutomation);
+              continue;
+            }
+
+            // legacy slide
+            if (typeof raw.presentationUuid === "string" && typeof raw.slideIndex === "number") {
+              normalizedAutomations.push({
+                type: "slide",
+                presentationUuid: raw.presentationUuid,
+                slideIndex: raw.slideIndex,
+                presentationName: raw.presentationName,
+                activationClicks: raw.activationClicks,
+              });
+              continue;
+            }
+
+            // legacy stage layout (defensive)
+            if (typeof raw.screenIndex === "number" && typeof raw.layoutIndex === "number") {
+              normalizedAutomations.push({
+                type: "stageLayout",
+                screenUuid: raw.screenUuid ?? "",
+                screenName: raw.screenName,
+                screenIndex: raw.screenIndex,
+                layoutUuid: raw.layoutUuid ?? "",
+                layoutName: raw.layoutName,
+                layoutIndex: raw.layoutIndex,
+              });
+              continue;
+            }
+          }
+
+          // unique by type
+          const byType = new Map<ScheduleItemAutomation["type"], ScheduleItemAutomation>();
+          for (const a of normalizedAutomations) byType.set(a.type, a);
+          const automations = Array.from(byType.values());
+
+          const migratedRule: SmartAutomationRule = {
+            id: rule.id ?? `rule-${Date.now()}`,
+            sessionNamePattern: rule.sessionNamePattern ?? "",
+            isExactMatch: !!rule.isExactMatch,
+            automations,
+            createdAt: typeof rule.createdAt === "number" ? rule.createdAt : Date.now(),
+          };
+
+          return migratedRule.sessionNamePattern ? migratedRule : null;
+        })
+        .filter(Boolean) as SmartAutomationRule[];
+
+      // Best-effort persist back in the new format (prevents repeated migrations)
+      try {
+        localStorage.setItem(STORAGE_KEY_SMART_AUTOMATIONS, JSON.stringify(migrated));
+      } catch {
+        // ignore
+      }
+
+      return migrated;
     }
   } catch (err) {
     console.error("Failed to load smart automations:", err);
@@ -92,12 +167,29 @@ export function loadSmartAutomations(): SmartAutomationRule[] {
 
 export function addSmartAutomation(rule: SmartAutomationRule): void {
   const rules = loadSmartAutomations();
-  // Remove any existing rule with the same session name pattern
-  const filtered = rules.filter(
-    (r) => r.sessionNamePattern.toLowerCase() !== rule.sessionNamePattern.toLowerCase()
-  );
-  filtered.push(rule);
-  saveSmartAutomations(filtered);
+
+  // Upsert by session name pattern (case-insensitive) and MERGE automations by type
+  const normalizedPattern = rule.sessionNamePattern.toLowerCase();
+  const existing = rules.find((r) => r.sessionNamePattern.toLowerCase() === normalizedPattern);
+
+  if (!existing) {
+    saveSmartAutomations([...rules, rule]);
+    return;
+  }
+
+  const byType = new Map<ScheduleItemAutomation["type"], ScheduleItemAutomation>();
+  for (const a of existing.automations || []) byType.set(a.type, a);
+  for (const a of rule.automations || []) byType.set(a.type, a);
+
+  const merged: SmartAutomationRule = {
+    ...existing,
+    // allow updating match mode if user saved again
+    isExactMatch: rule.isExactMatch,
+    automations: Array.from(byType.values()),
+    createdAt: existing.createdAt ?? Date.now(),
+  };
+
+  saveSmartAutomations(rules.map((r) => (r.id === existing.id ? merged : r)));
 }
 
 export function removeSmartAutomation(ruleId: string): void {
@@ -105,21 +197,21 @@ export function removeSmartAutomation(ruleId: string): void {
   saveSmartAutomations(rules.filter((r) => r.id !== ruleId));
 }
 
-export function findMatchingAutomation(sessionName: string): ScheduleItemAutomation | null {
+export function findMatchingAutomation(sessionName: string): ScheduleItemAutomation[] | null {
   const rules = loadSmartAutomations();
   const normalizedName = sessionName.toLowerCase().trim();
   
   // First try exact matches
   for (const rule of rules) {
     if (rule.isExactMatch && rule.sessionNamePattern.toLowerCase().trim() === normalizedName) {
-      return rule.automation;
+      return rule.automations?.length ? rule.automations : null;
     }
   }
   
   // Then try contains matches
   for (const rule of rules) {
     if (!rule.isExactMatch && normalizedName.includes(rule.sessionNamePattern.toLowerCase().trim())) {
-      return rule.automation;
+      return rule.automations?.length ? rule.automations : null;
     }
   }
   
