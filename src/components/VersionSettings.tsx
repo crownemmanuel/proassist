@@ -4,7 +4,7 @@ import LogViewer from './LogViewer';
 import '../App.css';
 
 // Current app version - matches package.json and tauri.conf.json
-const APP_VERSION = '0.2.6';
+const APP_VERSION = '0.3.0';
 
 const VersionSettings: React.FC = () => {
   const [currentVersion, setCurrentVersion] = useState<string>(APP_VERSION);

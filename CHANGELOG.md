@@ -2,6 +2,11 @@
 
 All notable changes to ProAssist will be documented in this file.
 
+## [0.3.0] - 2025-01-XX
+
+### Changed
+- Upgraded version target to 0.3.0 for enhanced stability and performance
+
 ## [0.2.6] - 2025-01-XX
 
 ### Added
