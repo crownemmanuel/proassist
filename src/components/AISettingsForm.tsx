@@ -465,6 +465,27 @@ const AISettingsForm: React.FC<AISettingsFormProps> = () => {
               </div>
             </div>
           </div>
+          {/* Vision model recommendation note */}
+          <p
+            style={{
+              fontSize: "0.75em",
+              color: "var(--app-text-color-secondary)",
+              marginTop: "10px",
+              marginBottom: "0",
+              fontStyle: "italic",
+            }}
+          >
+            💡 <strong>Tip:</strong>{" "}
+            {timerAssistantProvider === "groq" ? (
+              <>For image/schedule parsing, use vision models like <strong>Llama 4 Scout</strong> or <strong>Llama 4 Maverick</strong>.</>
+            ) : timerAssistantProvider === "gemini" ? (
+              <>For image/schedule parsing, use vision models like <strong>Gemini 1.5 Flash</strong>, <strong>Gemini 1.5 Pro</strong>, or <strong>Gemini 2.0 Flash</strong>.</>
+            ) : timerAssistantProvider === "openai" ? (
+              <>For image/schedule parsing, use vision models like <strong>GPT-4o</strong>, <strong>GPT-4o mini</strong>, or <strong>GPT-4 Turbo</strong>.</>
+            ) : (
+              <>Select a provider and choose a vision-capable model for best results with image/schedule parsing.</>
+            )}
+          </p>
         </div>
       </div>
 
