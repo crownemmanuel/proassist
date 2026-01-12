@@ -164,6 +164,39 @@ select:focus {
   box-shadow: 0 0 0 3px
     color-mix(in srgb, var(--app-primary-color) 30%, transparent);
 }
+
+/* Stage Assist / Timer countdown controls: ensure placeholder text stays readable on colored cards */
+.countdown-input::placeholder {
+  color: rgba(255, 255, 255, 0.9);
+  opacity: 1;
+}
+body.theme-light .countdown-input::placeholder {
+  color: rgba(0, 0, 0, 0.55);
+}
+
+/* Countdown inputs: keep values readable and remove native number spinners */
+.countdown-input {
+  -webkit-appearance: none;
+  appearance: none;
+  /* Override global input padding so digits don't get squeezed/clipped */
+  padding: 0 !important;
+  line-height: 1;
+}
+
+.countdown-input::-webkit-inner-spin-button,
+.countdown-input::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  appearance: none;
+  margin: 0;
+}
+
+/* Focus state for countdown inputs */
+.countdown-input:focus {
+  outline: none;
+  border-color: rgba(255, 255, 255, 0.9) !important;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.2);
+  background-color: rgba(255, 255, 255, 0.3) !important;
+}
 input[type="color"] {
   padding: 0.4em 0.6em;
   min-height: calc(0.9em + 1.4em + 2px); /* Match height of other inputs */

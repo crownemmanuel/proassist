@@ -139,20 +139,24 @@ ProAssist is a desktop application that adds intelligent automation, AI-powered 
 Live Slides enables real-time collaboration for presentations. Perfect for live events where content needs to be edited on the fly.
 
 1. **Start the WebSocket Server**:
+
    - Go to **Live Slides** page in ProAssist
    - Click **Start** to launch the WebSocket server
    - Note the server address (e.g., `192.168.1.100:9876`)
 
 2. **Create a Session**:
+
    - Enter a session name and click the **+** button
    - A new Live Slides session will be created
 
 3. **Open the Notepad**:
+
    - Click the **Copy URL** button to copy the notepad URL
    - Or click **Open in browser** to open it directly
    - Share the URL with team members on the same network
 
 4. **Edit Content**:
+
    - Type content in the notepad (blank lines create new slides)
    - Use Tab to create sub-items (indented lines)
    - Changes appear instantly in ProAssist's Live Preview
@@ -163,6 +167,7 @@ Live Slides enables real-time collaboration for presentations. Perfect for live 
    - Slides update automatically as content changes in the notepad
 
 **Live Slides Format**:
+
 - Empty lines separate slides
 - Lines starting with Tab (or 4 spaces) become sub-items
 - Each slide gets a color indicator for easy identification

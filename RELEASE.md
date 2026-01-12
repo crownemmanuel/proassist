@@ -122,23 +122,26 @@ If you need to trigger a build without creating a tag:
 
 This error occurs when the private key format is incorrect or the password is mismatched:
 
-1. **Check Private Key Format**: 
+1. **Check Private Key Format**:
+
    - The private key should start with a comment line like `untrusted comment: <description>`
    - Ensure you copied the **entire** key file content, including all headers
    - Verify the key wasn't truncated when copying to GitHub Secrets
 
 2. **Verify Password Secret**:
+
    - If your key was generated **without a password** (pressed Enter), ensure `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` is either:
      - Not set at all, OR
      - Set to an empty string
    - If your key **has a password**, ensure `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` matches exactly
 
 3. **Regenerate Keys if Needed**:
+
    ```bash
    # Generate new keys
    npm run tauri signer generate -- -w ~/.tauri/proassist.key
    # When prompted, either set a password or press Enter for no password
-   
+
    # Copy the FULL content of ~/.tauri/proassist.key to TAURI_SIGNING_PRIVATE_KEY
    # Copy the FULL content of ~/.tauri/proassist.key.pub to tauri.conf.json
    ```

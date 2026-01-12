@@ -1,0 +1,340 @@
+/**
+ * Schedule AI Service
+ * 
+ * Uses the existing AI infrastructure (Gemini/GPT) to parse schedules from
+ * images or text input.
+ */
+
+import { ChatOpenAI } from "@langchain/openai";
+import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
+import { HumanMessage, SystemMessage } from "@langchain/core/messages";
+import { ScheduleItem, AIScheduleResponse } from "../types/propresenter";
+import { AppSettings, AIProvider } from "../types";
+import { getAppSettings } from "../utils/aiConfig";
+
+// Storage key for AI Assistant settings
+const AI_ASSISTANT_SETTINGS_KEY = "proassist-ai-assistant-settings";
+
+interface AIAssistantSettings {
+  customSystemPrompt?: string;
+  autoPromptForImages?: string;
+}
+
+/**
+ * Get AI Assistant settings from localStorage
+ */
+function getAIAssistantSettings(): AIAssistantSettings {
+  try {
+    const stored = localStorage.getItem(AI_ASSISTANT_SETTINGS_KEY);
+    if (stored) {
+      return JSON.parse(stored);
+    }
+  } catch (error) {
+    console.error("Failed to load AI Assistant settings:", error);
+  }
+  return {};
+}
+
+/**
+ * Build the complete system prompt including custom prompts
+ */
+function buildSystemPrompt(currentSchedule?: ScheduleItem[]): string {
+  const settings = getAIAssistantSettings();
+  const customPrompt = settings.customSystemPrompt?.trim() || "";
+  
+  const contextPrompt = currentSchedule 
+    ? `\n\nCurrent schedule: ${JSON.stringify(currentSchedule)}`
+    : "";
+  
+  let finalPrompt = SYSTEM_PROMPT;
+  
+  if (customPrompt) {
+    finalPrompt = finalPrompt + "\n\n" + customPrompt;
+  }
+  
+  if (contextPrompt) {
+    finalPrompt = finalPrompt + contextPrompt;
+  }
+  
+  return finalPrompt;
+}
+
+/**
+ * Get AI configuration from app settings
+ * @param preferredProvider Optional provider to use. If not provided, uses default from settings.
+ */
+function getAIConfig(preferredProvider?: AIProvider): { provider: AIProvider; apiKey: string; model: string } | null {
+  // Get from the main app settings using the utility function
+  const appSettings = getAppSettings();
+  const provider = preferredProvider || appSettings.defaultAIProvider;
+  
+  // Try preferred provider first
+  if (provider === "openai" && appSettings.openAIConfig?.apiKey) {
+    return {
+      provider: "openai",
+      apiKey: appSettings.openAIConfig.apiKey,
+      model: "gpt-4o",
+    };
+  }
+  if (provider === "gemini" && appSettings.geminiConfig?.apiKey) {
+    return {
+      provider: "gemini",
+      apiKey: appSettings.geminiConfig.apiKey,
+      model: "gemini-1.5-flash-latest",
+    };
+  }
+  
+  // Try any available provider if preferred provider is not available
+  if (appSettings.openAIConfig?.apiKey) {
+    return {
+      provider: "openai",
+      apiKey: appSettings.openAIConfig.apiKey,
+      model: "gpt-4o",
+    };
+  }
+  if (appSettings.geminiConfig?.apiKey) {
+    return {
+      provider: "gemini",
+      apiKey: appSettings.geminiConfig.apiKey,
+      model: "gemini-1.5-flash-latest",
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Get list of available AI providers based on configured API keys
+ */
+export function getAvailableProviders(): AIProvider[] {
+  const appSettings = getAppSettings();
+  const providers: AIProvider[] = [];
+  
+  if (appSettings.openAIConfig?.apiKey) {
+    providers.push("openai");
+  }
+  if (appSettings.geminiConfig?.apiKey) {
+    providers.push("gemini");
+  }
+  
+  return providers;
+}
+
+const SYSTEM_PROMPT = `You are an AI assistant helping to manage a church service timer application. 
+You can control timers and modify schedules. Your responses must be in JSON format with the following structure:
+{
+  "action": "none" | "SetCountDown" | "CountDownToTime" | "UpdateSchedule",
+  "actionValue": <value based on action>,
+  "responseText": "message to show user"
+}
+
+Actions:
+- "SetCountDown": Start a countdown timer. actionValue should be duration in seconds (number).
+- "CountDownToTime": Start a countdown to a specific time. actionValue should be time in format "HH:MM AM/PM" (string).
+- "UpdateSchedule": Update the schedule. actionValue should be an array of schedule items (array).
+- "none": No action needed, just respond to the user. actionValue is optional.
+
+For UpdateSchedule, actionValue should be an array of schedule items with this structure:
+[
+  {
+    "id": number,
+    "session": "Session Name",
+    "startTime": "HH:MM AM/PM",
+    "endTime": "HH:MM AM/PM",
+    "duration": "XXmins",
+    "minister": "Optional Minister Name"
+  }
+]
+
+When creating or modifying a schedule:
+1. Extract all session/event names
+2. Parse start and end times (convert to 12-hour format with AM/PM)
+3. Calculate durations in minutes (format as "XXmins" with two digits)
+4. Include minister/speaker names if available
+5. Assign sequential IDs starting from 1
+6. Ensure times are sequential (each session's startTime should match the previous session's endTime)
+
+You will receive the current schedule as context. When modifying the schedule, preserve existing IDs and structure where possible.`;
+
+/**
+ * Parse a schedule from an image using AI vision
+ */
+export async function parseScheduleFromImage(
+  imageBase64: string,
+  additionalInstructions?: string,
+  currentSchedule?: ScheduleItem[],
+  preferredProvider?: AIProvider
+): Promise<AIScheduleResponse> {
+  const config = getAIConfig(preferredProvider);
+  
+  if (!config) {
+    return {
+      action: "none",
+      responseText: "AI is not configured. Please add your API key in Settings > AI Configuration.",
+    };
+  }
+
+  try {
+    const currentPeriod = new Date().getHours() >= 12 ? "PM" : "AM";
+    const userMessage = additionalInstructions || 
+      `Create the schedule based on the provided image. If a time does not specify AM or PM, use ${currentPeriod}.`;
+
+    if (config.provider === "openai") {
+      const llm = new ChatOpenAI({
+        apiKey: config.apiKey,
+        modelName: "gpt-4o", // Vision model
+        temperature: 0.3,
+      });
+
+      const response = await llm.invoke([
+        new SystemMessage(buildSystemPrompt(currentSchedule)),
+        new HumanMessage({
+          content: [
+            { type: "text", text: userMessage },
+            {
+              type: "image_url",
+              image_url: { url: imageBase64 },
+            },
+          ],
+        }),
+      ]);
+
+      return parseAIResponse(response);
+    } else if (config.provider === "gemini") {
+      const llm = new ChatGoogleGenerativeAI({
+        apiKey: config.apiKey,
+        model: "gemini-1.5-flash-latest",
+        temperature: 0.3,
+      });
+
+      const response = await llm.invoke([
+        new SystemMessage(buildSystemPrompt(currentSchedule)),
+        new HumanMessage({
+          content: [
+            { type: "text", text: userMessage },
+            {
+              type: "image_url",
+              image_url: { url: imageBase64 },
+            },
+          ],
+        }),
+      ]);
+
+      return parseAIResponse(response);
+    }
+
+    return {
+      action: "none",
+      responseText: "Unsupported AI provider.",
+    };
+  } catch (error) {
+    console.error("Error parsing schedule from image:", error);
+    return {
+      action: "none",
+      responseText: `Error parsing schedule: ${error instanceof Error ? error.message : "Unknown error"}`,
+    };
+  }
+}
+
+/**
+ * Parse a schedule from text input using AI
+ */
+export async function parseScheduleFromText(
+  text: string,
+  currentSchedule?: ScheduleItem[],
+  preferredProvider?: AIProvider
+): Promise<AIScheduleResponse> {
+  const config = getAIConfig(preferredProvider);
+  
+  if (!config) {
+    return {
+      action: "none",
+      responseText: "AI is not configured. Please add your API key in Settings > AI Configuration.",
+    };
+  }
+
+  try {
+    let llm;
+    if (config.provider === "openai") {
+      llm = new ChatOpenAI({
+        apiKey: config.apiKey,
+        modelName: config.model,
+        temperature: 0.3,
+      });
+    } else {
+      llm = new ChatGoogleGenerativeAI({
+        apiKey: config.apiKey,
+        model: config.model,
+        temperature: 0.3,
+      });
+    }
+
+    const response = await llm.invoke([
+      new SystemMessage(buildSystemPrompt(currentSchedule)),
+      new HumanMessage(text),
+    ]);
+
+    return parseAIResponse(response);
+  } catch (error) {
+    console.error("Error parsing schedule from text:", error);
+    return {
+      action: "none",
+      responseText: `Error processing request: ${error instanceof Error ? error.message : "Unknown error"}`,
+    };
+  }
+}
+
+/**
+ * Parse the AI response to extract the structured data
+ */
+function parseAIResponse(response: any): AIScheduleResponse {
+  try {
+    const content = response.content;
+    let text = "";
+    
+    if (typeof content === "string") {
+      text = content;
+    } else if (Array.isArray(content) && content[0]?.text) {
+      text = content[0].text;
+    } else if (content?.text) {
+      text = content.text;
+    }
+
+    // Try to find and parse JSON from the response
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0]);
+      return {
+        action: parsed.action || "none",
+        actionValue: parsed.actionValue,
+        responseText: parsed.responseText || "Schedule processed successfully.",
+      };
+    }
+
+    return {
+      action: "none",
+      responseText: text || "Could not parse AI response.",
+    };
+  } catch (error) {
+    console.error("Error parsing AI response:", error);
+    return {
+      action: "none",
+      responseText: "Failed to parse AI response.",
+    };
+  }
+}
+
+/**
+ * Process an AI chat message for the Stage Assist AI Assistant
+ */
+export async function processAIChatMessage(
+  message: string,
+  image?: string,
+  currentSchedule?: ScheduleItem[],
+  preferredProvider?: AIProvider
+): Promise<AIScheduleResponse> {
+  if (image) {
+    return parseScheduleFromImage(image, message, currentSchedule, preferredProvider);
+  }
+  return parseScheduleFromText(message, currentSchedule, preferredProvider);
+}
