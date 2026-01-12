@@ -32,6 +32,7 @@ export interface Slide {
   layout: LayoutType;
   order: number; // To maintain order within a playlist item
   isAutoScripture?: boolean; // True if this slide was auto-generated from detected scripture reference
+  timerSessionIndex?: number; // Index of schedule session to trigger when going live (from Stage Assist timer tab)
 }
 
 export interface PlaylistItem {

@@ -78,7 +78,7 @@ export async function testConnection(connection: ProPresenterConnection): Promis
   data?: ProPresenterVersionResponse;
 }> {
   try {
-    const response = await fetch(`${connection.apiUrl}/v1/version`, {
+    const response = await fetch(`${connection.apiUrl}/version`, {
       method: "GET",
       headers: { "Accept": "application/json" },
     });
@@ -87,7 +87,7 @@ export async function testConnection(connection: ProPresenterConnection): Promis
       const data: ProPresenterVersionResponse = await response.json();
       return {
         success: true,
-        message: `Connected to ${data.name} v${data.version}`,
+        message: `Connected to ${data.name} (${data.host_description})`,
         data,
       };
     } else {

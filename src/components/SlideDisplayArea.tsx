@@ -11,6 +11,8 @@ import {
 } from "react-icons/fa";
 import "../App.css"; // Ensure global styles are applied
 import ContextMenu from "./ContextMenu"; // Import the new component
+import TimerDropdown from "./TimerDropdown";
+import { useStageAssist } from "../contexts/StageAssistContext";
 
 const MAX_LINES_FOR_EDIT = 6;
 
@@ -22,6 +24,10 @@ interface SlideDisplayAreaProps {
   onAddSlide: (layout: LayoutType) => void;
   onDeleteSlide: (slideId: string) => void;
   onChangeSlideLayout: (slideId: string, newLayout: LayoutType) => void; // New prop
+  onChangeTimerSession?: (
+    slideId: string,
+    sessionIndex: number | undefined
+  ) => void; // New prop for timer session
   onDetachLiveSlides?: () => void;
   onBeginLiveSlideEdit?: (slide: Slide) => void;
   onEndLiveSlideEdit?: () => void;
@@ -49,12 +55,14 @@ const SlideDisplayArea: React.FC<SlideDisplayAreaProps> = ({
   onAddSlide,
   onDeleteSlide,
   onChangeSlideLayout, // New prop
+  onChangeTimerSession, // New prop for timer session
   onDetachLiveSlides,
   onBeginLiveSlideEdit,
   onEndLiveSlideEdit,
   liveSlidesStatus,
   onResumeLiveSlidesSession,
 }) => {
+  const { startSession } = useStageAssist();
   // Mark unused prop as intentionally unused to satisfy TypeScript
   void template;
   const [editingSlideId, setEditingSlideId] = useState<string | null>(null);
@@ -185,9 +193,19 @@ const SlideDisplayArea: React.FC<SlideDisplayAreaProps> = ({
     onEndLiveSlideEdit?.();
   };
 
-  const handleMakeLive = (slide: Slide) => {
+  const handleMakeLive = async (slide: Slide) => {
     onMakeSlideLive(slide);
     setLiveSlideId(slide.id);
+
+    // If a timer session is selected, start it
+    if (slide.timerSessionIndex !== undefined && onChangeTimerSession) {
+      try {
+        await startSession(slide.timerSessionIndex);
+      } catch (error) {
+        console.error("Failed to start timer session:", error);
+        // Don't block the "Go Live" action if timer fails
+      }
+    }
   };
 
   const handleRightClick = (event: React.MouseEvent, slideId: string) => {
@@ -646,6 +664,16 @@ const SlideDisplayArea: React.FC<SlideDisplayAreaProps> = ({
                     <FaPlay />
                     {liveSlideId === slide.id ? "Live" : "Go Live"}
                   </button>
+                  {onChangeTimerSession && (
+                    <TimerDropdown
+                      slideId={slide.id}
+                      selectedSessionIndex={slide.timerSessionIndex}
+                      onSelectSession={(sessionIndex) =>
+                        onChangeTimerSession(slide.id, sessionIndex)
+                      }
+                      disabled={liveSlideId === slide.id || isLiveLinked}
+                    />
+                  )}
                   <button
                     onClick={() => onDeleteSlide(slide.id)}
                     className="icon-button"

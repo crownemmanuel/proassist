@@ -47,6 +47,7 @@ export interface ProPresenterVersionResponse {
   os_version: string;
   version: string;
   host_description: string;
+  api_version?: string; // Optional, may be present in some API versions
 }
 
 // Stage Assist Schedule Types

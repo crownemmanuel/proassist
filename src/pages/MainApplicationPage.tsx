@@ -566,6 +566,38 @@ const MainApplicationPage: React.FC = () => {
     // how text is split and joined during edit; more sophisticated handling could be added if needed.
   };
 
+  const handleChangeTimerSession = (
+    slideIdToChange: string,
+    sessionIndex: number | undefined
+  ) => {
+    if (!selectedPlaylistId || !selectedItemId) {
+      return;
+    }
+    setPlaylists((prevPlaylists) =>
+      prevPlaylists.map((p) => {
+        if (p.id === selectedPlaylistId) {
+          return {
+            ...p,
+            items: p.items.map((item) => {
+              if (item.id === selectedItemId) {
+                return {
+                  ...item,
+                  slides: item.slides.map((s) =>
+                    s.id === slideIdToChange
+                      ? { ...s, timerSessionIndex: sessionIndex }
+                      : s
+                  ),
+                };
+              }
+              return item;
+            }),
+          };
+        }
+        return p;
+      })
+    );
+  };
+
   const handleCopyToClipboardMain = async () => {
     if (currentPlaylistItem && currentPlaylistItem.slides.length > 0) {
       const formattedText = formatSlidesForClipboard(
@@ -1304,6 +1336,7 @@ const MainApplicationPage: React.FC = () => {
             onAddSlide={handleAddSlide}
             onDeleteSlide={handleDeleteSlide}
             onChangeSlideLayout={handleChangeSlideLayout}
+            onChangeTimerSession={handleChangeTimerSession}
           />
         </div>
       </div>
