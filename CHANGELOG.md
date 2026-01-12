@@ -2,6 +2,33 @@
 
 All notable changes to ProAssist will be documented in this file.
 
+## [0.2.6] - 2025-01-XX
+
+### Added
+- ProPresenter presentation activation feature - automatically trigger presentations when slides go live
+- Global activation button to set default presentation for all slides in a playlist item
+- Per-slide activation override to customize presentation triggers for individual slides
+- Timer dropdown for slides - select schedule sessions to trigger when going live
+- Auto-start timer sessions when "Go Live" is clicked if a timer session is selected
+- Ability to remove/clear activation triggers at both global and slide levels
+- ActivatePresentationModal component for configuring presentation triggers
+
+### Changed
+- ProPresenter test connection now uses `/version` endpoint instead of `/v1/version`
+- Improved ProPresenter connection test success message to show host description
+- Slide activation buttons now show "None", "Default", or "Custom" based on configuration
+
+### Fixed
+- ProPresenter test connection endpoint (changed from `/v1/version` to `/version` to fix 404 errors)
+- Live Slides production build issues with embedded HTTP server and WebSocket paths
+- Slide parsing improvements for Live Slides
+
+### Technical
+- Added `getCurrentSlideIndex()` and `triggerPresentationSlide()` API functions
+- Added `ProPresenterActivationConfig` type for presentation activation settings
+- Enhanced slide and playlist item types with activation configuration properties
+- Improved Live Slides WebSocket connection handling
+
 ## [0.2.5] - 2024-12-19
 
 ### Added

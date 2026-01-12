@@ -12,7 +12,7 @@ interface TimerDropdownProps {
 }
 
 const TimerDropdown: React.FC<TimerDropdownProps> = ({
-  slideId,
+  slideId: _slideId, // Used for key prop in parent component
   selectedSessionIndex,
   onSelectSession,
   disabled = false,
