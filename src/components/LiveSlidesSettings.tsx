@@ -7,11 +7,16 @@ import {
   startLiveSlidesServer,
   stopLiveSlidesServer,
 } from "../services/liveSlideService";
-import { LiveSlidesSettings as LiveSlidesSettingsType, DEFAULT_LIVE_SLIDES_SETTINGS } from "../types/liveSlides";
+import {
+  LiveSlidesSettings as LiveSlidesSettingsType,
+  DEFAULT_LIVE_SLIDES_SETTINGS,
+} from "../types/liveSlides";
 import "../App.css";
 
 const LiveSlidesSettings: React.FC = () => {
-  const [settings, setSettings] = useState<LiveSlidesSettingsType>(DEFAULT_LIVE_SLIDES_SETTINGS);
+  const [settings, setSettings] = useState<LiveSlidesSettingsType>(
+    DEFAULT_LIVE_SLIDES_SETTINGS
+  );
   const [localIp, setLocalIp] = useState<string>("Loading...");
   const [serverRunning, setServerRunning] = useState<boolean>(false);
   const [serverStatusText, setServerStatusText] = useState<string>("");
@@ -25,7 +30,7 @@ const LiveSlidesSettings: React.FC = () => {
   useEffect(() => {
     // Load settings
     setSettings(loadLiveSlidesSettings());
-    
+
     // Get local IP
     getLocalIp()
       .then((ip) => setLocalIp(ip))
@@ -36,7 +41,9 @@ const LiveSlidesSettings: React.FC = () => {
       .then((info) => {
         setServerRunning(info.server_running);
         setServerStatusText(
-          info.server_running ? `${info.local_ip}:${info.server_port}` : "Stopped"
+          info.server_running
+            ? `${info.local_ip}:${info.server_port}`
+            : "Stopped"
         );
       })
       .catch(() => {
@@ -45,7 +52,10 @@ const LiveSlidesSettings: React.FC = () => {
       });
   }, []);
 
-  const handleChange = (field: keyof LiveSlidesSettingsType, value: string | number | boolean) => {
+  const handleChange = (
+    field: keyof LiveSlidesSettingsType,
+    value: string | number | boolean
+  ) => {
     setSettings((prev) => ({
       ...prev,
       [field]: value,
@@ -76,7 +86,8 @@ const LiveSlidesSettings: React.FC = () => {
       setSaveMessage({ text: "Settings saved successfully", type: "success" });
       setTimeout(() => setSaveMessage({ text: "", type: "" }), 3000);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to save settings";
+      const message =
+        error instanceof Error ? error.message : "Failed to save settings";
       setSaveMessage({ text: message, type: "error" });
       setTimeout(() => setSaveMessage({ text: "", type: "" }), 5000);
     } finally {
@@ -137,16 +148,24 @@ const LiveSlidesSettings: React.FC = () => {
         <p style={{ margin: "0 0 var(--spacing-2) 0", fontWeight: 500 }}>
           About Live Slides
         </p>
-        <p style={{ margin: 0, fontSize: "0.9em", color: "var(--app-text-color-secondary)" }}>
-          Live Slides allows you to type slides in real-time from any device on your network. 
-          Start the WebSocket server, create a session, and share the URL with anyone who needs 
-          to input slides.
+        <p
+          style={{
+            margin: 0,
+            fontSize: "0.9em",
+            color: "var(--app-text-color-secondary)",
+          }}
+        >
+          Live Slides allows you to type slides in real-time from any device on
+          your network. Start the WebSocket server, create a session, and share
+          the URL with anyone who needs to input slides.
         </p>
       </div>
 
       {/* Network Information */}
       <div style={{ marginBottom: "var(--spacing-5)" }}>
-        <h3 style={{ marginBottom: "var(--spacing-3)" }}>Network Information</h3>
+        <h3 style={{ marginBottom: "var(--spacing-3)" }}>
+          Network Information
+        </h3>
         <div
           style={{
             padding: "var(--spacing-3)",
@@ -155,7 +174,13 @@ const LiveSlidesSettings: React.FC = () => {
             border: "1px solid var(--app-border-color)",
           }}
         >
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+            }}
+          >
             <span style={{ fontWeight: 500 }}>Local IP Address:</span>
             <span
               style={{
@@ -175,7 +200,8 @@ const LiveSlidesSettings: React.FC = () => {
               color: "var(--app-text-color-secondary)",
             }}
           >
-            Other devices on your local network can connect using this IP address.
+            Other devices on your local network can connect using this IP
+            address.
           </p>
         </div>
       </div>
@@ -202,7 +228,12 @@ const LiveSlidesSettings: React.FC = () => {
                 {serverRunning ? "Running" : "Stopped"}
               </span>
             </div>
-            <div style={{ fontSize: "0.9em", color: "var(--app-text-color-secondary)" }}>
+            <div
+              style={{
+                fontSize: "0.9em",
+                color: "var(--app-text-color-secondary)",
+              }}
+            >
               {serverStatusText}
             </div>
           </div>
@@ -234,17 +265,33 @@ const LiveSlidesSettings: React.FC = () => {
 
       {/* Server Configuration */}
       <div style={{ marginBottom: "var(--spacing-5)" }}>
-        <h3 style={{ marginBottom: "var(--spacing-3)" }}>Server Configuration</h3>
+        <h3 style={{ marginBottom: "var(--spacing-3)" }}>
+          Server Configuration
+        </h3>
 
-        <div style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-3)" }}>
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: "var(--spacing-3)",
+          }}
+        >
           <div>
-            <label style={{ display: "block", marginBottom: "var(--spacing-1)", fontWeight: 500 }}>
+            <label
+              style={{
+                display: "block",
+                marginBottom: "var(--spacing-1)",
+                fontWeight: 500,
+              }}
+            >
               WebSocket Port
             </label>
             <input
               type="number"
               value={settings.serverPort}
-              onChange={(e) => handleChange("serverPort", parseInt(e.target.value, 10) || 9876)}
+              onChange={(e) =>
+                handleChange("serverPort", parseInt(e.target.value, 10) || 9876)
+              }
               min={1024}
               max={65535}
               style={{ width: "150px", padding: "var(--spacing-2)" }}
@@ -256,7 +303,8 @@ const LiveSlidesSettings: React.FC = () => {
                 color: "var(--app-text-color-secondary)",
               }}
             >
-              Port for the WebSocket server (default: 9876). Must be between 1024 and 65535.
+              Port for the WebSocket server (default: 9876). Must be between
+              1024 and 65535.
             </p>
           </div>
 
@@ -274,7 +322,9 @@ const LiveSlidesSettings: React.FC = () => {
               type="checkbox"
               id="autoStartServer"
               checked={settings.autoStartServer}
-              onChange={(e) => handleChange("autoStartServer", e.target.checked)}
+              onChange={(e) =>
+                handleChange("autoStartServer", e.target.checked)
+              }
               style={{ width: "auto", margin: 0 }}
             />
             <label
@@ -289,7 +339,9 @@ const LiveSlidesSettings: React.FC = () => {
 
       {/* Output Configuration */}
       <div style={{ marginBottom: "var(--spacing-5)" }}>
-        <h3 style={{ marginBottom: "var(--spacing-3)" }}>Output Configuration</h3>
+        <h3 style={{ marginBottom: "var(--spacing-3)" }}>
+          Output Configuration
+        </h3>
         <p
           style={{
             marginBottom: "var(--spacing-3)",
@@ -297,12 +349,25 @@ const LiveSlidesSettings: React.FC = () => {
             color: "var(--app-text-color-secondary)",
           }}
         >
-          Configure where live slide content will be written when a slide is made live.
+          Configure where live slide content will be written when a slide is
+          made live.
         </p>
 
-        <div style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-3)" }}>
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: "var(--spacing-3)",
+          }}
+        >
           <div>
-            <label style={{ display: "block", marginBottom: "var(--spacing-1)", fontWeight: 500 }}>
+            <label
+              style={{
+                display: "block",
+                marginBottom: "var(--spacing-1)",
+                fontWeight: 500,
+              }}
+            >
               Output Path
             </label>
             <input
@@ -324,7 +389,13 @@ const LiveSlidesSettings: React.FC = () => {
           </div>
 
           <div>
-            <label style={{ display: "block", marginBottom: "var(--spacing-1)", fontWeight: 500 }}>
+            <label
+              style={{
+                display: "block",
+                marginBottom: "var(--spacing-1)",
+                fontWeight: 500,
+              }}
+            >
               Output File Prefix
             </label>
             <input
@@ -372,7 +443,13 @@ const LiveSlidesSettings: React.FC = () => {
       </div>
 
       {/* Actions */}
-      <div style={{ display: "flex", alignItems: "center", gap: "var(--spacing-2)" }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "var(--spacing-2)",
+        }}
+      >
         <button
           onClick={handleSave}
           disabled={isSaving}

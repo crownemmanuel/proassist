@@ -44,7 +44,9 @@ const MainApplicationPage: React.FC = () => {
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [isLiveSlidesImportOpen, setIsLiveSlidesImportOpen] = useState(false);
   const [copyStatusMain, setCopyStatusMain] = useState<string>(""); // Added state for feedback
-  const [typingUrlModal, setTypingUrlModal] = useState<{ url: string } | null>(null);
+  const [typingUrlModal, setTypingUrlModal] = useState<{ url: string } | null>(
+    null
+  );
   const [isRenameOpen, setIsRenameOpen] = useState(false);
   const [renameInitialName, setRenameInitialName] = useState("");
   const [renameTarget, setRenameTarget] = useState<
@@ -64,19 +66,30 @@ const MainApplicationPage: React.FC = () => {
   });
 
   // Live Slides server info + websocket connections (for live-linked playlist items)
-  const [liveSlidesServerRunning, setLiveSlidesServerRunning] = useState<boolean>(false);
+  const [liveSlidesServerRunning, setLiveSlidesServerRunning] =
+    useState<boolean>(false);
   const [liveSlidesWsUrl, setLiveSlidesWsUrl] = useState<string | null>(null);
-  const [liveSlidesServerSessionIds, setLiveSlidesServerSessionIds] = useState<Set<string>>(new Set());
-  const [liveSlidesServerIp, setLiveSlidesServerIp] = useState<string>("localhost");
-  const liveSlidesWsMapRef = useRef<Map<string, LiveSlidesWebSocket>>(new Map());
+  const [liveSlidesServerSessionIds, setLiveSlidesServerSessionIds] = useState<
+    Set<string>
+  >(new Set());
+  const [liveSlidesServerIp, setLiveSlidesServerIp] =
+    useState<string>("localhost");
+  const liveSlidesWsMapRef = useRef<Map<string, LiveSlidesWebSocket>>(
+    new Map()
+  );
   // When a slide is currently being output ("Live"), avoid overwriting that slide from incoming WS updates.
-  const [liveSlidesLockBySession, setLiveSlidesLockBySession] = useState<Record<string, number | null>>({});
+  const [liveSlidesLockBySession, setLiveSlidesLockBySession] = useState<
+    Record<string, number | null>
+  >({});
   // When a slide is being edited locally, avoid overwriting it from incoming WS updates.
-  const [liveSlidesEditLockBySession, setLiveSlidesEditLockBySession] = useState<Record<string, number | null>>({});
+  const [liveSlidesEditLockBySession, setLiveSlidesEditLockBySession] =
+    useState<Record<string, number | null>>({});
   // Use refs to access current lock state without causing re-renders
   const liveSlidesLockBySessionRef = useRef<Record<string, number | null>>({});
-  const liveSlidesEditLockBySessionRef = useRef<Record<string, number | null>>({});
-  
+  const liveSlidesEditLockBySessionRef = useRef<Record<string, number | null>>(
+    {}
+  );
+
   // Keep refs in sync with state
   useEffect(() => {
     liveSlidesLockBySessionRef.current = liveSlidesLockBySession;
@@ -85,7 +98,9 @@ const MainApplicationPage: React.FC = () => {
     liveSlidesEditLockBySessionRef.current = liveSlidesEditLockBySession;
   }, [liveSlidesEditLockBySession]);
   // Latest raw_text per session (from server) so we can patch a single slide back to the notepad.
-  const [liveSlidesRawTextBySession, setLiveSlidesRawTextBySession] = useState<Record<string, string>>({});
+  const [liveSlidesRawTextBySession, setLiveSlidesRawTextBySession] = useState<
+    Record<string, string>
+  >({});
 
   // Persist playlists to localStorage whenever they change
   useEffect(() => {
@@ -104,8 +119,14 @@ const MainApplicationPage: React.FC = () => {
         const info = await getLiveSlidesServerInfo();
         if (cancelled) return;
         setLiveSlidesServerRunning(!!info.server_running);
-        setLiveSlidesWsUrl(info.server_running ? `ws://${info.local_ip}:${info.server_port}` : null);
-        setLiveSlidesServerSessionIds(new Set(Object.keys(info.sessions || {})));
+        setLiveSlidesWsUrl(
+          info.server_running
+            ? `ws://${info.local_ip}:${info.server_port}`
+            : null
+        );
+        setLiveSlidesServerSessionIds(
+          new Set(Object.keys(info.sessions || {}))
+        );
         setLiveSlidesServerIp(info.local_ip || "localhost");
       } catch {
         if (cancelled) return;
@@ -308,7 +329,9 @@ const MainApplicationPage: React.FC = () => {
     if (playlistItem.liveSlidesSessionId) {
       const ls = loadLiveSlidesSettings();
       console.log("Using Live Slides output settings");
-      console.log(`Output Path: ${ls.outputPath}, Prefix: ${ls.outputFilePrefix}`);
+      console.log(
+        `Output Path: ${ls.outputPath}, Prefix: ${ls.outputFilePrefix}`
+      );
     } else if (template) {
       console.log("Using template:", template.name);
       console.log(
@@ -317,9 +340,10 @@ const MainApplicationPage: React.FC = () => {
     }
 
     const lines = slide.text.split("\n");
-    const basePath = (playlistItem.liveSlidesSessionId
-      ? loadLiveSlidesSettings().outputPath
-      : template?.outputPath || ""
+    const basePath = (
+      playlistItem.liveSlidesSessionId
+        ? loadLiveSlidesSettings().outputPath
+        : template?.outputPath || ""
     ).replace(/\/?$/, "/");
     const prefix = playlistItem.liveSlidesSessionId
       ? loadLiveSlidesSettings().outputFilePrefix
@@ -342,7 +366,9 @@ const MainApplicationPage: React.FC = () => {
         const reference = lines[1] || ""; // Second line is the reference
 
         console.log("Auto-scripture slide with custom mapping detected");
-        console.log(`Reference file index: ${template!.scriptureReferenceFileIndex}`);
+        console.log(
+          `Reference file index: ${template!.scriptureReferenceFileIndex}`
+        );
         console.log(`Text file index: ${template!.scriptureTextFileIndex}`);
 
         // Blank out all 6 files first
@@ -352,14 +378,28 @@ const MainApplicationPage: React.FC = () => {
         }
 
         // Write the reference to its designated file
-        const refFilePath = `${basePath}${prefix}${template!.scriptureReferenceFileIndex}.txt`;
-        console.log(`Writing reference to: ${refFilePath}, Content: "${reference}"`);
-        await invoke("write_text_to_file", { filePath: refFilePath, content: reference });
+        const refFilePath = `${basePath}${prefix}${
+          template!.scriptureReferenceFileIndex
+        }.txt`;
+        console.log(
+          `Writing reference to: ${refFilePath}, Content: "${reference}"`
+        );
+        await invoke("write_text_to_file", {
+          filePath: refFilePath,
+          content: reference,
+        });
 
         // Write the verse text to its designated file
-        const textFilePath = `${basePath}${prefix}${template!.scriptureTextFileIndex}.txt`;
-        console.log(`Writing verse text to: ${textFilePath}, Content: "${verseText}"`);
-        await invoke("write_text_to_file", { filePath: textFilePath, content: verseText });
+        const textFilePath = `${basePath}${prefix}${
+          template!.scriptureTextFileIndex
+        }.txt`;
+        console.log(
+          `Writing verse text to: ${textFilePath}, Content: "${verseText}"`
+        );
+        await invoke("write_text_to_file", {
+          filePath: textFilePath,
+          content: verseText,
+        });
       } else {
         // Standard slide handling (non-scripture or no custom mapping)
         // Determine how many lines to write based on slide.layout
@@ -391,8 +431,13 @@ const MainApplicationPage: React.FC = () => {
           const lineContent = lines[i] || ""; // Use empty string if line doesn't exist
           const filePath = `${basePath}${prefix}${i + 1}.txt`;
 
-          console.log(`Writing to file: ${filePath}, Content: "${lineContent}"`);
-          await invoke("write_text_to_file", { filePath, content: lineContent });
+          console.log(
+            `Writing to file: ${filePath}, Content: "${lineContent}"`
+          );
+          await invoke("write_text_to_file", {
+            filePath,
+            content: lineContent,
+          });
         }
 
         // After writing the slide's content, blank out any subsequent files
@@ -535,17 +580,19 @@ const MainApplicationPage: React.FC = () => {
     if (!sid) return;
 
     if (!liveSlidesServerRunning || !liveSlidesServerSessionIds.has(sid)) {
-      alert("That Live Slides session isn't running. Click Restart/Resume Session first.");
+      alert(
+        "That Live Slides session isn't running. Click Restart/Resume Session first."
+      );
       return;
     }
 
     const settings = loadLiveSlidesSettings();
     const appPort = window.location.port || "1420";
     const url = `http://${liveSlidesServerIp}:${appPort}/live-slides/notepad/${sid}?wsHost=${liveSlidesServerIp}&wsPort=${settings.serverPort}`;
-    
+
     // Show typing URL modal
     setTypingUrlModal({ url });
-    
+
     // Try to copy to clipboard automatically (non-blocking)
     try {
       await navigator.clipboard.writeText(url);
@@ -594,8 +641,9 @@ const MainApplicationPage: React.FC = () => {
       templateName: templateName,
       templateColor: templateColorUsed,
       liveSlidesSessionId: options?.liveSlidesSessionId,
-      liveSlidesLinked:
-        options?.liveSlidesSessionId ? options?.liveSlidesLinked ?? true : undefined,
+      liveSlidesLinked: options?.liveSlidesSessionId
+        ? options?.liveSlidesLinked ?? true
+        : undefined,
     };
 
     setPlaylists((prevPlaylists) =>
@@ -674,7 +722,9 @@ const MainApplicationPage: React.FC = () => {
       // Re-fetch server info to get IP + port + sessions
       const info = await getLiveSlidesServerInfo();
       setLiveSlidesServerRunning(!!info.server_running);
-      setLiveSlidesWsUrl(info.server_running ? `ws://${info.local_ip}:${info.server_port}` : null);
+      setLiveSlidesWsUrl(
+        info.server_running ? `ws://${info.local_ip}:${info.server_port}` : null
+      );
       setLiveSlidesServerSessionIds(new Set(Object.keys(info.sessions || {})));
 
       if (!info.server_running) {
@@ -685,10 +735,9 @@ const MainApplicationPage: React.FC = () => {
       // Create a fresh session and seed it with our cached content.
       const session = await createLiveSlideSession(currentPlaylistItem.title);
 
-      const seedRaw =
-        currentPlaylistItem.liveSlidesCachedRawText?.trim().length
-          ? currentPlaylistItem.liveSlidesCachedRawText
-          : buildRawTextFromSlides(currentPlaylistItem.slides);
+      const seedRaw = currentPlaylistItem.liveSlidesCachedRawText?.trim().length
+        ? currentPlaylistItem.liveSlidesCachedRawText
+        : buildRawTextFromSlides(currentPlaylistItem.slides);
 
       // Update item to point at new session id (so future reconnects + WS updates work).
       setPlaylists((prev) =>
@@ -714,19 +763,23 @@ const MainApplicationPage: React.FC = () => {
       const ws = new LiveSlidesWebSocket(wsUrl, session.id, "viewer");
       liveSlidesWsMapRef.current.set(session.id, ws);
       await ws.connect();
-      
+
       // Send the text update to seed the session
       if (seedRaw.trim().length > 0) {
         ws.sendTextUpdate(seedRaw);
         // Give the server a moment to process the update before showing the URL
         // This ensures the notepad will receive the pre-populated content when it connects
-        await new Promise(resolve => setTimeout(resolve, 300));
+        await new Promise((resolve) => setTimeout(resolve, 300));
       }
 
       // Show typing URL modal
-      const typingUrl = `http://${info.local_ip}:${window.location.port || "1420"}/live-slides/notepad/${session.id}?wsHost=${info.local_ip}&wsPort=${settings.serverPort}`;
+      const typingUrl = `http://${info.local_ip}:${
+        window.location.port || "1420"
+      }/live-slides/notepad/${session.id}?wsHost=${info.local_ip}&wsPort=${
+        settings.serverPort
+      }`;
       setTypingUrlModal({ url: typingUrl });
-      
+
       // Try to copy to clipboard automatically (non-blocking)
       try {
         await navigator.clipboard.writeText(typingUrl);
@@ -789,7 +842,8 @@ const MainApplicationPage: React.FC = () => {
     setLiveSlidesEditLockBySession((prev) => ({ ...prev, [sid]: slide.order }));
 
     const baseRaw =
-      liveSlidesRawTextBySession[sid] && liveSlidesRawTextBySession[sid].trim().length
+      liveSlidesRawTextBySession[sid] &&
+      liveSlidesRawTextBySession[sid].trim().length
         ? liveSlidesRawTextBySession[sid]
         : buildRawTextFromSlides(it.slides);
 
@@ -805,7 +859,9 @@ const MainApplicationPage: React.FC = () => {
             if (x.id !== itemId) return x;
             return {
               ...x,
-              slides: x.slides.map((s) => (s.id === slideId ? { ...s, text: newText } : s)),
+              slides: x.slides.map((s) =>
+                s.id === slideId ? { ...s, text: newText } : s
+              ),
             };
           }),
         };
@@ -832,7 +888,11 @@ const MainApplicationPage: React.FC = () => {
   };
 
   const convertLiveSlidesToSlidesForItem = useMemo(() => {
-    return (sessionId: string, _templateName: string, liveSlides: LiveSlide[]): Slide[] => {
+    return (
+      sessionId: string,
+      _templateName: string,
+      liveSlides: LiveSlide[]
+    ): Slide[] => {
       return liveSlides.map((liveSlide, idx) => {
         const text = liveSlide.items
           .map((item) => (item.is_sub_item ? `\t${item.text}` : item.text))
@@ -890,7 +950,11 @@ const MainApplicationPage: React.FC = () => {
           prev.map((pl) => ({
             ...pl,
             items: pl.items.map((it) => {
-              if (it.liveSlidesSessionId !== sid || !(it.liveSlidesLinked ?? true)) return it;
+              if (
+                it.liveSlidesSessionId !== sid ||
+                !(it.liveSlidesLinked ?? true)
+              )
+                return it;
               let nextSlides = convertLiveSlidesToSlidesForItem(
                 sid,
                 it.templateName,
@@ -916,7 +980,11 @@ const MainApplicationPage: React.FC = () => {
                 ...prevRaw,
                 [sid]: update.raw_text || nextCached,
               }));
-              return { ...it, slides: nextSlides, liveSlidesCachedRawText: nextCached };
+              return {
+                ...it,
+                slides: nextSlides,
+                liveSlidesCachedRawText: nextCached,
+              };
             }),
           }))
         );
@@ -1076,15 +1144,16 @@ const MainApplicationPage: React.FC = () => {
                 <FaTrash />
               </button>
             )}
-            {currentPlaylistItem?.liveSlidesSessionId && (currentPlaylistItem.liveSlidesLinked ?? true) && (
-              <button
-                onClick={handleCopyLiveSlidesTypingLink}
-                title="Copy the typing link for this Live Slides session"
-                className="secondary"
-              >
-                <FaLink />
-              </button>
-            )}
+            {currentPlaylistItem?.liveSlidesSessionId &&
+              (currentPlaylistItem.liveSlidesLinked ?? true) && (
+                <button
+                  onClick={handleCopyLiveSlidesTypingLink}
+                  title="Copy the typing link for this Live Slides session"
+                  className="secondary"
+                >
+                  <FaLink />
+                </button>
+              )}
             {copyStatusMain && (
               <span
                 style={{
@@ -1122,7 +1191,9 @@ const MainApplicationPage: React.FC = () => {
               currentPlaylistItem?.liveSlidesSessionId &&
               (currentPlaylistItem.liveSlidesLinked ?? true) &&
               (!liveSlidesServerRunning ||
-                !liveSlidesServerSessionIds.has(currentPlaylistItem.liveSlidesSessionId))
+                !liveSlidesServerSessionIds.has(
+                  currentPlaylistItem.liveSlidesSessionId
+                ))
                 ? handleResumeCurrentLiveSlidesSession
                 : undefined
             }

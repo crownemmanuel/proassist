@@ -1,8 +1,17 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import React, {
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  useMemo,
+} from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { FaSun, FaMoon } from "react-icons/fa";
 import { LiveSlidesWebSocket } from "../services/liveSlideService";
-import { calculateSlideBoundaries, SlideBoundary } from "../utils/liveSlideParser";
+import {
+  calculateSlideBoundaries,
+  SlideBoundary,
+} from "../utils/liveSlideParser";
 import { LiveSlide } from "../types/liveSlides";
 import "../App.css";
 
@@ -169,32 +178,35 @@ const getNotepadStyles = (isDark: boolean) => {
 const LiveSlidesNotepad: React.FC = () => {
   const { sessionId } = useParams<{ sessionId: string }>();
   const [searchParams] = useSearchParams();
-  
+
   // Theme state with localStorage persistence
   const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
     const saved = localStorage.getItem("liveSlidesNotepadTheme");
     return saved === "light" ? false : true; // Default to dark
   });
-  
+
   const [text, setText] = useState("");
   const [slides, setSlides] = useState<LiveSlide[]>([]);
   const [boundaries, setBoundaries] = useState<SlideBoundary[]>([]);
   const [isConnected, setIsConnected] = useState(false);
   const [copyFeedback, setCopyFeedback] = useState("");
-  
+
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const lineNumbersRef = useRef<HTMLDivElement>(null);
   const colorIndicatorsRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<LiveSlidesWebSocket | null>(null);
-  
+
   // Get WebSocket connection info from URL params
   const wsHost = searchParams.get("wsHost") || "localhost";
   const wsPort = parseInt(searchParams.get("wsPort") || "9876", 10);
   const wsUrl = `ws://${wsHost}:${wsPort}`;
-  
+
   // Get theme-aware styles
-  const notepadStyles = useMemo(() => getNotepadStyles(isDarkMode), [isDarkMode]);
-  
+  const notepadStyles = useMemo(
+    () => getNotepadStyles(isDarkMode),
+    [isDarkMode]
+  );
+
   // Toggle theme
   const toggleTheme = useCallback(() => {
     const newTheme = !isDarkMode;
@@ -205,10 +217,10 @@ const LiveSlidesNotepad: React.FC = () => {
   // Connect to WebSocket
   useEffect(() => {
     if (!sessionId) return;
-    
+
     const ws = new LiveSlidesWebSocket(wsUrl, sessionId, "notepad");
     wsRef.current = ws;
-    
+
     ws.connect()
       .then(() => {
         setIsConnected(true);
@@ -217,23 +229,24 @@ const LiveSlidesNotepad: React.FC = () => {
         console.error("Failed to connect:", err);
         setIsConnected(false);
       });
-    
+
     // Listen for slides updates (from other notepads or initial state)
     const unsubscribe = ws.onSlidesUpdate((update) => {
       if (update.session_id === sessionId) {
         setSlides(update.slides);
         // Update text if it's different and we don't have focus
         // Also update if our current text is empty (initial load) to pre-populate from server
-        const shouldUpdate = 
-          update.raw_text !== text && 
-          (document.activeElement !== textareaRef.current || !text.trim().length);
+        const shouldUpdate =
+          update.raw_text !== text &&
+          (document.activeElement !== textareaRef.current ||
+            !text.trim().length);
         if (shouldUpdate) {
           setText(update.raw_text);
           setBoundaries(calculateSlideBoundaries(update.raw_text));
         }
       }
     });
-    
+
     return () => {
       unsubscribe();
       ws.disconnect();
@@ -241,18 +254,21 @@ const LiveSlidesNotepad: React.FC = () => {
   }, [sessionId, wsUrl]);
 
   // Update boundaries when text changes
-  const handleTextChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const newText = e.target.value;
-    setText(newText);
-    
-    const newBoundaries = calculateSlideBoundaries(newText);
-    setBoundaries(newBoundaries);
-    
-    // Send update to WebSocket
-    if (wsRef.current && wsRef.current.isConnected) {
-      wsRef.current.sendTextUpdate(newText);
-    }
-  }, []);
+  const handleTextChange = useCallback(
+    (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+      const newText = e.target.value;
+      setText(newText);
+
+      const newBoundaries = calculateSlideBoundaries(newText);
+      setBoundaries(newBoundaries);
+
+      // Send update to WebSocket
+      if (wsRef.current && wsRef.current.isConnected) {
+        wsRef.current.sendTextUpdate(newText);
+      }
+    },
+    []
+  );
 
   const applyTextUpdate = useCallback(
     (newText: string, selectionStart?: number, selectionEnd?: number) => {
@@ -311,7 +327,8 @@ const LiveSlidesNotepad: React.FC = () => {
       if (hasMultilineSelection || e.shiftKey) {
         const blockStart = lineStartIdx(start);
         const blockEndNewline = value.indexOf("\n", end);
-        const blockEnd = blockEndNewline === -1 ? value.length : blockEndNewline;
+        const blockEnd =
+          blockEndNewline === -1 ? value.length : blockEndNewline;
 
         const block = value.slice(blockStart, blockEnd);
         const lines = block.split("\n");
@@ -321,7 +338,8 @@ const LiveSlidesNotepad: React.FC = () => {
           : lines.map((l) => (l.length === 0 ? l : `${TAB}${l}`));
 
         const newBlock = nextLines.join("\n");
-        const newValue = value.slice(0, blockStart) + newBlock + value.slice(blockEnd);
+        const newValue =
+          value.slice(0, blockStart) + newBlock + value.slice(blockEnd);
 
         // Keep selection spanning the full modified block (simple + predictable).
         applyTextUpdate(newValue, blockStart, blockStart + newBlock.length);
@@ -339,7 +357,7 @@ const LiveSlidesNotepad: React.FC = () => {
   // Sync scroll between textarea and line numbers
   const handleScroll = useCallback((e: React.UIEvent<HTMLTextAreaElement>) => {
     const target = e.currentTarget;
-    
+
     if (lineNumbersRef.current) {
       lineNumbersRef.current.scrollTop = target.scrollTop;
     }
@@ -396,10 +414,14 @@ const LiveSlidesNotepad: React.FC = () => {
             style={notepadStyles.themeToggle}
             title={isDarkMode ? "Switch to light mode" : "Switch to dark mode"}
             onMouseEnter={(e) => {
-              e.currentTarget.style.backgroundColor = isDarkMode ? "#3a3a3a" : "#d8d8d8";
+              e.currentTarget.style.backgroundColor = isDarkMode
+                ? "#3a3a3a"
+                : "#d8d8d8";
             }}
             onMouseLeave={(e) => {
-              e.currentTarget.style.backgroundColor = isDarkMode ? "#2a2a2a" : "#e8e8e8";
+              e.currentTarget.style.backgroundColor = isDarkMode
+                ? "#2a2a2a"
+                : "#e8e8e8";
             }}
           >
             {isDarkMode ? <FaSun /> : <FaMoon />}
@@ -412,12 +434,16 @@ const LiveSlidesNotepad: React.FC = () => {
             onClick={handleCopyUrl}
             onMouseEnter={(e) => {
               if (!copyFeedback) {
-                e.currentTarget.style.backgroundColor = isDarkMode ? "#3a3a3a" : "#d8d8d8";
+                e.currentTarget.style.backgroundColor = isDarkMode
+                  ? "#3a3a3a"
+                  : "#d8d8d8";
               }
             }}
             onMouseLeave={(e) => {
               if (!copyFeedback) {
-                e.currentTarget.style.backgroundColor = isDarkMode ? "#2a2a2a" : "#e8e8e8";
+                e.currentTarget.style.backgroundColor = isDarkMode
+                  ? "#2a2a2a"
+                  : "#e8e8e8";
               }
             }}
           >
@@ -499,7 +525,8 @@ Scripture Reading
       {/* Footer */}
       <div style={notepadStyles.footer}>
         <div>
-          {text.split("\n").length} lines · {slides.length || boundaries.length} slides
+          {text.split("\n").length} lines · {slides.length || boundaries.length}{" "}
+          slides
         </div>
         <div style={notepadStyles.slidesPreview}>
           {boundaries.slice(0, 8).map((boundary, idx) => (
@@ -515,7 +542,9 @@ Scripture Reading
             </div>
           ))}
           {boundaries.length > 8 && (
-            <span style={{ color: notepadStyles.footer.color }}>+{boundaries.length - 8} more</span>
+            <span style={{ color: notepadStyles.footer.color }}>
+              +{boundaries.length - 8} more
+            </span>
           )}
         </div>
         <div>

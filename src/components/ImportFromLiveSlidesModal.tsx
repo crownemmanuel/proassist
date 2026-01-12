@@ -13,7 +13,11 @@ import {
   loadLiveSlidesSettings,
   startLiveSlidesServer,
 } from "../services/liveSlideService";
-import { LiveSlideSession, LiveSlidesState, LiveSlide } from "../types/liveSlides";
+import {
+  LiveSlideSession,
+  LiveSlidesState,
+  LiveSlide,
+} from "../types/liveSlides";
 import { Slide, Template, LayoutType } from "../types";
 import "../App.css";
 
@@ -39,7 +43,9 @@ const ImportFromLiveSlidesModal: React.FC<ImportFromLiveSlidesModalProps> = ({
 }) => {
   const [serverInfo, setServerInfo] = useState<LiveSlidesState | null>(null);
   const [sessions, setSessions] = useState<LiveSlideSession[]>([]);
-  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(
+    null
+  );
   const [itemName, setItemName] = useState("");
   const [newSessionName, setNewSessionName] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -67,22 +73,24 @@ const ImportFromLiveSlidesModal: React.FC<ImportFromLiveSlidesModalProps> = ({
       setServerInfo(info);
       const sessionList = Object.values(info.sessions);
       setSessions(sessionList);
-      
+
       // Auto-select first session with slides
-      const sessionWithSlides = sessionList.find(s => s.slides.length > 0);
+      const sessionWithSlides = sessionList.find((s) => s.slides.length > 0);
       if (sessionWithSlides) {
         setSelectedSessionId(sessionWithSlides.id);
         setItemName(sessionWithSlides.name);
       }
     } catch (err) {
-      setError("Live Slides server is not running. Start it to create or join sessions.");
+      setError(
+        "Live Slides server is not running. Start it to create or join sessions."
+      );
       console.error(err);
     } finally {
       setIsLoading(false);
     }
   };
 
-  const selectedSession = sessions.find(s => s.id === selectedSessionId);
+  const selectedSession = sessions.find((s) => s.id === selectedSessionId);
 
   const convertLiveSlidesToSlides = (
     liveSlides: LiveSlide[]
@@ -225,12 +233,26 @@ const ImportFromLiveSlidesModal: React.FC<ImportFromLiveSlidesModalProps> = ({
           Live Slides
         </h2>
 
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", marginBottom: "12px" }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: "12px",
+            marginBottom: "12px",
+          }}
+        >
           <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
             <FaServer style={{ opacity: 0.7 }} />
-            <span style={{ fontSize: "0.9em", color: "var(--app-text-color-secondary)" }}>
+            <span
+              style={{
+                fontSize: "0.9em",
+                color: "var(--app-text-color-secondary)",
+              }}
+            >
               Server: {serverInfo?.server_running ? "Running" : "Stopped"}
-              {serverInfo?.server_running && ` (${serverInfo.local_ip}:${serverInfo.server_port})`}
+              {serverInfo?.server_running &&
+                ` (${serverInfo.local_ip}:${serverInfo.server_port})`}
             </span>
           </div>
           {!serverInfo?.server_running && (
@@ -246,7 +268,13 @@ const ImportFromLiveSlidesModal: React.FC<ImportFromLiveSlidesModalProps> = ({
         </div>
 
         {toast && (
-          <div style={{ marginBottom: "12px", color: "var(--app-text-color-secondary)", fontSize: "0.9em" }}>
+          <div
+            style={{
+              marginBottom: "12px",
+              color: "var(--app-text-color-secondary)",
+              fontSize: "0.9em",
+            }}
+          >
             {toast}
           </div>
         )}
@@ -286,14 +314,21 @@ const ImportFromLiveSlidesModal: React.FC<ImportFromLiveSlidesModalProps> = ({
                 />
               </div>
 
-              <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px" }}>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "flex-end",
+                  gap: "10px",
+                }}
+              >
                 <button
                   onClick={handleCreateAndAdd}
                   className="primary"
                   disabled={!newSessionName.trim() || isCreatingSession}
                   title="Creates a Live Slides session, adds it to the current playlist, and copies the typing URL"
                 >
-                  <FaPlus /> {isCreatingSession ? "Creating..." : "Create + Join"}
+                  <FaPlus />{" "}
+                  {isCreatingSession ? "Creating..." : "Create + Join"}
                 </button>
               </div>
             </div>
@@ -303,91 +338,143 @@ const ImportFromLiveSlidesModal: React.FC<ImportFromLiveSlidesModalProps> = ({
                 <div style={{ color: "var(--app-text-color-secondary)" }}>
                   No existing sessions yet.
                 </div>
-                <div style={{ color: "var(--app-text-color-secondary)", fontSize: "0.9rem", marginTop: "8px" }}>
+                <div
+                  style={{
+                    color: "var(--app-text-color-secondary)",
+                    fontSize: "0.9rem",
+                    marginTop: "8px",
+                  }}
+                >
                   Create one above, then share the typing URL.
                 </div>
               </div>
             ) : (
               <>
-            {/* Session Selection */}
-            <div className="form-group">
-              <label>Select Session:</label>
-              <div style={{ display: "flex", flexDirection: "column", gap: "8px", maxHeight: "200px", overflowY: "auto" }}>
-                {sessions.map((session) => (
+                {/* Session Selection */}
+                <div className="form-group">
+                  <label>Select Session:</label>
                   <div
-                    key={session.id}
-                    onClick={() => {
-                      setSelectedSessionId(session.id);
-                      setItemName(session.name);
-                    }}
                     style={{
-                      padding: "12px",
-                      borderRadius: "8px",
-                      border: `2px solid ${selectedSessionId === session.id ? "var(--app-primary-color)" : "var(--app-border-color)"}`,
-                      backgroundColor: selectedSessionId === session.id ? "var(--app-playlist-item-selected-bg)" : "var(--app-header-bg)",
-                      cursor: "pointer",
-                      transition: "all 0.15s ease",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "8px",
+                      maxHeight: "200px",
+                      overflowY: "auto",
                     }}
                   >
-                    <div style={{ fontWeight: 500 }}>{session.name}</div>
-                    <div style={{ fontSize: "0.85rem", color: "var(--app-text-color-secondary)", marginTop: "4px" }}>
-                      {session.slides.length} slides
-                      {session.slides.length === 0 && " (empty)"}
+                    {sessions.map((session) => (
+                      <div
+                        key={session.id}
+                        onClick={() => {
+                          setSelectedSessionId(session.id);
+                          setItemName(session.name);
+                        }}
+                        style={{
+                          padding: "12px",
+                          borderRadius: "8px",
+                          border: `2px solid ${
+                            selectedSessionId === session.id
+                              ? "var(--app-primary-color)"
+                              : "var(--app-border-color)"
+                          }`,
+                          backgroundColor:
+                            selectedSessionId === session.id
+                              ? "var(--app-playlist-item-selected-bg)"
+                              : "var(--app-header-bg)",
+                          cursor: "pointer",
+                          transition: "all 0.15s ease",
+                        }}
+                      >
+                        <div style={{ fontWeight: 500 }}>{session.name}</div>
+                        <div
+                          style={{
+                            fontSize: "0.85rem",
+                            color: "var(--app-text-color-secondary)",
+                            marginTop: "4px",
+                          }}
+                        >
+                          {session.slides.length} slides
+                          {session.slides.length === 0 && " (empty)"}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Item Name */}
+                <div className="form-group">
+                  <label htmlFor="itemName">Item Name:</label>
+                  <input
+                    type="text"
+                    id="itemName"
+                    value={itemName}
+                    onChange={(e) => setItemName(e.target.value)}
+                    placeholder="Enter a name for this item"
+                  />
+                </div>
+
+                {/* Preview */}
+                {selectedSession && selectedSession.slides.length > 0 && (
+                  <div className="form-group">
+                    <label>
+                      Preview ({selectedSession.slides.length} slides):
+                    </label>
+                    <div className="import-preview-area">
+                      {selectedSession.slides.slice(0, 10).map((slide, idx) => (
+                        <div
+                          key={idx}
+                          className="preview-slide-item"
+                          style={{
+                            borderLeft: `3px solid ${slide.color}`,
+                            paddingLeft: "10px",
+                          }}
+                        >
+                          <strong>Slide {idx + 1}:</strong>{" "}
+                          {slide.items
+                            .map((item) => item.text)
+                            .join(" / ")
+                            .slice(0, 80)}
+                          {slide.items.map((item) => item.text).join(" / ")
+                            .length > 80 && "..."}
+                        </div>
+                      ))}
+                      {selectedSession.slides.length > 10 && (
+                        <div
+                          style={{
+                            padding: "8px 0",
+                            color: "var(--app-text-color-secondary)",
+                          }}
+                        >
+                          +{selectedSession.slides.length - 10} more slides
+                        </div>
+                      )}
                     </div>
                   </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Item Name */}
-            <div className="form-group">
-              <label htmlFor="itemName">Item Name:</label>
-              <input
-                type="text"
-                id="itemName"
-                value={itemName}
-                onChange={(e) => setItemName(e.target.value)}
-                placeholder="Enter a name for this item"
-              />
-            </div>
-
-            {/* Preview */}
-            {selectedSession && selectedSession.slides.length > 0 && (
-              <div className="form-group">
-                <label>Preview ({selectedSession.slides.length} slides):</label>
-                <div className="import-preview-area">
-                  {selectedSession.slides.slice(0, 10).map((slide, idx) => (
-                    <div
-                      key={idx}
-                      className="preview-slide-item"
-                      style={{
-                        borderLeft: `3px solid ${slide.color}`,
-                        paddingLeft: "10px",
-                      }}
+                )}
+                {selectedSession && (
+                  <div
+                    style={{
+                      display: "flex",
+                      gap: "10px",
+                      marginBottom: "12px",
+                    }}
+                  >
+                    <button
+                      onClick={handleOpenNotepad}
+                      className="secondary btn-sm"
+                      title="Open notepad (for testing)"
                     >
-                      <strong>Slide {idx + 1}:</strong>{" "}
-                      {slide.items.map(item => item.text).join(" / ").slice(0, 80)}
-                      {slide.items.map(item => item.text).join(" / ").length > 80 && "..."}
-                    </div>
-                  ))}
-                  {selectedSession.slides.length > 10 && (
-                    <div style={{ padding: "8px 0", color: "var(--app-text-color-secondary)" }}>
-                      +{selectedSession.slides.length - 10} more slides
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-            {selectedSession && (
-              <div style={{ display: "flex", gap: "10px", marginBottom: "12px" }}>
-                <button onClick={handleOpenNotepad} className="secondary btn-sm" title="Open notepad (for testing)">
-                  <FaExternalLinkAlt /> Open Notepad
-                </button>
-                <button onClick={handleCopyTypingUrl} className="secondary btn-sm" title="Copy shareable typing URL">
-                  <FaCopy /> Copy Typing URL
-                </button>
-              </div>
-            )}
+                      <FaExternalLinkAlt /> Open Notepad
+                    </button>
+                    <button
+                      onClick={handleCopyTypingUrl}
+                      className="secondary btn-sm"
+                      title="Copy shareable typing URL"
+                    >
+                      <FaCopy /> Copy Typing URL
+                    </button>
+                  </div>
+                )}
               </>
             )}
           </>

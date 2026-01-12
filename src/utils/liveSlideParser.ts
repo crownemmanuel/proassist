@@ -14,16 +14,16 @@ const SLIDE_COLORS = [
 
 /**
  * Parse notepad text into slides
- * 
+ *
  * Parsing Rules:
  * - Empty line = New slide boundary
  * - Tab or 4 spaces at start = Indented child item
  * - Regular text = Parent line
- * 
+ *
  * When a parent line has indented children:
  * - First slide: Parent only
  * - Then: One slide per child, each with parent + that child
- * 
+ *
  * Example:
  * "Line A\nLine B" → Slide 1: [Line A], Slide 2: [Line B]
  * "Line A\n\nLine B" → Slide 1: [Line A], Slide 2: [Line B]
@@ -38,21 +38,23 @@ export function parseNotepadText(text: string): LiveSlide[] {
 
   while (i < lines.length) {
     const line = lines[i];
-    
+
     if (line.trim() === "") {
       // Empty line = new slide boundary
       i++;
       continue;
     }
-    
+
     if (line.startsWith("\t") || line.startsWith("    ")) {
       // Orphaned indented line (no parent) - treat as regular line
       const trimmed = line.replace(/^(\t|    )/, "").trimStart();
       slides.push({
-        items: [{
-          text: trimmed,
-          is_sub_item: false,
-        }],
+        items: [
+          {
+            text: trimmed,
+            is_sub_item: false,
+          },
+        ],
         color: SLIDE_COLORS[colorIndex % SLIDE_COLORS.length],
       });
       colorIndex++;
@@ -60,7 +62,7 @@ export function parseNotepadText(text: string): LiveSlide[] {
     } else {
       // Regular line - this is a parent
       const parentText = line;
-      
+
       // Collect all immediately following indented lines
       const children: string[] = [];
       let j = i + 1;
@@ -77,14 +79,16 @@ export function parseNotepadText(text: string): LiveSlide[] {
           break; // Non-indented line stops the group
         }
       }
-      
+
       if (children.length === 0) {
         // No children - create single slide with just parent
         slides.push({
-          items: [{
-            text: parentText,
-            is_sub_item: false,
-          }],
+          items: [
+            {
+              text: parentText,
+              is_sub_item: false,
+            },
+          ],
           color: SLIDE_COLORS[colorIndex % SLIDE_COLORS.length],
         });
         colorIndex++;
@@ -92,14 +96,16 @@ export function parseNotepadText(text: string): LiveSlide[] {
         // Has children - create parent-only slide first, then one slide per child
         // First: parent-only slide
         slides.push({
-          items: [{
-            text: parentText,
-            is_sub_item: false,
-          }],
+          items: [
+            {
+              text: parentText,
+              is_sub_item: false,
+            },
+          ],
           color: SLIDE_COLORS[colorIndex % SLIDE_COLORS.length],
         });
         colorIndex++;
-        
+
         // Then: one slide per child (parent + child)
         for (const child of children) {
           slides.push({
@@ -118,7 +124,7 @@ export function parseNotepadText(text: string): LiveSlide[] {
           colorIndex++;
         }
       }
-      
+
       i = j; // Move past all processed lines
     }
   }
@@ -140,20 +146,20 @@ export interface SlideBoundary {
 export function calculateSlideBoundaries(text: string): SlideBoundary[] {
   const boundaries: SlideBoundary[] = [];
   const lines = text.split("\n");
-  
+
   let colorIndex = 0;
   let slideIndex = 0;
   let i = 0;
 
   while (i < lines.length) {
     const line = lines[i];
-    
+
     if (line.trim() === "") {
       // Empty line - skip
       i++;
       continue;
     }
-    
+
     if (line.startsWith("\t") || line.startsWith("    ")) {
       // Orphaned indented line - single line slide
       boundaries.push({
@@ -180,10 +186,10 @@ export function calculateSlideBoundaries(text: string): SlideBoundary[] {
           break; // Non-indented line stops the group
         }
       }
-      
+
       const lastChildLine = j - 1;
       const hasChildren = lastChildLine >= i + 1;
-      
+
       if (!hasChildren) {
         // No children - single slide with just parent
         boundaries.push({
@@ -204,7 +210,7 @@ export function calculateSlideBoundaries(text: string): SlideBoundary[] {
         });
         colorIndex++;
         slideIndex++;
-        
+
         // Then one slide per child (each spans parent + that child line)
         for (let childIdx = i + 1; childIdx <= lastChildLine; childIdx++) {
           boundaries.push({
@@ -217,7 +223,7 @@ export function calculateSlideBoundaries(text: string): SlideBoundary[] {
           slideIndex++;
         }
       }
-      
+
       i = j; // Move past all processed lines
     }
   }
@@ -228,7 +234,10 @@ export function calculateSlideBoundaries(text: string): SlideBoundary[] {
 /**
  * Get the color for a specific line number based on which slide it belongs to
  */
-export function getLineColor(lineNumber: number, boundaries: SlideBoundary[]): string | null {
+export function getLineColor(
+  lineNumber: number,
+  boundaries: SlideBoundary[]
+): string | null {
   for (const boundary of boundaries) {
     if (lineNumber >= boundary.startLine && lineNumber <= boundary.endLine) {
       return boundary.color;

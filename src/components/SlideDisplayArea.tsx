@@ -1,6 +1,13 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { PlaylistItem, Slide, LayoutType, Template } from "../types";
-import { FaTrash, FaEdit, FaPlay, FaPlus, FaSearch, FaTimes } from "react-icons/fa";
+import {
+  FaTrash,
+  FaEdit,
+  FaPlay,
+  FaPlus,
+  FaSearch,
+  FaTimes,
+} from "react-icons/fa";
 import "../App.css"; // Ensure global styles are applied
 import ContextMenu from "./ContextMenu"; // Import the new component
 
@@ -56,7 +63,9 @@ const SlideDisplayArea: React.FC<SlideDisplayAreaProps> = ({
     slideId: null,
   });
   const [searchQuery, setSearchQuery] = useState<string>("");
-  const [searchMode, setSearchMode] = useState<"first-line" | "all">("first-line");
+  const [searchMode, setSearchMode] = useState<"first-line" | "all">(
+    "first-line"
+  );
   const [showSearchOptions, setShowSearchOptions] = useState<boolean>(false);
   const [hasFocusedSearch, setHasFocusedSearch] = useState<boolean>(false);
 
@@ -190,7 +199,8 @@ const SlideDisplayArea: React.FC<SlideDisplayAreaProps> = ({
   };
 
   const isLiveLinked =
-    !!playlistItem?.liveSlidesSessionId && (playlistItem?.liveSlidesLinked ?? true);
+    !!playlistItem?.liveSlidesSessionId &&
+    (playlistItem?.liveSlidesLinked ?? true);
 
   // Note: currentEditingSlide is not used currently; keeping the lookup inline where needed avoids unused var.
   const currentContextMenuSlide = playlistItem?.slides.find(
@@ -260,11 +270,16 @@ const SlideDisplayArea: React.FC<SlideDisplayAreaProps> = ({
   // Highlight matching text
   const highlightText = (text: string, query: string): React.ReactNode => {
     if (!query.trim()) return text;
-    
-    const parts = text.split(new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi'));
-    return parts.map((part, index) => 
+
+    const parts = text.split(
+      new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "gi")
+    );
+    return parts.map((part, index) =>
       part.toLowerCase() === query.toLowerCase() ? (
-        <mark key={index} style={{ backgroundColor: "#FFD700", padding: "2px 0" }}>
+        <mark
+          key={index}
+          style={{ backgroundColor: "#FFD700", padding: "2px 0" }}
+        >
           {part}
         </mark>
       ) : (
@@ -297,7 +312,9 @@ const SlideDisplayArea: React.FC<SlideDisplayAreaProps> = ({
           position: "relative",
         }}
       >
-        <FaSearch style={{ color: "var(--app-text-color-secondary)", flexShrink: 0 }} />
+        <FaSearch
+          style={{ color: "var(--app-text-color-secondary)", flexShrink: 0 }}
+        />
         <input
           type="text"
           value={searchQuery}
@@ -377,7 +394,9 @@ const SlideDisplayArea: React.FC<SlideDisplayAreaProps> = ({
             fontSize: "0.85rem",
           }}
         >
-          <span style={{ color: "var(--app-text-color-secondary)" }}>Search in:</span>
+          <span style={{ color: "var(--app-text-color-secondary)" }}>
+            Search in:
+          </span>
           <label
             style={{
               display: "flex",
@@ -424,11 +443,18 @@ const SlideDisplayArea: React.FC<SlideDisplayAreaProps> = ({
             gap: "12px",
           }}
         >
-          <div style={{ color: "var(--app-text-color-secondary)", fontSize: "0.9em" }}>
-            This item is <strong>Live Slides linked</strong>. It updates in real-time.
-            Editing a slide will sync back to the session; add/delete/layout changes require detaching.
+          <div
+            style={{
+              color: "var(--app-text-color-secondary)",
+              fontSize: "0.9em",
+            }}
+          >
+            This item is <strong>Live Slides linked</strong>. It updates in
+            real-time. Editing a slide will sync back to the session;
+            add/delete/layout changes require detaching.
             {liveSlidesStatus &&
-              (!liveSlidesStatus.serverRunning || !liveSlidesStatus.sessionExists) && (
+              (!liveSlidesStatus.serverRunning ||
+                !liveSlidesStatus.sessionExists) && (
                 <>
                   {" "}
                   <span style={{ color: "#f59e0b" }}>
@@ -439,9 +465,13 @@ const SlideDisplayArea: React.FC<SlideDisplayAreaProps> = ({
           </div>
           <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
             {liveSlidesStatus &&
-              (!liveSlidesStatus.serverRunning || !liveSlidesStatus.sessionExists) &&
+              (!liveSlidesStatus.serverRunning ||
+                !liveSlidesStatus.sessionExists) &&
               onResumeLiveSlidesSession && (
-                <button onClick={onResumeLiveSlidesSession} className="primary btn-sm">
+                <button
+                  onClick={onResumeLiveSlidesSession}
+                  className="primary btn-sm"
+                >
                   Restart/Resume Session
                 </button>
               )}
@@ -459,7 +489,12 @@ const SlideDisplayArea: React.FC<SlideDisplayAreaProps> = ({
         </p>
       )}
       {searchQuery && filteredSlides.length === 0 && (
-        <p style={{ color: "var(--app-text-color-secondary)", fontStyle: "italic" }}>
+        <p
+          style={{
+            color: "var(--app-text-color-secondary)",
+            fontStyle: "italic",
+          }}
+        >
           No slides found matching "{searchQuery}"
         </p>
       )}
@@ -482,7 +517,9 @@ const SlideDisplayArea: React.FC<SlideDisplayAreaProps> = ({
                 }
                 onClick={(e) => e.stopPropagation()} // Prevent card click-through
                 disabled={isLiveLinked}
-                title={isLiveLinked ? "Detach Live Slides to edit layout" : undefined}
+                title={
+                  isLiveLinked ? "Detach Live Slides to edit layout" : undefined
+                }
               >
                 {allLayoutOptions.map((layout) => (
                   <option key={layout} value={layout}>
@@ -554,7 +591,11 @@ const SlideDisplayArea: React.FC<SlideDisplayAreaProps> = ({
                     className="secondary"
                     onClick={() => handleEdit(slide)}
                     disabled={liveSlideId === slide.id}
-                    title={liveSlideId === slide.id ? "This slide is currently Live" : undefined}
+                    title={
+                      liveSlideId === slide.id
+                        ? "This slide is currently Live"
+                        : undefined
+                    }
                   >
                     <FaEdit />
                     Edit
