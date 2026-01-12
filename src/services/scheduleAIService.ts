@@ -66,41 +66,69 @@ function buildSystemPrompt(currentSchedule?: ScheduleItem[]): string {
 function getAIConfig(preferredProvider?: AIProvider): { provider: AIProvider; apiKey: string; model: string } | null {
   // Get from the main app settings using the utility function
   const appSettings = getAppSettings();
-  const provider = preferredProvider || appSettings.defaultAIProvider;
   
-  // Try preferred provider first
-  if (provider === "openai" && appSettings.openAIConfig?.apiKey) {
-    return {
-      provider: "openai",
-      apiKey: appSettings.openAIConfig.apiKey,
-      model: "gpt-4o",
-    };
-  }
-  if (provider === "gemini" && appSettings.geminiConfig?.apiKey) {
-    return {
-      provider: "gemini",
-      apiKey: appSettings.geminiConfig.apiKey,
-      model: "gemini-1.5-flash-latest",
-    };
+  // Check if timer assistant model is configured
+  const timerAssistantSettings = appSettings.timerAssistantModel;
+  
+  // Determine provider: prefer configured timer assistant, then preferred, then default
+  let provider: AIProvider;
+  let model: string;
+  
+  if (timerAssistantSettings?.provider && timerAssistantSettings?.model) {
+    provider = timerAssistantSettings.provider;
+    model = timerAssistantSettings.model;
+  } else if (preferredProvider) {
+    provider = preferredProvider;
+    model = preferredProvider === "openai" ? "gpt-4o" : "gemini-1.5-flash-latest";
+  } else {
+    provider = appSettings.defaultAIProvider || null;
+    model = provider === "openai" ? "gpt-4o" : "gemini-1.5-flash-latest";
   }
   
-  // Try any available provider if preferred provider is not available
-  if (appSettings.openAIConfig?.apiKey) {
-    return {
-      provider: "openai",
-      apiKey: appSettings.openAIConfig.apiKey,
-      model: "gpt-4o",
-    };
+  if (!provider) {
+    // Try any available provider
+    if (appSettings.openAIConfig?.apiKey) {
+      return {
+        provider: "openai",
+        apiKey: appSettings.openAIConfig.apiKey,
+        model: "gpt-4o",
+      };
+    }
+    if (appSettings.geminiConfig?.apiKey) {
+      return {
+        provider: "gemini",
+        apiKey: appSettings.geminiConfig.apiKey,
+        model: "gemini-1.5-flash-latest",
+      };
+    }
+    return null;
   }
-  if (appSettings.geminiConfig?.apiKey) {
-    return {
-      provider: "gemini",
-      apiKey: appSettings.geminiConfig.apiKey,
-      model: "gemini-1.5-flash-latest",
-    };
+  
+  // Get API key for the chosen provider
+  const apiKey = provider === "openai" 
+    ? appSettings.openAIConfig?.apiKey 
+    : appSettings.geminiConfig?.apiKey;
+  
+  if (!apiKey) {
+    // Try fallback to other provider
+    if (provider === "openai" && appSettings.geminiConfig?.apiKey) {
+      return {
+        provider: "gemini",
+        apiKey: appSettings.geminiConfig.apiKey,
+        model: "gemini-1.5-flash-latest",
+      };
+    }
+    if (provider === "gemini" && appSettings.openAIConfig?.apiKey) {
+      return {
+        provider: "openai",
+        apiKey: appSettings.openAIConfig.apiKey,
+        model: "gpt-4o",
+      };
+    }
+    return null;
   }
 
-  return null;
+  return { provider, apiKey, model };
 }
 
 /**

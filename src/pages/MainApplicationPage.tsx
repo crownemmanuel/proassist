@@ -39,8 +39,13 @@ import { calculateSlideBoundaries } from "../utils/liveSlideParser";
 import { triggerPresentationOnConnections } from "../services/propresenterService";
 import { useNetworkSync } from "../hooks/useNetworkSync";
 import { loadNetworkSyncSettings } from "../services/networkSyncService";
+import { useStageAssist } from "../contexts/StageAssistContext";
+import AIAutomationDropdown from "../components/AIAutomationDropdown";
 
 const MainApplicationPage: React.FC = () => {
+  // Access schedule from StageAssist context for auto-timer assignment
+  const { schedule } = useStageAssist();
+
   const [playlists, setPlaylists] = useState<Playlist[]>(() => {
     try {
       const saved = localStorage.getItem("proassist-playlists");
@@ -72,6 +77,9 @@ const MainApplicationPage: React.FC = () => {
   const [isActivatePresentationModalOpen, setIsActivatePresentationModalOpen] =
     useState(false);
   const [copyStatusMain, setCopyStatusMain] = useState<string>(""); // Added state for feedback
+  const [proofreadCorrectedSlideIds, setProofreadCorrectedSlideIds] = useState<
+    string[]
+  >([]); // Track slides corrected by AI proofreading
   const [typingUrlModal, setTypingUrlModal] = useState<{ url: string } | null>(
     null
   );
@@ -339,6 +347,8 @@ const MainApplicationPage: React.FC = () => {
     } catch (err) {
       console.error("Failed to save selected item ID:", err);
     }
+    // Clear proofread indicators when switching items
+    setProofreadCorrectedSlideIds([]);
   }, [selectedItemId]);
 
   // Best-effort: keep track of the Live Slides server URL for viewer connections.
@@ -1059,6 +1069,43 @@ const MainApplicationPage: React.FC = () => {
     );
   };
 
+  // Handle AI Automation slide updates (from AIAutomationDropdown)
+  const handleAIAutomationSlidesUpdated = (
+    updatedSlides: Slide[],
+    correctedSlideIds?: string[]
+  ) => {
+    if (!selectedPlaylistId || !currentPlaylistItem) return;
+
+    setPlaylists((prevPlaylists) =>
+      prevPlaylists.map((p) => {
+        if (p.id === selectedPlaylistId) {
+          return {
+            ...p,
+            items: p.items.map((item) => {
+              if (item.id === currentPlaylistItem.id) {
+                return {
+                  ...item,
+                  slides: updatedSlides,
+                };
+              }
+              return item;
+            }),
+          };
+        }
+        return p;
+      })
+    );
+
+    // Set corrected slide IDs for visual indicator
+    if (correctedSlideIds && correctedSlideIds.length > 0) {
+      setProofreadCorrectedSlideIds(correctedSlideIds);
+      // Clear the indicators after 30 seconds to not clutter the UI forever
+      setTimeout(() => {
+        setProofreadCorrectedSlideIds([]);
+      }, 30000);
+    }
+  };
+
   const handleCopyToClipboardMain = async () => {
     if (currentPlaylistItem && currentPlaylistItem.slides.length > 0) {
       const formattedText = formatSlidesForClipboard(
@@ -1670,6 +1717,12 @@ const MainApplicationPage: React.FC = () => {
             >
               <FaDesktop />
             </button>
+            <AIAutomationDropdown
+              slides={currentPlaylistItem?.slides || []}
+              schedule={schedule}
+              onSlidesUpdated={handleAIAutomationSlidesUpdated}
+              disabled={!currentPlaylist || !currentPlaylistItem}
+            />
             {currentPlaylistItem && currentPlaylistItem.slides.length > 0 && (
               <button
                 onClick={handleCopyToClipboardMain}
@@ -1831,6 +1884,7 @@ const MainApplicationPage: React.FC = () => {
             onChangeSlideLayout={handleChangeSlideLayout}
             onChangeTimerSession={handleChangeTimerSession}
             onChangeProPresenterActivation={handleChangeProPresenterActivation}
+            proofreadCorrectedSlideIds={proofreadCorrectedSlideIds}
           />
         </div>
       </div>

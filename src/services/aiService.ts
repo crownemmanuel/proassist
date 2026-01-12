@@ -382,3 +382,123 @@ export const fetchGeminiModels = async (apiKey: string): Promise<string[]> => {
     return [];
   }
 };
+
+/**
+ * Proofread and fix grammatical/spelling errors in slide texts.
+ * Returns an array of corrected texts in the same order as input.
+ *
+ * @param slideTexts Array of slide text strings to proofread
+ * @param provider The AI provider to use
+ * @param modelName The model to use for proofreading
+ * @param appSettings The app settings containing API keys
+ * @returns Promise resolving to array of corrected texts
+ */
+export const proofreadSlideTexts = async (
+  slideTexts: string[],
+  provider: "openai" | "gemini",
+  modelName: string,
+  appSettings: AppSettings
+): Promise<string[]> => {
+  if (slideTexts.length === 0) return [];
+
+  let apiKey: string | undefined;
+  if (provider === "openai") {
+    apiKey = appSettings.openAIConfig?.apiKey;
+  } else if (provider === "gemini") {
+    apiKey = appSettings.geminiConfig?.apiKey;
+  }
+
+  if (!apiKey) {
+    throw new Error(`API key not configured for ${provider}`);
+  }
+
+  let llm;
+  if (provider === "openai") {
+    llm = new ChatOpenAI({
+      apiKey,
+      modelName: modelName || "gpt-4o-mini",
+      temperature: 0, // Low temperature for precise corrections
+    });
+  } else {
+    llm = new ChatGoogleGenerativeAI({
+      apiKey,
+      model: modelName || "gemini-1.5-flash-latest",
+      temperature: 0,
+    });
+  }
+
+  const systemPrompt = `You are a professional proofreader. Your ONLY task is to fix spelling and grammatical errors in the provided texts.
+
+STRICT RULES:
+1. ONLY fix spelling mistakes and grammatical errors
+2. DO NOT change the meaning, tone, or style of the text
+3. DO NOT add or remove content
+4. DO NOT rephrase or rewrite sentences
+5. Preserve all line breaks (\\n) exactly as they appear
+6. Preserve capitalization style (if text uses specific capitalization, keep it)
+7. If text is already correct, return it unchanged
+
+You will receive a JSON array of slide texts. Return ONLY a JSON array of the corrected texts in the exact same order.
+
+Example Input: ["Helo world\\nThis is a tset", "Anther slide"]
+Example Output: ["Hello world\\nThis is a test", "Another slide"]
+
+Return ONLY the JSON array, no other text or explanation.`;
+
+  const inputJson = JSON.stringify(slideTexts);
+  
+  const messages = [
+    new SystemMessage(systemPrompt),
+    new HumanMessage(inputJson),
+  ];
+
+  try {
+    const res = await llm.invoke(messages);
+    const rawContent = (res as any)?.content;
+    const rawText =
+      typeof rawContent === "string" ? rawContent : rawContent?.[0]?.text ?? "";
+
+    // Try to parse the JSON array from the response
+    const parsed = tryParseJsonArray(rawText.trim());
+    if (parsed && parsed.length === slideTexts.length) {
+      return parsed;
+    }
+
+    // If parsing failed or lengths don't match, return original texts
+    console.error("Proofread response parsing failed or length mismatch:", rawText);
+    return slideTexts;
+  } catch (error) {
+    console.error("Proofreading error:", error);
+    throw error;
+  }
+};
+
+/**
+ * Helper to parse a JSON array from a string, handling edge cases
+ */
+function tryParseJsonArray(raw: string): string[] | null {
+  if (!raw) return null;
+  
+  try {
+    // Try direct parse first
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      return parsed.map((item) => String(item));
+    }
+  } catch {
+    // Try to extract JSON array from the string
+    const firstBracket = raw.indexOf("[");
+    const lastBracket = raw.lastIndexOf("]");
+    if (firstBracket !== -1 && lastBracket !== -1 && lastBracket > firstBracket) {
+      try {
+        const parsed = JSON.parse(raw.slice(firstBracket, lastBracket + 1));
+        if (Array.isArray(parsed)) {
+          return parsed.map((item) => String(item));
+        }
+      } catch {
+        // Fall through
+      }
+    }
+  }
+  return null;
+}

@@ -111,11 +111,19 @@ export interface Template {
   autoLoadBibleVerses?: boolean; // Whether to auto-load Bible verses (KJV) by default when importing with this template
 }
 
+export interface AIModelSetting {
+  provider: AIProviderType;
+  model: string;
+}
+
 export interface AppSettings {
   theme: "light" | "dark";
   openAIConfig?: AIServiceConfig; // Stores API key for OpenAI
   geminiConfig?: AIServiceConfig; // Stores API key for Gemini
   defaultAIProvider?: AIProvider; // User's preferred default AI if multiple are configured
+  // AI Model settings for specific features
+  spellCheckModel?: AIModelSetting; // Provider and model for spell checking
+  timerAssistantModel?: AIModelSetting; // Provider and model for timer AI assistant
   // Other global settings can be added here
 }
 

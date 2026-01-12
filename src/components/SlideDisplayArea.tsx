@@ -46,6 +46,7 @@ interface SlideDisplayAreaProps {
     typingUrl?: string;
   };
   onResumeLiveSlidesSession?: () => void;
+  proofreadCorrectedSlideIds?: string[]; // IDs of slides that were corrected by AI proofreading
 }
 
 interface ContextMenuState {
@@ -71,6 +72,7 @@ const SlideDisplayArea: React.FC<SlideDisplayAreaProps> = ({
   onEndLiveSlideEdit,
   liveSlidesStatus,
   onResumeLiveSlidesSession,
+  proofreadCorrectedSlideIds = [], // IDs of slides corrected by AI proofreading
 }) => {
   const { startSession } = useStageAssist();
   const [
@@ -763,6 +765,30 @@ const SlideDisplayArea: React.FC<SlideDisplayAreaProps> = ({
                     <FaTrash />
                   </button>
                 </div>
+              </div>
+            )}
+            {/* AI Proofread correction indicator */}
+            {proofreadCorrectedSlideIds.includes(slide.id) && (
+              <div
+                style={{
+                  position: "absolute",
+                  bottom: "8px",
+                  right: "8px",
+                  backgroundColor: "#a855f7",
+                  color: "white",
+                  borderRadius: "50%",
+                  width: "24px",
+                  height: "24px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: "12px",
+                  fontWeight: "bold",
+                  boxShadow: "0 2px 4px rgba(0,0,0,0.2)",
+                }}
+                title="This slide was corrected by AI proofreading"
+              >
+                ✓
               </div>
             )}
           </div>
