@@ -2,6 +2,20 @@
 
 All notable changes to ProAssist will be documented in this file.
 
+## [0.3.1] - 2025-01-XX
+
+### Added
+- Firebase configuration import modal for easier setup
+- Firebase config parser utility for validating and importing Firebase settings
+
+### Changed
+- Improved import modal functionality
+- Enhanced Live Testimonies settings
+- Updated ProPresenter service integration
+
+### Fixed
+- Various UI improvements and bug fixes
+
 ## [0.3.0] - 2025-01-XX
 
 ### Changed
