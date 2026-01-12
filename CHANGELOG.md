@@ -2,6 +2,16 @@
 
 All notable changes to ProAssist will be documented in this file.
 
+## [0.3.4] - 2025-01-13
+
+### Fixed
+- Fixed ProPresenter connection failures on Windows by adding HTTP protocol support to Content Security Policy (CSP)
+- Windows WebView2 was blocking HTTP fetch requests to ProPresenter API due to missing `http://localhost:*` and `http://*:*` in CSP `connect-src` directive
+
+### Technical
+- Updated CSP in `tauri.conf.json` to allow HTTP connections for ProPresenter API integration
+- Added support for both `http://localhost:*` and `http://127.0.0.1:*` for better cross-platform compatibility
+
 ## [0.3.3] - 2025-01-12
 
 ### Added
