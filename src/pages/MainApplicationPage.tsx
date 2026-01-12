@@ -24,6 +24,8 @@ import {
   LiveSlidesWebSocket,
   loadLiveSlidesSettings,
   startLiveSlidesServer,
+  generateShareableNotepadUrl,
+  generateWebSocketUrl,
 } from "../services/liveSlideService";
 import { LiveSlide } from "../types/liveSlides";
 import { calculateSlideBoundaries } from "../utils/liveSlideParser";
@@ -129,7 +131,7 @@ const MainApplicationPage: React.FC = () => {
         setLiveSlidesServerRunning(!!info.server_running);
         setLiveSlidesWsUrl(
           info.server_running
-            ? `ws://${info.local_ip}:${info.server_port}`
+            ? generateWebSocketUrl(info.local_ip, info.server_port)
             : null
         );
         setLiveSlidesServerSessionIds(
@@ -595,8 +597,12 @@ const MainApplicationPage: React.FC = () => {
     }
 
     const settings = loadLiveSlidesSettings();
-    const appPort = window.location.port || "1420";
-    const url = `http://${liveSlidesServerIp}:${appPort}/live-slides/notepad/${sid}?wsHost=${liveSlidesServerIp}&wsPort=${settings.serverPort}`;
+    // Use the server port (which serves both HTTP and WebSocket) instead of hardcoded dev port
+    const url = generateShareableNotepadUrl(
+      liveSlidesServerIp,
+      settings.serverPort,
+      sid
+    );
 
     // Show typing URL modal
     setTypingUrlModal({ url });
@@ -736,7 +742,9 @@ const MainApplicationPage: React.FC = () => {
       const info = await getLiveSlidesServerInfo();
       setLiveSlidesServerRunning(!!info.server_running);
       setLiveSlidesWsUrl(
-        info.server_running ? `ws://${info.local_ip}:${info.server_port}` : null
+        info.server_running
+          ? generateWebSocketUrl(info.local_ip, info.server_port)
+          : null
       );
       setLiveSlidesServerSessionIds(new Set(Object.keys(info.sessions || {})));
 
@@ -777,7 +785,7 @@ const MainApplicationPage: React.FC = () => {
       );
 
       // Seed the server via WS - ensure text is sent before notepad connects.
-      const wsUrl = `ws://${info.local_ip}:${info.server_port}`;
+      const wsUrl = generateWebSocketUrl(info.local_ip, info.server_port);
       const ws = new LiveSlidesWebSocket(wsUrl, session.id, "viewer");
       liveSlidesWsMapRef.current.set(session.id, ws);
       await ws.connect();
@@ -791,11 +799,12 @@ const MainApplicationPage: React.FC = () => {
       }
 
       // Store typing URL for this session
-      const typingUrl = `http://${info.local_ip}:${
-        window.location.port || "1420"
-      }/live-slides/notepad/${session.id}?wsHost=${info.local_ip}&wsPort=${
-        settings.serverPort
-      }`;
+      // Use the server port (which serves both HTTP and WebSocket) instead of hardcoded dev port
+      const typingUrl = generateShareableNotepadUrl(
+        info.local_ip,
+        settings.serverPort,
+        session.id
+      );
       setLiveSlidesTypingUrls((prev) => ({
         ...prev,
         [session.id]: typingUrl,

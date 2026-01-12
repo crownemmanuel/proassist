@@ -1,17 +1,11 @@
-import React, { useMemo, useState, useEffect } from "react";
-import {
-  FaServer,
-  FaDesktop,
-  FaPlay,
-  FaPlus,
-  FaCopy,
-  FaExternalLinkAlt,
-} from "react-icons/fa";
+import React, { useState, useEffect } from "react";
+import { FaServer, FaDesktop, FaPlay, FaPlus, FaCopy } from "react-icons/fa";
 import {
   createLiveSlideSession,
   getLiveSlidesServerInfo,
   loadLiveSlidesSettings,
   startLiveSlidesServer,
+  generateShareableNotepadUrl,
 } from "../services/liveSlideService";
 import {
   LiveSlideSession,
@@ -161,12 +155,12 @@ const ImportFromLiveSlidesModal: React.FC<ImportFromLiveSlidesModalProps> = ({
     }
   };
 
-  const appPort = useMemo(() => window.location.port || "1420", []);
   const buildTypingUrl = (sessionId: string) => {
     const info = serverInfo;
     const settings = loadLiveSlidesSettings();
     const host = info?.local_ip || "localhost";
-    return `http://${host}:${appPort}/live-slides/notepad/${sessionId}?wsHost=${host}&wsPort=${settings.serverPort}`;
+    // Use the server port (which serves both HTTP and WebSocket) instead of hardcoded dev port
+    return generateShareableNotepadUrl(host, settings.serverPort, sessionId);
   };
 
   const handleCreateAndAdd = async () => {
@@ -217,15 +211,6 @@ const ImportFromLiveSlidesModal: React.FC<ImportFromLiveSlidesModalProps> = ({
       setToast("Failed to copy URL");
       setTimeout(() => setToast(""), 2000);
     }
-  };
-
-  const handleOpenNotepad = () => {
-    if (!selectedSession) return;
-    const info = serverInfo;
-    const settings = loadLiveSlidesSettings();
-    const host = info?.local_ip || "localhost";
-    const url = `/live-slides/notepad/${selectedSession.id}?wsHost=${host}&wsPort=${settings.serverPort}`;
-    window.open(url, "_blank");
   };
 
   if (!isOpen) return null;
@@ -366,14 +351,6 @@ const ImportFromLiveSlidesModal: React.FC<ImportFromLiveSlidesModalProps> = ({
                 className="primary"
               >
                 <FaCopy /> Copy Link
-              </button>
-              <button
-                onClick={() => {
-                  window.open(createdSession.typingUrl, "_blank");
-                }}
-                className="secondary"
-              >
-                <FaExternalLinkAlt /> Open Notepad
               </button>
             </div>
           </div>
@@ -570,13 +547,6 @@ const ImportFromLiveSlidesModal: React.FC<ImportFromLiveSlidesModalProps> = ({
                       marginBottom: "12px",
                     }}
                   >
-                    <button
-                      onClick={handleOpenNotepad}
-                      className="secondary btn-sm"
-                      title="Open notepad (for testing)"
-                    >
-                      <FaExternalLinkAlt /> Open Notepad
-                    </button>
                     <button
                       onClick={handleCopyTypingUrl}
                       className="secondary btn-sm"

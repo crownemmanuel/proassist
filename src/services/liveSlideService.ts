@@ -236,27 +236,45 @@ export class LiveSlidesWebSocket {
 // URL Generation
 // ============================================================================
 
-export function generateNotepadUrl(
-  localIp: string,
-  port: number,
-  sessionId: string
-): string {
-  // This generates the URL that can be opened in a browser
-  // The format is: http://<local-ip>:<vite-port>/live-slides/notepad/<sessionId>?ws=<ws-port>
-  // For the Tauri app, we'll use the current window location
-  const wsPort = port;
-  
-  // If running in Tauri, use the dev server URL
-  const baseUrl = window.location.origin;
-  return `${baseUrl}/live-slides/notepad/${sessionId}?wsHost=${localIp}&wsPort=${wsPort}`;
+/**
+ * Generate the WebSocket URL for connecting to the Live Slides server.
+ * The server now runs HTTP + WebSocket on the same port, with WS at /ws path.
+ */
+export function generateWebSocketUrl(host: string, port: number): string {
+  return `ws://${host}:${port}/ws`;
 }
 
+/**
+ * Generate a shareable URL that external devices can use to access the notepad.
+ * In production, the Rust server serves both static files and WebSocket on the same port.
+ */
 export function generateShareableNotepadUrl(
   localIp: string,
-  appPort: number,
-  wsPort: number,
+  serverPort: number,
   sessionId: string
 ): string {
-  // For sharing to other devices on the network
-  return `http://${localIp}:${appPort}/live-slides/notepad/${sessionId}?wsHost=${localIp}&wsPort=${wsPort}`;
+  // The server handles both HTTP (static files) and WebSocket on the same port
+  // WebSocket is available at /ws path
+  return `http://${localIp}:${serverPort}/live-slides/notepad/${sessionId}?wsHost=${localIp}&wsPort=${serverPort}`;
+}
+
+/**
+ * Generate URL for opening notepad locally (within the Tauri app or dev server).
+ */
+export function generateLocalNotepadUrl(
+  localIp: string,
+  serverPort: number,
+  sessionId: string
+): string {
+  // Check if we're in development mode (Vite dev server)
+  const isDev = window.location.port === "1420" || window.location.hostname === "localhost";
+  
+  if (isDev) {
+    // In dev mode, use the Vite server for the page but connect WS to the Rust server
+    const baseUrl = window.location.origin;
+    return `${baseUrl}/live-slides/notepad/${sessionId}?wsHost=${localIp}&wsPort=${serverPort}`;
+  } else {
+    // In production, use the Rust server for everything
+    return generateShareableNotepadUrl(localIp, serverPort, sessionId);
+  }
 }

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { FaPlus, FaPlay, FaStop, FaCopy, FaTrash, FaExternalLinkAlt, FaServer } from "react-icons/fa";
+import { FaPlus, FaPlay, FaStop, FaCopy, FaTrash, FaServer } from "react-icons/fa";
 import {
   startLiveSlidesServer,
   stopLiveSlidesServer,
@@ -8,6 +8,8 @@ import {
   getLiveSlidesServerInfo,
   loadLiveSlidesSettings,
   LiveSlidesWebSocket,
+  generateWebSocketUrl,
+  generateShareableNotepadUrl,
 } from "../services/liveSlideService";
 import {
   LiveSlideSession,
@@ -52,7 +54,7 @@ const LiveSlidesPage: React.FC = () => {
   // Connect to WebSocket for live updates when server is running
   useEffect(() => {
     if (serverInfo?.server_running && selectedSessionId) {
-      const wsUrl = `ws://${serverInfo.local_ip}:${serverInfo.server_port}`;
+      const wsUrl = generateWebSocketUrl(serverInfo.local_ip, serverInfo.server_port);
       const ws = new LiveSlidesWebSocket(wsUrl, selectedSessionId, "viewer");
       wsRef.current = ws;
 
@@ -137,10 +139,13 @@ const LiveSlidesPage: React.FC = () => {
   const handleCopyUrl = async (sessionId: string) => {
     if (!serverInfo) return;
     
-    const settings = loadLiveSlidesSettings();
-    // Use port 1420 for Tauri dev server
-    const appPort = window.location.port || "1420";
-    const url = `http://${serverInfo.local_ip}:${appPort}/live-slides/notepad/${sessionId}?wsHost=${serverInfo.local_ip}&wsPort=${settings.serverPort}`;
+    // Generate the shareable URL - this uses the Rust server port which serves
+    // both the static frontend and WebSocket connections
+    const url = generateShareableNotepadUrl(
+      serverInfo.local_ip,
+      serverInfo.server_port,
+      sessionId
+    );
     
     try {
       await navigator.clipboard.writeText(url);
@@ -151,13 +156,6 @@ const LiveSlidesPage: React.FC = () => {
     }
   };
 
-  const handleOpenNotepad = (sessionId: string) => {
-    if (!serverInfo) return;
-    
-    const settings = loadLiveSlidesSettings();
-    const url = `/live-slides/notepad/${sessionId}?wsHost=${serverInfo.local_ip}&wsPort=${settings.serverPort}`;
-    window.open(url, "_blank");
-  };
 
   const selectedSession = sessions.find((s) => s.id === selectedSessionId);
 
@@ -282,16 +280,6 @@ const LiveSlidesPage: React.FC = () => {
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      handleOpenNotepad(session.id);
-                    }}
-                    style={styles.iconButton}
-                    title="Open in browser"
-                  >
-                    <FaExternalLinkAlt />
-                  </button>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
                       setPendingDeleteSession(session);
                     }}
                     style={{ ...styles.iconButton, color: "#EF4444" }}
@@ -322,13 +310,7 @@ const LiveSlidesPage: React.FC = () => {
               <h3 style={{ marginTop: 0 }}>Live Preview</h3>
               {selectedSession.slides.length === 0 ? (
                 <div style={styles.emptySlides}>
-                  No slides yet. Open the notepad and start typing!
-                  <button
-                    onClick={() => handleOpenNotepad(selectedSession.id)}
-                    style={{ ...styles.serverButton, marginTop: "16px" }}
-                  >
-                    <FaExternalLinkAlt /> Open Notepad
-                  </button>
+                  No slides yet. Copy the URL above and paste it into your browser to open the notepad and start typing!
                 </div>
               ) : (
                 <div style={styles.slidesList}>

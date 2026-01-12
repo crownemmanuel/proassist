@@ -197,9 +197,10 @@ const LiveSlidesNotepad: React.FC = () => {
   const wsRef = useRef<LiveSlidesWebSocket | null>(null);
 
   // Get WebSocket connection info from URL params
+  // The server now serves both HTTP and WebSocket on the same port, with WS at /ws path
   const wsHost = searchParams.get("wsHost") || "localhost";
   const wsPort = parseInt(searchParams.get("wsPort") || "9876", 10);
-  const wsUrl = `ws://${wsHost}:${wsPort}`;
+  const wsUrl = `ws://${wsHost}:${wsPort}/ws`;
 
   // Get theme-aware styles
   const notepadStyles = useMemo(

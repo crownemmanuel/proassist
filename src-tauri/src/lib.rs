@@ -5,7 +5,17 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{broadcast, RwLock};
 use futures_util::{SinkExt, StreamExt};
-use tokio_tungstenite::tungstenite::Message;
+use warp::Filter;
+use warp::ws::{Message as WarpWsMessage, WebSocket};
+use rust_embed::RustEmbed;
+
+// ============================================================================
+// Embedded Frontend Assets
+// ============================================================================
+
+#[derive(RustEmbed)]
+#[folder = "../dist"]
+struct FrontendAssets;
 
 // ============================================================================
 // Types for Live Slides
@@ -66,6 +76,7 @@ struct ServerState {
     broadcast_tx: broadcast::Sender<String>,
     running: RwLock<bool>,
     port: RwLock<u16>,
+    shutdown_tx: RwLock<Option<tokio::sync::oneshot::Sender<()>>>,
 }
 
 lazy_static::lazy_static! {
@@ -74,6 +85,7 @@ lazy_static::lazy_static! {
         broadcast_tx: broadcast::channel(100).0,
         running: RwLock::new(false),
         port: RwLock::new(9876),
+        shutdown_tx: RwLock::new(None),
     });
 }
 
@@ -190,67 +202,66 @@ fn parse_notepad_text(text: &str) -> Vec<LiveSlide> {
 }
 
 // ============================================================================
-// WebSocket Server
+// WebSocket Handler (using warp)
 // ============================================================================
 
-async fn handle_ws_connection(
-    ws_stream: tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>,
-    state: Arc<ServerState>,
-) {
-    let (mut ws_sender, mut ws_receiver) = ws_stream.split();
+async fn handle_ws_connection(ws: WebSocket, state: Arc<ServerState>) {
+    let (mut ws_sender, mut ws_receiver) = ws.split();
     let mut broadcast_rx = state.broadcast_tx.subscribe();
     
     // Spawn task to forward broadcasts to this client
     let forward_task = tokio::spawn(async move {
         while let Ok(msg) = broadcast_rx.recv().await {
-            if ws_sender.send(Message::Text(msg)).await.is_err() {
+            if ws_sender.send(WarpWsMessage::text(msg)).await.is_err() {
                 break;
             }
         }
     });
 
     // Handle incoming messages
-    while let Some(msg) = ws_receiver.next().await {
-        if let Ok(Message::Text(text)) = msg {
-            if let Ok(ws_msg) = serde_json::from_str::<WsMessage>(&text) {
-                match ws_msg {
-                    WsMessage::TextUpdate { session_id, text } => {
-                        let slides = parse_notepad_text(&text);
-                        
-                        // Update session
-                        {
-                            let mut sessions = state.sessions.write().await;
-                            if let Some(session) = sessions.get_mut(&session_id) {
-                                session.slides = slides.clone();
-                                session.raw_text = text.clone();
+    while let Some(result) = ws_receiver.next().await {
+        if let Ok(msg) = result {
+            if let Ok(text) = msg.to_str() {
+                if let Ok(ws_msg) = serde_json::from_str::<WsMessage>(text) {
+                    match ws_msg {
+                        WsMessage::TextUpdate { session_id, text } => {
+                            let slides = parse_notepad_text(&text);
+                            
+                            // Update session
+                            {
+                                let mut sessions = state.sessions.write().await;
+                                if let Some(session) = sessions.get_mut(&session_id) {
+                                    session.slides = slides.clone();
+                                    session.raw_text = text.clone();
+                                }
                             }
-                        }
-                        
-                        // Broadcast update to all clients
-                        let update = WsMessage::SlidesUpdate {
-                            session_id,
-                            slides,
-                            raw_text: text,
-                        };
-                        if let Ok(json) = serde_json::to_string(&update) {
-                            let _ = state.broadcast_tx.send(json);
-                        }
-                    }
-                    WsMessage::JoinSession { session_id, client_type: _ } => {
-                        // Send current session state to the joining client
-                        let sessions = state.sessions.read().await;
-                        if let Some(session) = sessions.get(&session_id) {
+                            
+                            // Broadcast update to all clients
                             let update = WsMessage::SlidesUpdate {
-                                session_id: session_id.clone(),
-                                slides: session.slides.clone(),
-                                raw_text: session.raw_text.clone(),
+                                session_id,
+                                slides,
+                                raw_text: text,
                             };
                             if let Ok(json) = serde_json::to_string(&update) {
                                 let _ = state.broadcast_tx.send(json);
                             }
                         }
+                        WsMessage::JoinSession { session_id, client_type: _ } => {
+                            // Send current session state to the joining client
+                            let sessions = state.sessions.read().await;
+                            if let Some(session) = sessions.get(&session_id) {
+                                let update = WsMessage::SlidesUpdate {
+                                    session_id: session_id.clone(),
+                                    slides: session.slides.clone(),
+                                    raw_text: session.raw_text.clone(),
+                                };
+                                if let Ok(json) = serde_json::to_string(&update) {
+                                    let _ = state.broadcast_tx.send(json);
+                                }
+                            }
+                        }
+                        _ => {}
                     }
-                    _ => {}
                 }
             }
         }
@@ -259,31 +270,123 @@ async fn handle_ws_connection(
     forward_task.abort();
 }
 
-async fn run_websocket_server(listener: tokio::net::TcpListener) -> Result<(), String> {
-    let state = SERVER_STATE.clone();
+// ============================================================================
+// Static File Server (using warp + rust-embed)
+// ============================================================================
 
-    while *state.running.read().await {
-        tokio::select! {
-            result = listener.accept() => {
-                if let Ok((stream, _)) = result {
-                    let ws_stream = tokio_tungstenite::accept_async(stream)
-                        .await
-                        .map_err(|e| format!("WebSocket handshake failed: {}", e))?;
-                    
-                    let state_clone = state.clone();
-                    tokio::spawn(async move {
-                        handle_ws_connection(ws_stream, state_clone).await;
-                    });
-                }
-            }
-            _ = tokio::time::sleep(tokio::time::Duration::from_millis(100)) => {
-                // Check if we should stop
-                if !*state.running.read().await {
-                    break;
-                }
-            }
+fn serve_embedded_file(path: &str) -> Option<(Vec<u8>, String)> {
+    // Try exact path first
+    if let Some(content) = FrontendAssets::get(path) {
+        let mime = mime_guess::from_path(path).first_or_octet_stream();
+        return Some((content.data.to_vec(), mime.to_string()));
+    }
+    
+    // For SPA routing, return index.html for non-file paths
+    if !path.contains('.') || path.ends_with('/') {
+        if let Some(content) = FrontendAssets::get("index.html") {
+            return Some((content.data.to_vec(), "text/html".to_string()));
         }
     }
+    
+    None
+}
+
+// ============================================================================
+// Combined HTTP + WebSocket Server
+// ============================================================================
+
+async fn run_combined_server(port: u16) -> Result<(), String> {
+    let state = SERVER_STATE.clone();
+    
+    // Create shutdown channel
+    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+    *state.shutdown_tx.write().await = Some(shutdown_tx);
+    
+    // WebSocket route at /ws
+    let ws_state = state.clone();
+    let ws_route = warp::path("ws")
+        .and(warp::ws())
+        .map(move |ws: warp::ws::Ws| {
+            let state_clone = ws_state.clone();
+            ws.on_upgrade(move |socket| handle_ws_connection(socket, state_clone))
+        });
+    
+    // Static files route - serve embedded frontend assets
+    let static_route = warp::path::tail()
+        .map(|tail: warp::path::Tail| {
+            let path = tail.as_str();
+            let path = if path.is_empty() { "index.html" } else { path };
+            
+            match serve_embedded_file(path) {
+                Some((content, mime)) => {
+                    warp::http::Response::builder()
+                        .header("Content-Type", mime)
+                        .header("Access-Control-Allow-Origin", "*")
+                        .body(content)
+                        .unwrap()
+                }
+                None => {
+                    // SPA fallback - serve index.html for unknown routes
+                    if let Some((content, _)) = serve_embedded_file("index.html") {
+                        warp::http::Response::builder()
+                            .header("Content-Type", "text/html")
+                            .header("Access-Control-Allow-Origin", "*")
+                            .body(content)
+                            .unwrap()
+                    } else {
+                        warp::http::Response::builder()
+                            .status(404)
+                            .body(b"Not Found".to_vec())
+                            .unwrap()
+                    }
+                }
+            }
+        });
+    
+    // Root path - serve index.html
+    let root_route = warp::path::end()
+        .map(|| {
+            match serve_embedded_file("index.html") {
+                Some((content, mime)) => {
+                    warp::http::Response::builder()
+                        .header("Content-Type", mime)
+                        .header("Access-Control-Allow-Origin", "*")
+                        .body(content)
+                        .unwrap()
+                }
+                None => {
+                    warp::http::Response::builder()
+                        .status(404)
+                        .body(b"Not Found".to_vec())
+                        .unwrap()
+                }
+            }
+        });
+    
+    // CORS headers for all routes
+    let cors = warp::cors()
+        .allow_any_origin()
+        .allow_methods(vec!["GET", "POST", "OPTIONS"])
+        .allow_headers(vec!["Content-Type"]);
+    
+    // Combine routes: WebSocket first, then static files
+    let routes = ws_route
+        .or(root_route)
+        .or(static_route)
+        .with(cors);
+    
+    let addr: std::net::SocketAddr = format!("0.0.0.0:{}", port)
+        .parse()
+        .map_err(|e| format!("Invalid address: {}", e))?;
+    
+    println!("Live Slides server (HTTP + WebSocket) listening on {}", addr);
+    
+    let (_, server) = warp::serve(routes)
+        .bind_with_graceful_shutdown(addr, async {
+            shutdown_rx.await.ok();
+        });
+    
+    server.await;
     
     Ok(())
 }
@@ -327,40 +430,42 @@ async fn start_live_slides_server(port: u16) -> Result<String, String> {
         return Err("Server is already running".to_string());
     }
     
-    // Bind first so we can return a helpful error (e.g., "port already in use")
-    // instead of spawning a task that fails silently.
-    let addr = format!("0.0.0.0:{}", port);
-    let listener = tokio::net::TcpListener::bind(&addr)
-        .await
-        .map_err(|e| format!("Failed to bind to {}: {}", addr, e))?;
-
-    println!("WebSocket server listening on {}", addr);
-
     *state.running.write().await = true;
     *state.port.write().await = port;
     
-    // Start server in background
+    // Start combined HTTP + WebSocket server in background
+    let port_clone = port;
     tokio::spawn(async move {
-        if let Err(e) = run_websocket_server(listener).await {
-            eprintln!("WebSocket server error: {}", e);
+        if let Err(e) = run_combined_server(port_clone).await {
+            eprintln!("Server error: {}", e);
         }
+        // Mark as not running when server stops
+        *SERVER_STATE.running.write().await = false;
     });
+    
+    // Small delay to let server start
+    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
     
     // Get local IP
     let local_ip = local_ip_address::local_ip()
         .map(|ip| ip.to_string())
         .unwrap_or_else(|_| {
-            // Fallback to localhost if IP detection fails
             eprintln!("Warning: Failed to detect local IP, using 127.0.0.1");
             "127.0.0.1".to_string()
         });
     
-    Ok(format!("ws://{}:{}", local_ip, port))
+    Ok(format!("http://{}:{}", local_ip, port))
 }
 
 #[tauri::command]
 async fn stop_live_slides_server() -> Result<(), String> {
     let state = SERVER_STATE.clone();
+    
+    // Send shutdown signal
+    if let Some(tx) = state.shutdown_tx.write().await.take() {
+        let _ = tx.send(());
+    }
+    
     *state.running.write().await = false;
     Ok(())
 }
