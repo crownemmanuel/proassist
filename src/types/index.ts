@@ -9,7 +9,7 @@ export type LayoutType =
 export type TemplateType = "text" | "image" | "video";
 
 // Define AI Provider and Model Types
-export type AIProviderType = "openai" | "gemini";
+export type AIProviderType = "openai" | "gemini" | "groq";
 
 export const OPENAI_MODELS = [
   "gpt-4o",
@@ -25,6 +25,15 @@ export const GEMINI_MODELS = [
   "gemini-1.0-pro", // Older, but might be preferred for cost/legacy
 ] as const;
 export type GeminiModelType = (typeof GEMINI_MODELS)[number];
+
+export const GROQ_MODELS = [
+  "llama-3.3-70b-versatile",
+  "llama-3.1-8b-instant",
+  "llama-3.1-70b-versatile",
+  "mixtral-8x7b-32768",
+  "gemma2-9b-it",
+] as const;
+export type GroqModelType = (typeof GROQ_MODELS)[number];
 
 export interface Slide {
   id: string;
@@ -90,7 +99,7 @@ export interface Template {
   availableLayouts: LayoutType[];
   aiPrompt?: string; // User-defined prompt for AI processing
   aiProvider?: AIProviderType; // Specify AI provider for this template
-  aiModel?: OpenAIModelType | GeminiModelType | string; // Specify AI model for this template (string for flexibility if new models added)
+  aiModel?: OpenAIModelType | GeminiModelType | GroqModelType | string; // Specify AI model for this template (string for flexibility if new models added)
   processWithAI?: boolean; // Whether to process text using AI for this template
   outputPath: string;
   outputFileNamePrefix: string;
@@ -120,6 +129,7 @@ export interface AppSettings {
   theme: "light" | "dark";
   openAIConfig?: AIServiceConfig; // Stores API key for OpenAI
   geminiConfig?: AIServiceConfig; // Stores API key for Gemini
+  groqConfig?: AIServiceConfig; // Stores API key for Groq
   defaultAIProvider?: AIProvider; // User's preferred default AI if multiple are configured
   // AI Model settings for specific features
   spellCheckModel?: AIModelSetting; // Provider and model for spell checking
@@ -132,7 +142,7 @@ export interface ProPresenterData {
   // Potentially other fields ProPresenter needs
 }
 
-export type AIProvider = "openai" | "gemini" | null;
+export type AIProvider = "openai" | "gemini" | "groq" | null;
 
 export interface AIServiceConfig {
   // provider: AIProvider; // Redundant if keys are specific e.g. openAIAPIKey

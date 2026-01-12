@@ -7,6 +7,7 @@ const DEFAULT_APP_SETTINGS: AppSettings = {
   theme: "dark", // Default to dark theme
   openAIConfig: undefined,
   geminiConfig: undefined,
+  groqConfig: undefined,
   defaultAIProvider: null,
 };
 
@@ -65,6 +66,19 @@ export const updateGeminiKey = (apiKey: string): AppSettings => {
   const newSettings: AppSettings = {
     ...currentSettings,
     geminiConfig: { apiKey },
+  };
+  saveAppSettings(newSettings);
+  return newSettings;
+};
+
+/**
+ * Updates the Groq API key in AppSettings.
+ */
+export const updateGroqKey = (apiKey: string): AppSettings => {
+  const currentSettings = getAppSettings();
+  const newSettings: AppSettings = {
+    ...currentSettings,
+    groqConfig: { apiKey },
   };
   saveAppSettings(newSettings);
   return newSettings;
