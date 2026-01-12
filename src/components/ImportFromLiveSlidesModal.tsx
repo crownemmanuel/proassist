@@ -96,9 +96,7 @@ const ImportFromLiveSlidesModal: React.FC<ImportFromLiveSlidesModalProps> = ({
   ): Pick<Slide, "text" | "layout" | "isAutoScripture">[] => {
     return liveSlides.map((liveSlide) => {
       // Combine items into text lines
-      const text = liveSlide.items
-        .map((item) => (item.is_sub_item ? `\t${item.text}` : item.text))
-        .join("\n");
+      const text = liveSlide.items.map((item) => item.text).join("\n");
 
       // Determine layout based on number of items
       const itemCount = liveSlide.items.length;

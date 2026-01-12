@@ -945,9 +945,7 @@ const MainApplicationPage: React.FC = () => {
       liveSlides: LiveSlide[]
     ): Slide[] => {
       return liveSlides.map((liveSlide, idx) => {
-        const text = liveSlide.items
-          .map((item) => (item.is_sub_item ? `\t${item.text}` : item.text))
-          .join("\n");
+        const text = liveSlide.items.map((item) => item.text).join("\n");
 
         const itemCount = liveSlide.items.length;
         const candidate = `${getLayoutName(itemCount)}-line` as LayoutType;

@@ -114,84 +114,132 @@ fn parse_notepad_text(text: &str) -> Vec<LiveSlide> {
     while i < lines.len() {
         let line = lines[i];
         
+        // Skip empty lines - they create slide boundaries
         if line.trim().is_empty() {
-            // Empty line = new slide boundary
             i += 1;
             continue;
         }
         
+        // Check if this is an orphaned indented line (no parent before it)
         if line.starts_with('\t') || line.starts_with("    ") {
-            // Orphaned indented line (no parent) - treat as regular line
-            let trimmed = line.trim_start_matches('\t').trim_start_matches("    ").trim_start();
+            // Orphaned indented line - treat as regular line
+            let trimmed = line
+                .trim_start_matches('\t')
+                .trim_start_matches("    ")
+                .trim_start()
+                .to_string();
+            if !trimmed.is_empty() {
+                slides.push(LiveSlide {
+                    items: vec![LiveSlideItem {
+                        text: trimmed,
+                        is_sub_item: false,
+                    }],
+                    color: SLIDE_COLORS[color_index % SLIDE_COLORS.len()].to_string(),
+                });
+                color_index += 1;
+            }
+            i += 1;
+            continue;
+        }
+        
+        // Regular line - check if it has indented children following it
+        let parent_text = line.trim().to_string();
+        if parent_text.is_empty() {
+            i += 1;
+            continue;
+        }
+        
+        // Look ahead to see if there are indented lines following
+        let mut children: Vec<String> = Vec::new();
+        let mut j = i + 1;
+        while j < lines.len() {
+            let next_line = lines[j];
+            if next_line.trim().is_empty() {
+                break; // Empty line stops the group
+            }
+            if next_line.starts_with('\t') || next_line.starts_with("    ") {
+                let trimmed = next_line
+                    .trim_start_matches('\t')
+                    .trim_start_matches("    ")
+                    .trim_start()
+                    .to_string();
+                if !trimmed.is_empty() {
+                    children.push(trimmed);
+                }
+                j += 1;
+            } else {
+                break; // Non-indented line stops the group
+            }
+        }
+        
+        if children.is_empty() {
+            // No indented children - collect all consecutive non-indented lines into one slide
+            // All items in this slide use the same color (blue - first color)
+            let mut current_slide_items: Vec<LiveSlideItem> = Vec::new();
+            let mut k = i;
+            
+            while k < lines.len() {
+                let current_line = lines[k];
+                
+                // Empty line = end of current slide
+                if current_line.trim().is_empty() {
+                    break;
+                }
+                
+                // If we hit an indented line, stop (that's a different pattern)
+                if current_line.starts_with('\t') || current_line.starts_with("    ") {
+                    break;
+                }
+                
+                // Regular line = regular item
+                let trimmed = current_line.trim().to_string();
+                if !trimmed.is_empty() {
+                    current_slide_items.push(LiveSlideItem {
+                        text: trimmed,
+                        is_sub_item: false,
+                    });
+                }
+                k += 1;
+            }
+            
+            if !current_slide_items.is_empty() {
+                // Use blue (first color) for consecutive lines on same slide
+                slides.push(LiveSlide {
+                    items: current_slide_items,
+                    color: SLIDE_COLORS[0].to_string(), // Always use blue for consecutive lines
+                });
+                // Don't increment color_index here - keep it for next slide boundary
+            }
+            
+            i = k;
+        } else {
+            // Has indented children - use the parent+children pattern
+            // First: parent-only slide
             slides.push(LiveSlide {
                 items: vec![LiveSlideItem {
-                    text: trimmed.to_string(),
+                    text: parent_text.clone(),
                     is_sub_item: false,
                 }],
                 color: SLIDE_COLORS[color_index % SLIDE_COLORS.len()].to_string(),
             });
             color_index += 1;
-            i += 1;
-        } else {
-            // Regular line - this is a parent
-            let parent_text = line.to_string();
             
-            // Collect all immediately following indented lines
-            let mut children: Vec<String> = Vec::new();
-            let mut j = i + 1;
-            while j < lines.len() {
-                let next_line = lines[j];
-                if next_line.trim().is_empty() {
-                    break; // Empty line stops the group
-                }
-                if next_line.starts_with('\t') || next_line.starts_with("    ") {
-                    let trimmed = next_line.trim_start_matches('\t').trim_start_matches("    ").trim_start();
-                    children.push(trimmed.to_string());
-                    j += 1;
-                } else {
-                    break; // Non-indented line stops the group
-                }
-            }
-            
-            if children.is_empty() {
-                // No children - create single slide with just parent
+            // Then: one slide per child (parent + child)
+            for child in children {
                 slides.push(LiveSlide {
-                    items: vec![LiveSlideItem {
-                        text: parent_text,
-                        is_sub_item: false,
-                    }],
+                    items: vec![
+                        LiveSlideItem {
+                            text: parent_text.clone(),
+                            is_sub_item: false,
+                        },
+                        LiveSlideItem {
+                            text: child,
+                            is_sub_item: true,
+                        },
+                    ],
                     color: SLIDE_COLORS[color_index % SLIDE_COLORS.len()].to_string(),
                 });
                 color_index += 1;
-            } else {
-                // Has children - create parent-only slide first, then one slide per child
-                // First: parent-only slide
-                slides.push(LiveSlide {
-                    items: vec![LiveSlideItem {
-                        text: parent_text.clone(),
-                        is_sub_item: false,
-                    }],
-                    color: SLIDE_COLORS[color_index % SLIDE_COLORS.len()].to_string(),
-                });
-                color_index += 1;
-                
-                // Then: one slide per child (parent + child)
-                for child in children {
-                    slides.push(LiveSlide {
-                        items: vec![
-                            LiveSlideItem {
-                                text: parent_text.clone(),
-                                is_sub_item: false,
-                            },
-                            LiveSlideItem {
-                                text: child,
-                                is_sub_item: true,
-                            },
-                        ],
-                        color: SLIDE_COLORS[color_index % SLIDE_COLORS.len()].to_string(),
-                    });
-                    color_index += 1;
-                }
             }
             
             i = j; // Move past all processed lines

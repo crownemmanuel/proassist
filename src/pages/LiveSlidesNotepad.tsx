@@ -6,7 +6,7 @@ import React, {
   useMemo,
 } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
-import { FaSun, FaMoon } from "react-icons/fa";
+import { FaSun, FaMoon, FaQuestionCircle } from "react-icons/fa";
 import { LiveSlidesWebSocket } from "../services/liveSlideService";
 import {
   calculateSlideBoundaries,
@@ -91,6 +91,20 @@ const getNotepadStyles = (isDark: boolean) => {
       gap: "6px",
       transition: "all 0.2s ease",
     },
+    helpButton: {
+      backgroundColor: buttonBg,
+      color: text,
+      border: `1px solid ${buttonBorder}`,
+      padding: "8px 12px",
+      borderRadius: "6px",
+      cursor: "pointer",
+      fontSize: "0.9rem",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      transition: "all 0.2s ease",
+      minWidth: "40px",
+    },
     themeToggle: {
       backgroundColor: buttonBg,
       color: text,
@@ -104,6 +118,52 @@ const getNotepadStyles = (isDark: boolean) => {
       justifyContent: "center",
       transition: "all 0.2s ease",
       minWidth: "40px",
+    },
+    helpPopup: {
+      position: "absolute" as const,
+      top: "60px",
+      right: "20px",
+      backgroundColor: bgSecondary,
+      border: `1px solid ${border}`,
+      borderRadius: "8px",
+      padding: "16px",
+      maxWidth: "400px",
+      boxShadow: "0 4px 12px rgba(0, 0, 0, 0.3)",
+      zIndex: 1000,
+    },
+    helpTitle: {
+      fontSize: "1rem",
+      fontWeight: 600,
+      marginBottom: "12px",
+      color: text,
+    },
+    helpText: {
+      fontSize: "0.85rem",
+      lineHeight: "1.6",
+      color: textSecondary,
+      marginBottom: "8px",
+    },
+    helpExample: {
+      fontSize: "0.8rem",
+      fontFamily: "monospace",
+      backgroundColor: bg,
+      padding: "8px",
+      borderRadius: "4px",
+      marginTop: "8px",
+      color: text,
+      whiteSpace: "pre-wrap" as const,
+    },
+    helpButtonAction: {
+      backgroundColor: buttonBg,
+      color: text,
+      border: `1px solid ${buttonBorder}`,
+      padding: "8px 16px",
+      borderRadius: "6px",
+      cursor: "pointer",
+      fontSize: "0.85rem",
+      marginTop: "12px",
+      width: "100%",
+      transition: "all 0.2s ease",
     },
     editorWrapper: {
       flex: 1,
@@ -190,6 +250,7 @@ const LiveSlidesNotepad: React.FC = () => {
   const [boundaries, setBoundaries] = useState<SlideBoundary[]>([]);
   const [isConnected, setIsConnected] = useState(false);
   const [copyFeedback, setCopyFeedback] = useState("");
+  const [showHelpPopup, setShowHelpPopup] = useState(false);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const lineNumbersRef = useRef<HTMLDivElement>(null);
@@ -411,6 +472,86 @@ const LiveSlidesNotepad: React.FC = () => {
         </div>
         <div style={notepadStyles.headerRight}>
           <button
+            onClick={() => setShowHelpPopup(!showHelpPopup)}
+            style={notepadStyles.helpButton}
+            title="How indentation works"
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = isDarkMode
+                ? "#3a3a3a"
+                : "#d8d8d8";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = isDarkMode
+                ? "#2a2a2a"
+                : "#e8e8e8";
+            }}
+          >
+            <FaQuestionCircle />
+          </button>
+          {showHelpPopup && (
+            <div style={notepadStyles.helpPopup}>
+              <div style={notepadStyles.helpTitle}>How Indentation Works</div>
+              <div style={notepadStyles.helpText}>
+                <strong>Consecutive lines</strong> (no empty line between) = One
+                slide with multiple items
+              </div>
+              <div style={notepadStyles.helpText}>
+                <strong>Empty lines</strong> = Create new slides
+              </div>
+              <div style={notepadStyles.helpText}>
+                <strong>Tab/Indent</strong> = Creates sub-items. The first line
+                becomes a title, and each indented line creates a new slide with
+                title + sub-item.
+              </div>
+              <div style={notepadStyles.helpExample}>
+                {`this is item one on same slide
+this is item two on same slide
+this is item three on same slide
+
+this is a new Slide
+
+This is the title of all the slide below
+	1. sub item using the title on top
+	2. this is another sub item using the title`}
+              </div>
+              <button
+                onClick={() => {
+                  const exampleText = `this is item one on same slide
+this is item two on same slide
+this is item three on same slide
+
+this is a new Slide
+
+This is the title of all the slide below
+	1. sub item using the title on top
+	2. this is another sub item using the title`;
+                  setText(exampleText);
+                  setShowHelpPopup(false);
+                  // Focus the textarea
+                  if (textareaRef.current) {
+                    textareaRef.current.focus();
+                    // Move cursor to end
+                    const length = exampleText.length;
+                    textareaRef.current.setSelectionRange(length, length);
+                  }
+                }}
+                style={notepadStyles.helpButtonAction}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.backgroundColor = isDarkMode
+                    ? "#3a3a3a"
+                    : "#d8d8d8";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = isDarkMode
+                    ? "#2a2a2a"
+                    : "#e8e8e8";
+                }}
+              >
+                Use This as Template
+              </button>
+            </div>
+          )}
+          <button
             onClick={toggleTheme}
             style={notepadStyles.themeToggle}
             title={isDarkMode ? "Switch to light mode" : "Switch to dark mode"}
@@ -505,18 +646,26 @@ const LiveSlidesNotepad: React.FC = () => {
             onKeyDown={handleKeyDown}
             onScroll={handleScroll}
             style={notepadStyles.textarea}
-            placeholder="Start typing your slides here...
+            placeholder={`Start typing your slides here...
 
-Empty lines create new slides.
-Lines starting with Tab are sub-items.
+HOW IT WORKS:
+• Empty lines create new slides
+• Consecutive lines (no empty line between) = one slide with multiple items
+• Tab/indent creates sub-items: first line becomes title, each indented line creates a new slide with title + sub-item
 
-Example:
-Welcome to Our Service
-Today's Message
+EXAMPLES:
 
-Scripture Reading
-	John 3:16
-	For God so loved the world..."
+Simple (3 lines = 1 slide with 3 items):
+Line one
+Line two
+Line three
+
+With tabs (creates 3 slides):
+Title
+	Sub-item 1
+	Sub-item 2
+
+Result: Slide 1 = Title, Slide 2 = Title + Sub-item 1, Slide 3 = Title + Sub-item 2`}
             spellCheck={false}
             autoFocus
           />
@@ -560,6 +709,21 @@ Scripture Reading
           50% { opacity: 0.5; }
         }
       `}</style>
+
+      {/* Click outside to close help popup */}
+      {showHelpPopup && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            zIndex: 999,
+          }}
+          onClick={() => setShowHelpPopup(false)}
+        />
+      )}
     </div>
   );
 };

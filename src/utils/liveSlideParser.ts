@@ -251,10 +251,6 @@ export function getLineColor(
  */
 export function formatSlidesAsText(slides: LiveSlide[]): string {
   return slides
-    .map((slide) =>
-      slide.items
-        .map((item) => (item.is_sub_item ? `\t${item.text}` : item.text))
-        .join("\n")
-    )
+    .map((slide) => slide.items.map((item) => item.text).join("\n"))
     .join("\n\n");
 }
