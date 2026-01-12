@@ -20,7 +20,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self' 'unsafe-eval'; connect-src ws://localhost:* ws://127.0.0.1:* ws://*:* wss://*:* https://api.openai.com https://generativelanguage.googleapis.com 'self'; img-src 'self' data: blob:;"
+      "csp": "default-src 'self'; script-src 'self' 'unsafe-eval'; connect-src http://localhost:* http://127.0.0.1:* http://*:* https://*:* ws://localhost:* ws://127.0.0.1:* ws://*:* wss://*:* https://api.openai.com https://generativelanguage.googleapis.com 'self'; img-src 'self' data: blob:;"
     }
   },
   "bundle": {
