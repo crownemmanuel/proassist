@@ -3,13 +3,10 @@ import {
   FaPlay,
   FaStop,
   FaPlus,
-  FaTrash,
-  FaClock,
   FaRobot,
   FaTimes,
   FaPaperclip,
   FaPaperPlane,
-  FaGripVertical,
   FaUpload,
   FaCog,
 } from "react-icons/fa";
@@ -21,7 +18,7 @@ import {
   getEnabledConnections,
 } from "../services/propresenterService";
 import { processAIChatMessage, getAvailableProviders } from "../services/scheduleAIService";
-import { formatStageAssistTime, StageAssistSettings, useStageAssist } from "../contexts/StageAssistContext";
+import { formatStageAssistTime, useStageAssist } from "../contexts/StageAssistContext";
 import { getAppSettings } from "../utils/aiConfig";
 import { AIProvider } from "../types";
 import LoadScheduleModal from "../components/LoadScheduleModal";
@@ -304,27 +301,6 @@ const StageAssistPage: React.FC = () => {
     await stopTimer();
   };
 
-  // Helper to parse time string to Date for comparison
-  const parseTimeToDate = (time: string): Date => {
-    const [timeStr, period] = time.split(" ");
-    const [hours, minutes] = timeStr.split(":").map(Number);
-    const date = new Date();
-    
-    // Convert to 24-hour format
-    let hour24 = hours;
-    if (period === "PM" && hours !== 12) {
-      hour24 = hours + 12;
-    } else if (period === "AM" && hours === 12) {
-      hour24 = 0;
-    }
-    
-    date.setHours(hour24);
-    date.setMinutes(minutes);
-    date.setSeconds(0);
-    date.setMilliseconds(0);
-    return date;
-  };
-
   // Helper to parse duration string to minutes (e.g., "03mins" -> 3)
   const parseDurationToMinutes = (durationStr: string): number => {
     const minutes = parseInt(durationStr.replace("mins", "").trim()) || 0;
@@ -354,7 +330,6 @@ const StageAssistPage: React.FC = () => {
         // Recalculate duration based on the actual time difference
         // This handles cases where user manually edits both startTime and endTime
         const newDuration = calculateDuration(newStartTime, newEndTime);
-        const newDurationMinutes = parseDurationToMinutes(newDuration);
         
         // Update the item with new times and recalculated duration
         currentItem.startTime = newStartTime;

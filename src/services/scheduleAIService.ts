@@ -9,7 +9,7 @@ import { ChatOpenAI } from "@langchain/openai";
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { ScheduleItem, AIScheduleResponse } from "../types/propresenter";
-import { AppSettings, AIProvider } from "../types";
+import { AIProvider } from "../types";
 import { getAppSettings } from "../utils/aiConfig";
 
 // Storage key for AI Assistant settings
