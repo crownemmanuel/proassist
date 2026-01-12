@@ -79,6 +79,81 @@ pub struct TimerState {
     pub is_overrun: bool,
 }
 
+// ============================================================================
+// Types for Network Sync
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SyncServerInfo {
+    pub running: bool,
+    pub port: u16,
+    pub local_ip: String,
+    pub connected_clients: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum SyncMessage {
+    #[serde(rename = "sync_playlist_item")]
+    PlaylistItem {
+        #[serde(rename = "playlistId")]
+        playlist_id: String,
+        item: serde_json::Value, // PlaylistItem as JSON
+        action: String, // "create" | "update"
+        timestamp: u64,
+    },
+    #[serde(rename = "sync_playlist_delete")]
+    PlaylistDelete {
+        #[serde(rename = "playlistId")]
+        playlist_id: String,
+        #[serde(rename = "itemId")]
+        item_id: String,
+        timestamp: u64,
+    },
+    #[serde(rename = "sync_schedule")]
+    Schedule {
+        schedule: Vec<ScheduleItem>,
+        #[serde(rename = "currentSessionIndex")]
+        current_session_index: Option<usize>,
+        timestamp: u64,
+    },
+    #[serde(rename = "sync_request_state")]
+    RequestState {
+        #[serde(rename = "requestPlaylists")]
+        request_playlists: bool,
+        #[serde(rename = "requestSchedule")]
+        request_schedule: bool,
+    },
+    #[serde(rename = "sync_full_state")]
+    FullState {
+        playlists: Option<serde_json::Value>, // Playlist[] as JSON
+        schedule: Option<Vec<ScheduleItem>>,
+        #[serde(rename = "currentSessionIndex")]
+        current_session_index: Option<usize>,
+        timestamp: u64,
+    },
+    #[serde(rename = "sync_join")]
+    Join {
+        #[serde(rename = "clientMode")]
+        client_mode: String,
+        #[serde(rename = "clientId")]
+        client_id: String,
+    },
+    #[serde(rename = "sync_welcome")]
+    Welcome {
+        #[serde(rename = "serverId")]
+        server_id: String,
+        #[serde(rename = "serverMode")]
+        server_mode: String,
+        #[serde(rename = "connectedClients")]
+        connected_clients: i32,
+    },
+    #[serde(rename = "sync_error")]
+    Error {
+        message: String,
+    },
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum WsMessage {
@@ -122,6 +197,21 @@ struct ServerState {
     shutdown_tx: RwLock<Option<tokio::sync::oneshot::Sender<()>>>,
 }
 
+// Global state for the Network Sync server
+struct SyncServerState {
+    broadcast_tx: broadcast::Sender<String>,
+    running: RwLock<bool>,
+    port: RwLock<u16>,
+    shutdown_tx: RwLock<Option<tokio::sync::oneshot::Sender<()>>>,
+    connected_clients: RwLock<i32>,
+    server_id: String,
+    server_mode: RwLock<String>,
+    // Cached state for sending to new clients
+    playlists: RwLock<Option<serde_json::Value>>,
+    schedule: RwLock<Option<Vec<ScheduleItem>>>,
+    current_session_index: RwLock<Option<usize>>,
+}
+
 lazy_static::lazy_static! {
     static ref SERVER_STATE: Arc<ServerState> = Arc::new(ServerState {
         sessions: RwLock::new(HashMap::new()),
@@ -140,6 +230,20 @@ lazy_static::lazy_static! {
         running: RwLock::new(false),
         port: RwLock::new(9876),
         shutdown_tx: RwLock::new(None),
+    });
+    
+    static ref SYNC_SERVER_STATE: Arc<SyncServerState> = Arc::new(SyncServerState {
+        broadcast_tx: broadcast::channel(100).0,
+        running: RwLock::new(false),
+        port: RwLock::new(9877),
+        shutdown_tx: RwLock::new(None),
+        connected_clients: RwLock::new(0),
+        server_id: uuid::Uuid::new_v4().to_string(),
+        server_mode: RwLock::new("master".to_string()),
+        // Store current state for new clients
+        playlists: RwLock::new(None),
+        schedule: RwLock::new(None),
+        current_session_index: RwLock::new(None),
     });
 }
 
@@ -556,6 +660,163 @@ async fn run_combined_server(port: u16) -> Result<(), String> {
 }
 
 // ============================================================================
+// Network Sync WebSocket Handler
+// ============================================================================
+
+async fn handle_sync_ws_connection(ws: WebSocket, state: Arc<SyncServerState>) {
+    let (mut ws_sender, mut ws_receiver) = ws.split();
+    let mut broadcast_rx = state.broadcast_tx.subscribe();
+    
+    // Increment connected clients
+    {
+        let mut count = state.connected_clients.write().await;
+        *count += 1;
+    }
+    
+    // Send welcome message
+    let connected = *state.connected_clients.read().await;
+    let server_mode = state.server_mode.read().await.clone();
+    let welcome = SyncMessage::Welcome {
+        server_id: state.server_id.clone(),
+        server_mode,
+        connected_clients: connected,
+    };
+    if let Ok(json) = serde_json::to_string(&welcome) {
+        let _ = ws_sender.send(WarpWsMessage::text(json)).await;
+    }
+    
+    // Spawn task to forward broadcasts to this client
+    let forward_task = tokio::spawn(async move {
+        while let Ok(msg) = broadcast_rx.recv().await {
+            if ws_sender.send(WarpWsMessage::text(msg)).await.is_err() {
+                break;
+            }
+        }
+    });
+
+    // Handle incoming messages
+    while let Some(result) = ws_receiver.next().await {
+        if let Ok(msg) = result {
+            if let Ok(text) = msg.to_str() {
+                if let Ok(sync_msg) = serde_json::from_str::<SyncMessage>(text) {
+                    match sync_msg {
+                        SyncMessage::Join { client_mode, client_id } => {
+                            println!("Sync client joined: {} (mode: {})", client_id, client_mode);
+                            // Send current state to the joining client
+                            let playlists = state.playlists.read().await.clone();
+                            let schedule = state.schedule.read().await.clone();
+                            let current_idx = *state.current_session_index.read().await;
+                            
+                            let full_state = SyncMessage::FullState {
+                                playlists,
+                                schedule,
+                                current_session_index: current_idx,
+                                timestamp: std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap()
+                                    .as_millis() as u64,
+                            };
+                            if let Ok(json) = serde_json::to_string(&full_state) {
+                                let _ = state.broadcast_tx.send(json);
+                            }
+                        }
+                        SyncMessage::RequestState { request_playlists, request_schedule } => {
+                            let playlists = if request_playlists {
+                                state.playlists.read().await.clone()
+                            } else {
+                                None
+                            };
+                            let schedule = if request_schedule {
+                                state.schedule.read().await.clone()
+                            } else {
+                                None
+                            };
+                            let current_idx = if request_schedule {
+                                *state.current_session_index.read().await
+                            } else {
+                                None
+                            };
+                            
+                            let full_state = SyncMessage::FullState {
+                                playlists,
+                                schedule,
+                                current_session_index: current_idx,
+                                timestamp: std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap()
+                                    .as_millis() as u64,
+                            };
+                            if let Ok(json) = serde_json::to_string(&full_state) {
+                                let _ = state.broadcast_tx.send(json);
+                            }
+                        }
+                        // For peer mode - forward incoming sync messages from other peers
+                        SyncMessage::PlaylistItem { .. } | 
+                        SyncMessage::PlaylistDelete { .. } |
+                        SyncMessage::Schedule { .. } |
+                        SyncMessage::FullState { .. } => {
+                            // Rebroadcast to all connected clients
+                            if let Ok(json) = serde_json::to_string(&sync_msg) {
+                                let _ = state.broadcast_tx.send(json);
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+    
+    // Decrement connected clients on disconnect
+    {
+        let mut count = state.connected_clients.write().await;
+        *count -= 1;
+    }
+    
+    forward_task.abort();
+}
+
+async fn run_sync_server(port: u16) -> Result<(), String> {
+    let state = SYNC_SERVER_STATE.clone();
+    
+    // Create shutdown channel
+    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+    *state.shutdown_tx.write().await = Some(shutdown_tx);
+    
+    // WebSocket route at /sync
+    let ws_state = state.clone();
+    let ws_route = warp::path("sync")
+        .and(warp::ws())
+        .map(move |ws: warp::ws::Ws| {
+            let state_clone = ws_state.clone();
+            ws.on_upgrade(move |socket| handle_sync_ws_connection(socket, state_clone))
+        });
+    
+    // CORS headers
+    let cors = warp::cors()
+        .allow_any_origin()
+        .allow_methods(vec!["GET", "POST", "OPTIONS"])
+        .allow_headers(vec!["Content-Type"]);
+    
+    let routes = ws_route.with(cors);
+    
+    let addr: std::net::SocketAddr = format!("0.0.0.0:{}", port)
+        .parse()
+        .map_err(|e| format!("Invalid address: {}", e))?;
+    
+    println!("Network Sync server listening on {}", addr);
+    
+    let (_, server) = warp::serve(routes)
+        .bind_with_graceful_shutdown(addr, async {
+            shutdown_rx.await.ok();
+        });
+    
+    server.await;
+    
+    Ok(())
+}
+
+// ============================================================================
 // Tauri Commands
 // ============================================================================
 
@@ -773,6 +1034,127 @@ async fn update_timer_state(
     Ok(())
 }
 
+// ============================================================================
+// Network Sync Tauri Commands
+// ============================================================================
+
+#[tauri::command]
+async fn start_sync_server(port: u16, mode: String) -> Result<SyncServerInfo, String> {
+    let state = SYNC_SERVER_STATE.clone();
+    
+    // Check if already running
+    if *state.running.read().await {
+        return Err("Sync server is already running".to_string());
+    }
+    
+    *state.running.write().await = true;
+    *state.port.write().await = port;
+    *state.server_mode.write().await = mode;
+    
+    // Start sync server in background
+    let port_clone = port;
+    tokio::spawn(async move {
+        if let Err(e) = run_sync_server(port_clone).await {
+            eprintln!("Sync server error: {}", e);
+        }
+        // Mark as not running when server stops
+        *SYNC_SERVER_STATE.running.write().await = false;
+    });
+    
+    // Small delay to let server start
+    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+    
+    // Get local IP
+    let local_ip = local_ip_address::local_ip()
+        .map(|ip| ip.to_string())
+        .unwrap_or_else(|_| "127.0.0.1".to_string());
+    
+    Ok(SyncServerInfo {
+        running: true,
+        port,
+        local_ip,
+        connected_clients: 0,
+    })
+}
+
+#[tauri::command]
+async fn stop_sync_server() -> Result<(), String> {
+    let state = SYNC_SERVER_STATE.clone();
+    
+    // Send shutdown signal
+    if let Some(tx) = state.shutdown_tx.write().await.take() {
+        let _ = tx.send(());
+    }
+    
+    *state.running.write().await = false;
+    *state.connected_clients.write().await = 0;
+    Ok(())
+}
+
+#[tauri::command]
+async fn get_sync_server_info() -> Result<SyncServerInfo, String> {
+    let state = SYNC_SERVER_STATE.clone();
+    
+    let running = *state.running.read().await;
+    let port = *state.port.read().await;
+    let connected_clients = *state.connected_clients.read().await;
+    
+    let local_ip = local_ip_address::local_ip()
+        .map(|ip| ip.to_string())
+        .unwrap_or_else(|_| "localhost".to_string());
+    
+    Ok(SyncServerInfo {
+        running,
+        port,
+        local_ip,
+        connected_clients,
+    })
+}
+
+#[tauri::command]
+async fn broadcast_sync_message(message: String) -> Result<(), String> {
+    let state = SYNC_SERVER_STATE.clone();
+    
+    if !*state.running.read().await {
+        return Err("Sync server is not running".to_string());
+    }
+    
+    // Parse and update cached state if needed
+    if let Ok(sync_msg) = serde_json::from_str::<SyncMessage>(&message) {
+        match &sync_msg {
+            SyncMessage::PlaylistItem { .. } | SyncMessage::PlaylistDelete { .. } => {
+                // These are partial updates, we don't cache them individually
+            }
+            SyncMessage::Schedule { schedule, current_session_index, .. } => {
+                *state.schedule.write().await = Some(schedule.clone());
+                *state.current_session_index.write().await = *current_session_index;
+            }
+            SyncMessage::FullState { playlists, schedule, current_session_index, .. } => {
+                if let Some(p) = playlists {
+                    *state.playlists.write().await = Some(p.clone());
+                }
+                if let Some(s) = schedule {
+                    *state.schedule.write().await = Some(s.clone());
+                }
+                *state.current_session_index.write().await = *current_session_index;
+            }
+            _ => {}
+        }
+    }
+    
+    state.broadcast_tx.send(message)
+        .map_err(|e| format!("Failed to broadcast: {}", e))?;
+    
+    Ok(())
+}
+
+#[tauri::command]
+async fn update_sync_playlists(playlists: serde_json::Value) -> Result<(), String> {
+    let state = SYNC_SERVER_STATE.clone();
+    *state.playlists.write().await = Some(playlists);
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -796,7 +1178,13 @@ pub fn run() {
             get_live_slides_server_info,
             get_local_ip,
             update_schedule,
-            update_timer_state
+            update_timer_state,
+            // Network Sync commands
+            start_sync_server,
+            stop_sync_server,
+            get_sync_server_info,
+            broadcast_sync_message,
+            update_sync_playlists
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

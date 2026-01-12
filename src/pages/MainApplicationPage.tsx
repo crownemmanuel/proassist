@@ -1,4 +1,10 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useCallback,
+} from "react";
 import PlaylistPane from "../components/PlaylistPane";
 import SlideDisplayArea from "../components/SlideDisplayArea";
 import ImportModal from "../components/ImportModal";
@@ -31,6 +37,8 @@ import {
 import { LiveSlide } from "../types/liveSlides";
 import { calculateSlideBoundaries } from "../utils/liveSlideParser";
 import { triggerPresentationOnAllEnabled } from "../services/propresenterService";
+import { useNetworkSync } from "../hooks/useNetworkSync";
+import { loadNetworkSyncSettings } from "../services/networkSyncService";
 
 const MainApplicationPage: React.FC = () => {
   const [playlists, setPlaylists] = useState<Playlist[]>(() => {
@@ -129,6 +137,99 @@ const MainApplicationPage: React.FC = () => {
   const [liveSlidesTypingUrls, setLiveSlidesTypingUrls] = useState<
     Record<string, string>
   >({});
+
+  // Network Sync - handle receiving synced playlist items
+  const handleSyncPlaylistItem = useCallback(
+    (playlistId: string, item: PlaylistItem, action: "create" | "update") => {
+      // Don't sync live slides items
+      if (item.liveSlidesSessionId) return;
+
+      setPlaylists((prev) => {
+        return prev.map((playlist) => {
+          if (playlist.id !== playlistId) return playlist;
+
+          if (action === "create") {
+            // Check if item already exists
+            const exists = playlist.items.some((i) => i.id === item.id);
+            if (exists) return playlist;
+            return { ...playlist, items: [...playlist.items, item] };
+          } else {
+            // Update existing item
+            return {
+              ...playlist,
+              items: playlist.items.map((i) => (i.id === item.id ? item : i)),
+            };
+          }
+        });
+      });
+      console.log(
+        `[NetworkSync] Received ${action} for playlist item:`,
+        item.title
+      );
+    },
+    []
+  );
+
+  const handleSyncPlaylistDelete = useCallback(
+    (playlistId: string, itemId: string) => {
+      setPlaylists((prev) => {
+        return prev.map((playlist) => {
+          if (playlist.id !== playlistId) return playlist;
+          return {
+            ...playlist,
+            items: playlist.items.filter((i) => i.id !== itemId),
+          };
+        });
+      });
+      console.log(`[NetworkSync] Deleted playlist item: ${itemId}`);
+    },
+    []
+  );
+
+  const handleSyncFullState = useCallback(
+    (
+      syncedPlaylists: Playlist[] | undefined,
+      _schedule: unknown,
+      _currentSessionIndex: unknown
+    ) => {
+      if (syncedPlaylists) {
+        // Merge synced playlists with existing ones
+        setPlaylists((prev) => {
+          const existingIds = new Set(prev.map((p) => p.id));
+          const newPlaylists = syncedPlaylists.filter(
+            (p) => !existingIds.has(p.id)
+          );
+
+          // Update existing playlists with synced items
+          const merged = prev.map((existing) => {
+            const synced = syncedPlaylists.find((p) => p.id === existing.id);
+            if (!synced) return existing;
+
+            // Merge items
+            const existingItemIds = new Set(existing.items.map((i) => i.id));
+            const newItems = synced.items.filter(
+              (i) => !existingItemIds.has(i.id) && !i.liveSlidesSessionId
+            );
+
+            return {
+              ...existing,
+              items: [...existing.items, ...newItems],
+            };
+          });
+
+          return [...merged, ...newPlaylists];
+        });
+        console.log("[NetworkSync] Merged full state from master/peer");
+      }
+    },
+    []
+  );
+
+  const { broadcastPlaylistItem, broadcastPlaylistDelete } = useNetworkSync({
+    onPlaylistItemSync: handleSyncPlaylistItem,
+    onPlaylistItemDelete: handleSyncPlaylistDelete,
+    onFullStateSync: handleSyncFullState,
+  });
 
   // Persist playlists to localStorage whenever they change
   useEffect(() => {
@@ -280,6 +381,13 @@ const MainApplicationPage: React.FC = () => {
       setSelectedPlaylistId(remaining.length ? remaining[0].id : null);
       setSelectedItemId(null);
     } else if (pendingDelete.type === "item") {
+      // Check if it's a live slides item before deleting
+      const playlist = playlists.find((p) => p.id === pendingDelete.playlistId);
+      const deletedItem = playlist?.items.find(
+        (it) => it.id === pendingDelete.id
+      );
+      const isLiveSlidesItem = deletedItem?.liveSlidesSessionId;
+
       setPlaylists((prev) =>
         prev.map((p) => {
           if (p.id !== pendingDelete.playlistId) return p;
@@ -290,6 +398,18 @@ const MainApplicationPage: React.FC = () => {
         })
       );
       setSelectedItemId(null);
+
+      // Broadcast delete to network sync (if enabled and not a live slides item)
+      if (!isLiveSlidesItem) {
+        const syncSettings = loadNetworkSyncSettings();
+        if (
+          syncSettings.syncPlaylists &&
+          syncSettings.mode !== "off" &&
+          syncSettings.mode !== "slave"
+        ) {
+          broadcastPlaylistDelete(pendingDelete.playlistId, pendingDelete.id);
+        }
+      }
     }
     setPendingDelete(null);
   };
@@ -317,6 +437,8 @@ const MainApplicationPage: React.FC = () => {
     slideId: string,
     newText: string
   ) => {
+    let updatedItem: PlaylistItem | undefined;
+
     setPlaylists((prevPlaylists) =>
       prevPlaylists.map((playlist) => {
         if (playlist.id === playlistId) {
@@ -324,12 +446,14 @@ const MainApplicationPage: React.FC = () => {
             ...playlist,
             items: playlist.items.map((item) => {
               if (item.id === itemId) {
-                return {
+                const updated = {
                   ...item,
                   slides: item.slides.map((slide) =>
                     slide.id === slideId ? { ...slide, text: newText } : slide
                   ),
                 };
+                updatedItem = updated;
+                return updated;
               }
               return item;
             }),
@@ -341,7 +465,18 @@ const MainApplicationPage: React.FC = () => {
     console.log(
       `Update slide: ${slideId} in item ${itemId} of playlist ${playlistId} with text: ${newText}`
     );
-    // Actual save logic will go here, potentially involving backend/Tauri calls
+
+    // Broadcast update to network sync (if enabled and not a live slides item)
+    if (updatedItem && !updatedItem.liveSlidesSessionId) {
+      const syncSettings = loadNetworkSyncSettings();
+      if (
+        syncSettings.syncPlaylists &&
+        syncSettings.mode !== "off" &&
+        syncSettings.mode !== "slave"
+      ) {
+        broadcastPlaylistItem(playlistId, updatedItem, "update");
+      }
+    }
   };
 
   // Function to make a slide live
@@ -845,6 +980,18 @@ const MainApplicationPage: React.FC = () => {
     );
     setSelectedItemId(newPlaylistItem.id);
     setIsImportModalOpen(false);
+
+    // Broadcast new playlist item to network sync (if enabled and not a live slides item)
+    if (!isLiveSlidesItem && selectedPlaylistId) {
+      const syncSettings = loadNetworkSyncSettings();
+      if (
+        syncSettings.syncPlaylists &&
+        syncSettings.mode !== "off" &&
+        syncSettings.mode !== "slave"
+      ) {
+        broadcastPlaylistItem(selectedPlaylistId, newPlaylistItem, "create");
+      }
+    }
   };
 
   const handleDetachCurrentLiveSlides = () => {

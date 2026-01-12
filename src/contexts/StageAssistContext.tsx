@@ -1,6 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { ScheduleItem, TimerState, TimeAdjustmentMode } from "../types/propresenter";
 import { startTimerOnAllEnabled, stopTimerOnAllEnabled } from "../services/propresenterService";
+import { loadNetworkSyncSettings, networkSyncManager } from "../services/networkSyncService";
 
 // Storage keys
 const SCHEDULE_STORAGE_KEY = "proassist-stage-assist-schedule";
@@ -188,6 +189,58 @@ export const StageAssistProvider: React.FC<{ children: React.ReactNode }> = ({ c
         console.debug("Schedule service not available:", error);
       });
   }, [schedule, currentSessionIndex]);
+
+  // Broadcast schedule changes to network sync
+  const lastBroadcastRef = useRef<string>("");
+  useEffect(() => {
+    const syncSettings = loadNetworkSyncSettings();
+    if (!syncSettings.syncSchedule || syncSettings.mode === "off" || syncSettings.mode === "slave") {
+      return;
+    }
+    
+    // Only broadcast if schedule actually changed (to avoid loops)
+    const scheduleKey = JSON.stringify({ schedule, currentSessionIndex });
+    if (scheduleKey === lastBroadcastRef.current) return;
+    lastBroadcastRef.current = scheduleKey;
+    
+    networkSyncManager.broadcastScheduleSync(schedule, currentSessionIndex).catch((error) => {
+      console.debug("Failed to broadcast schedule sync:", error);
+    });
+  }, [schedule, currentSessionIndex]);
+
+  // Listen for incoming schedule sync updates
+  useEffect(() => {
+    const syncSettings = loadNetworkSyncSettings();
+    if (syncSettings.mode === "off" || syncSettings.mode === "master") {
+      return;
+    }
+
+    networkSyncManager.setCallbacks({
+      onScheduleSync: (syncedSchedule, syncedCurrentSessionIndex) => {
+        console.log("[NetworkSync] Received schedule update");
+        // Only update if schedule is different to avoid loops
+        const newKey = JSON.stringify({ schedule: syncedSchedule, currentSessionIndex: syncedCurrentSessionIndex });
+        if (newKey !== lastBroadcastRef.current) {
+          lastBroadcastRef.current = newKey;
+          setSchedule(syncedSchedule);
+          setCurrentSessionIndex(syncedCurrentSessionIndex);
+        }
+      },
+      onFullStateSync: (_playlists, syncedSchedule, syncedCurrentSessionIndex) => {
+        if (syncedSchedule) {
+          console.log("[NetworkSync] Received full state with schedule");
+          const newKey = JSON.stringify({ schedule: syncedSchedule, currentSessionIndex: syncedCurrentSessionIndex });
+          if (newKey !== lastBroadcastRef.current) {
+            lastBroadcastRef.current = newKey;
+            setSchedule(syncedSchedule);
+            if (syncedCurrentSessionIndex !== undefined) {
+              setCurrentSessionIndex(syncedCurrentSessionIndex);
+            }
+          }
+        }
+      },
+    });
+  }, []);
 
   // Persist settings only after initial load (to avoid overwriting saved settings)
   useEffect(() => {
