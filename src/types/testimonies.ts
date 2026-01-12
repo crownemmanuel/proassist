@@ -48,9 +48,19 @@ export interface NameFormattingConfig {
   customLogic?: string; // Regex pattern or JavaScript function code
 }
 
+export interface LiveTestimonyProPresenterConfig {
+  presentationUuid: string;
+  slideIndex: number;
+  presentationName?: string;
+  activationClicks: number; // Number of clicks when going live (default: 1)
+  takeOffClicks: number; // Number of clicks when clearing (default: 0)
+  clearTextFileOnTakeOff?: boolean; // Whether to clear the text file when taking off live (default: true)
+}
+
 export interface LiveTestimoniesSettings {
   firebaseConfig: FirebaseConfig | null;
   liveTestimonyOutputPath: string;
   liveTestimonyFileName: string;
   nameFormatting: NameFormattingConfig;
+  proPresenterActivation?: LiveTestimonyProPresenterConfig;
 }

@@ -10,21 +10,31 @@ import {
   FaUpload,
   FaCog,
   FaLink,
+  FaMagic,
+  FaCaretDown,
+  FaCloud,
+  FaFile,
 } from "react-icons/fa";
 import {
   ScheduleItem,
   TimeAdjustmentMode,
+  ScheduleItemAutomation,
 } from "../types/propresenter";
 import {
   getEnabledConnections,
+  triggerPresentationOnConnections,
 } from "../services/propresenterService";
 import { processAIChatMessage, getAvailableProviders } from "../services/scheduleAIService";
 import { formatStageAssistTime, useStageAssist } from "../contexts/StageAssistContext";
 import { getAppSettings } from "../utils/aiConfig";
 import { AIProvider } from "../types";
+import { loadNetworkSyncSettings } from "../services/networkSyncService";
+import { loadLiveSlidesSettings } from "../services/liveSlideService";
 import LoadScheduleModal from "../components/LoadScheduleModal";
 import AIAssistantSettingsModal, { getAIAssistantSettings } from "../components/AIAssistantSettingsModal";
 import RemoteAccessLinkModal from "../components/RemoteAccessLinkModal";
+import ScheduleAutomationModal from "../components/ScheduleAutomationModal";
+import { findMatchingAutomation } from "../utils/testimoniesStorage";
 import "../App.css";
 
 interface ChatMessage {
@@ -121,6 +131,7 @@ const StageAssistPage: React.FC = () => {
     }
   }, [showProviderMenu]);
 
+
   // Toast state
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null);
 
@@ -129,9 +140,102 @@ const StageAssistPage: React.FC = () => {
 
   // Load Schedule Modal state
   const [showLoadScheduleModal, setShowLoadScheduleModal] = useState(false);
+  const [showLoadScheduleDropdown, setShowLoadScheduleDropdown] = useState(false);
+  const loadScheduleDropdownRef = useRef<HTMLDivElement>(null);
+  const [isLoadingFromMaster, setIsLoadingFromMaster] = useState(false);
   
   // Remote Access Link Modal state
   const [showRemoteAccessModal, setShowRemoteAccessModal] = useState(false);
+  
+  // Schedule Automation Modal state
+  const [automationModalItem, setAutomationModalItem] = useState<ScheduleItem | null>(null);
+  
+  // Network sync settings for "Get from Master" feature
+  const networkSyncSettings = loadNetworkSyncSettings();
+  const liveSlidesSettings = loadLiveSlidesSettings();
+  const canLoadFromMaster = 
+    (networkSyncSettings.mode === "slave" || networkSyncSettings.mode === "peer") && 
+    networkSyncSettings.remoteHost.trim() !== "";
+
+  // Close load schedule dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (loadScheduleDropdownRef.current && !loadScheduleDropdownRef.current.contains(event.target as Node)) {
+        setShowLoadScheduleDropdown(false);
+      }
+    };
+
+    if (showLoadScheduleDropdown) {
+      document.addEventListener("mousedown", handleClickOutside);
+      return () => {
+        document.removeEventListener("mousedown", handleClickOutside);
+      };
+    }
+  }, [showLoadScheduleDropdown]);
+
+  // Fetch schedule from master server
+  const handleLoadFromMaster = async () => {
+    if (!canLoadFromMaster) return;
+    
+    setIsLoadingFromMaster(true);
+    setShowLoadScheduleDropdown(false);
+    
+    try {
+      // Use the master's web server port (default 9876 if not available)
+      const masterWebPort = liveSlidesSettings.serverPort || 9876;
+      const masterHost = networkSyncSettings.remoteHost;
+      const url = `http://${masterHost}:${masterWebPort}/api/schedule`;
+      
+      const response = await fetch(url, {
+        method: "GET",
+        headers: {
+          "Accept": "application/json",
+        },
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch schedule: ${response.status} ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      
+      if (!data.schedule || !Array.isArray(data.schedule)) {
+        throw new Error("Invalid schedule data received from master");
+      }
+      
+      // Transform snake_case from API to camelCase used in frontend
+      const transformedSchedule: ScheduleItem[] = data.schedule.map((item: {
+        id: number;
+        session: string;
+        start_time: string;
+        end_time: string;
+        duration: string;
+        minister?: string;
+      }) => ({
+        id: item.id,
+        session: item.session,
+        startTime: item.start_time,
+        endTime: item.end_time,
+        duration: item.duration,
+        minister: item.minister,
+      }));
+      
+      setSchedule(transformedSchedule);
+      
+      // Update current session index if provided
+      if (typeof data.currentSessionIndex === "number") {
+        setCurrentSessionIndex(data.currentSessionIndex);
+      }
+      
+      showToast(`Successfully loaded ${transformedSchedule.length} schedule items from master`, "success");
+    } catch (error) {
+      console.error("Failed to load schedule from master:", error);
+      const message = error instanceof Error ? error.message : "Unknown error";
+      showToast(`Failed to load from master: ${message}`, "error");
+    } finally {
+      setIsLoadingFromMaster(false);
+    }
+  };
 
   // Load connection count on mount
   useEffect(() => {
@@ -276,7 +380,67 @@ const StageAssistPage: React.FC = () => {
     } else if (result.errors.length > 0) {
       showToast(result.errors[0], "error");
     }
+    
+    // Trigger ProPresenter automation if configured
+    if (session.automation) {
+      try {
+        const automationResult = await triggerPresentationOnConnections(
+          {
+            presentationUuid: session.automation.presentationUuid,
+            slideIndex: session.automation.slideIndex,
+          },
+          undefined, // Use all enabled connections
+          session.automation.activationClicks || 1,
+          100 // 100ms delay between clicks
+        );
+        if (automationResult.success > 0) {
+          console.log(`Session automation: Triggered slide on ${automationResult.success} instance(s)`);
+        }
+        if (automationResult.failed > 0) {
+          console.warn(`Session automation: Failed on ${automationResult.failed} instance(s):`, automationResult.errors);
+        }
+      } catch (err) {
+        console.error("Failed to trigger session automation:", err);
+        // Don't block the session start if automation fails
+      }
+    }
   };
+  
+  // Save automation for a schedule item
+  const handleSaveAutomation = (itemId: number, automation: ScheduleItemAutomation | undefined) => {
+    setSchedule((prev) =>
+      prev.map((item) =>
+        item.id === itemId ? { ...item, automation } : item
+      )
+    );
+    if (automation) {
+      showToast("Automation saved", "success");
+    } else {
+      showToast("Automation removed", "info");
+    }
+  };
+  
+  // Apply smart automations when schedule changes
+  useEffect(() => {
+    // Check each schedule item for matching smart rules
+    setSchedule((prev) => {
+      let hasChanges = false;
+      const updated = prev.map((item) => {
+        // Skip if already has automation
+        if (item.automation) return item;
+        
+        // Check for matching smart rule
+        const matchingAutomation = findMatchingAutomation(item.session);
+        if (matchingAutomation) {
+          hasChanges = true;
+          return { ...item, automation: matchingAutomation };
+        }
+        return item;
+      });
+      
+      return hasChanges ? updated : prev;
+    });
+  }, [schedule.length]); // Re-run when schedule items are added
 
   // Start countdown timer
   const handleStartCountdown = async () => {
@@ -589,24 +753,120 @@ const StageAssistPage: React.FC = () => {
       >
         <h1 style={{ margin: 0, fontSize: "1.5rem", fontWeight: 700 }}>Timer</h1>
         <div style={{ display: "flex", gap: "var(--spacing-2)", alignItems: "center" }}>
-          <button
-            onClick={() => setShowLoadScheduleModal(true)}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "6px",
-              padding: "6px 12px",
-              backgroundColor: "var(--app-primary-color)",
-              color: "white",
-              border: "none",
-              borderRadius: "6px",
-              cursor: "pointer",
-              fontSize: "0.875rem",
-              fontWeight: 500,
-            }}
+          {/* Load Schedule Dropdown */}
+          <div 
+            ref={loadScheduleDropdownRef}
+            style={{ position: "relative" }}
           >
-            <FaUpload /> Load Schedule
-          </button>
+            <button
+              onClick={() => setShowLoadScheduleDropdown(!showLoadScheduleDropdown)}
+              disabled={isLoadingFromMaster}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "6px",
+                padding: "6px 12px",
+                backgroundColor: "var(--app-primary-color)",
+                color: "white",
+                border: "none",
+                borderRadius: "6px",
+                cursor: isLoadingFromMaster ? "wait" : "pointer",
+                fontSize: "0.875rem",
+                fontWeight: 500,
+                opacity: isLoadingFromMaster ? 0.7 : 1,
+              }}
+            >
+              <FaUpload /> 
+              {isLoadingFromMaster ? "Loading..." : "Load Schedule"} 
+              <FaCaretDown style={{ marginLeft: "4px" }} />
+            </button>
+            
+            {showLoadScheduleDropdown && (
+              <div
+                style={{
+                  position: "absolute",
+                  top: "100%",
+                  right: 0,
+                  marginTop: "4px",
+                  backgroundColor: "var(--app-bg-color)",
+                  border: "1px solid var(--app-border-color)",
+                  borderRadius: "8px",
+                  boxShadow: "0 4px 12px rgba(0,0,0,0.2)",
+                  zIndex: 100,
+                  minWidth: "180px",
+                  overflow: "hidden",
+                }}
+              >
+                <button
+                  onClick={() => {
+                    setShowLoadScheduleDropdown(false);
+                    setShowLoadScheduleModal(true);
+                  }}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px",
+                    width: "100%",
+                    padding: "10px 14px",
+                    backgroundColor: "transparent",
+                    color: "var(--app-text-color)",
+                    border: "none",
+                    borderBottom: "1px solid var(--app-border-color)",
+                    cursor: "pointer",
+                    fontSize: "0.875rem",
+                    textAlign: "left",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.backgroundColor = "var(--app-hover-bg-color)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = "transparent";
+                  }}
+                >
+                  <FaFile style={{ opacity: 0.7 }} /> Load from File
+                </button>
+                <button
+                  onClick={handleLoadFromMaster}
+                  disabled={!canLoadFromMaster}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px",
+                    width: "100%",
+                    padding: "10px 14px",
+                    backgroundColor: "transparent",
+                    color: canLoadFromMaster ? "var(--app-text-color)" : "var(--app-text-color-secondary)",
+                    border: "none",
+                    cursor: canLoadFromMaster ? "pointer" : "not-allowed",
+                    fontSize: "0.875rem",
+                    textAlign: "left",
+                    opacity: canLoadFromMaster ? 1 : 0.5,
+                  }}
+                  onMouseEnter={(e) => {
+                    if (canLoadFromMaster) {
+                      e.currentTarget.style.backgroundColor = "var(--app-hover-bg-color)";
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = "transparent";
+                  }}
+                  title={!canLoadFromMaster ? "Configure network sync as slave/peer with a remote host in Settings → Network" : ""}
+                >
+                  <FaCloud style={{ opacity: 0.7 }} /> 
+                  Get Latest from Master
+                  {!canLoadFromMaster && (
+                    <span style={{ 
+                      fontSize: "0.7rem", 
+                      marginLeft: "auto",
+                      color: "var(--app-text-color-secondary)",
+                    }}>
+                      (Not configured)
+                    </span>
+                  )}
+                </button>
+              </div>
+            )}
+          </div>
           <button
             onClick={() => setShowRemoteAccessModal(true)}
             style={{
@@ -1172,6 +1432,25 @@ const StageAssistPage: React.FC = () => {
                     >
                       Delete
                     </button>
+                    <button
+                      onClick={() => setAutomationModalItem(item)}
+                      title={item.automation ? `Automation: ${item.automation.presentationName || "Configured"}` : "Configure automation"}
+                      style={{
+                        padding: "var(--spacing-2) var(--spacing-3)",
+                        backgroundColor: item.automation ? "rgb(147, 51, 234)" : "var(--app-button-bg-color)",
+                        color: item.automation ? "white" : "var(--app-button-text-color)",
+                        border: item.automation ? "none" : "1px solid var(--app-border-color)",
+                        borderRadius: "6px",
+                        cursor: "pointer",
+                        fontWeight: 500,
+                        fontSize: "0.875rem",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "4px",
+                      }}
+                    >
+                      <FaMagic style={{ fontSize: "0.75rem" }} />
+                    </button>
                   </div>
                 </td>
               </tr>
@@ -1587,6 +1866,17 @@ const StageAssistPage: React.FC = () => {
         isOpen={showRemoteAccessModal}
         onClose={() => setShowRemoteAccessModal(false)}
       />
+
+      {/* Schedule Automation Modal */}
+      {automationModalItem && (
+        <ScheduleAutomationModal
+          isOpen={!!automationModalItem}
+          onClose={() => setAutomationModalItem(null)}
+          onSave={(automation) => handleSaveAutomation(automationModalItem.id, automation)}
+          currentAutomation={automationModalItem.automation}
+          sessionName={automationModalItem.session}
+        />
+      )}
     </div>
   );
 };

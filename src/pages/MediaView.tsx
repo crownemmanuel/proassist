@@ -15,6 +15,7 @@ import {
   loadFirebaseConfig,
   loadLiveTestimoniesSettings,
 } from "../utils/testimoniesStorage";
+import { triggerPresentationOnConnections } from "../services/propresenterService";
 import "../App.css";
 
 function getTodayDate(): string {
@@ -252,6 +253,28 @@ const MediaView: React.FC = () => {
         content: formattedName,
       });
 
+      // Trigger ProPresenter presentation if configured
+      if (settings.proPresenterActivation) {
+        const { presentationUuid, slideIndex, activationClicks } = settings.proPresenterActivation;
+        try {
+          const result = await triggerPresentationOnConnections(
+            { presentationUuid, slideIndex },
+            undefined, // Use all enabled connections
+            activationClicks || 1,
+            100 // 100ms delay between clicks
+          );
+          if (result.success > 0) {
+            console.log(`Testimony live: ProPresenter triggered on ${result.success} instance(s)`);
+          }
+          if (result.failed > 0) {
+            console.warn(`Testimony live: ProPresenter failed on ${result.failed} instance(s):`, result.errors);
+          }
+        } catch (err) {
+          console.error("Failed to trigger ProPresenter for testimony:", err);
+          // Don't block the live action if ProPresenter fails
+        }
+      }
+
       setCurrentLive({
         testimonyId: testimony.id,
         displayName: formattedName,
@@ -310,16 +333,42 @@ const MediaView: React.FC = () => {
     try {
       await clearLiveTestimony(firebaseConfig);
       
-      // Clear the text file
+      // Clear the text file only if configured to do so
       const settings = loadLiveTestimoniesSettings();
-      const filePath = `${settings.liveTestimonyOutputPath.replace(/\/?$/, "/")}${
-        settings.liveTestimonyFileName
-      }`;
+      const shouldClearFile = settings.proPresenterActivation?.clearTextFileOnTakeOff !== false; // Default to true if not set
+      
+      if (shouldClearFile) {
+        const filePath = `${settings.liveTestimonyOutputPath.replace(/\/?$/, "/")}${
+          settings.liveTestimonyFileName
+        }`;
 
-      await invoke("write_text_to_file", {
-        filePath,
-        content: "",
-      });
+        await invoke("write_text_to_file", {
+          filePath,
+          content: "",
+        });
+      }
+
+      // Trigger ProPresenter take-off clicks if configured
+      if (settings.proPresenterActivation && settings.proPresenterActivation.takeOffClicks > 0) {
+        const { presentationUuid, slideIndex, takeOffClicks } = settings.proPresenterActivation;
+        try {
+          const result = await triggerPresentationOnConnections(
+            { presentationUuid, slideIndex },
+            undefined, // Use all enabled connections
+            takeOffClicks,
+            100 // 100ms delay between clicks
+          );
+          if (result.success > 0) {
+            console.log(`Testimony cleared: ProPresenter triggered on ${result.success} instance(s)`);
+          }
+          if (result.failed > 0) {
+            console.warn(`Testimony cleared: ProPresenter failed on ${result.failed} instance(s):`, result.errors);
+          }
+        } catch (err) {
+          console.error("Failed to trigger ProPresenter on clear:", err);
+          // Don't block the clear action if ProPresenter fails
+        }
+      }
 
       setCurrentLive(null);
     } catch (error) {
@@ -690,24 +739,43 @@ const MediaView: React.FC = () => {
                   >
                     {isCopied ? "Copied!" : "Copy Name"}
                   </button>
-                  <button
-                    onClick={() => handleSetLive(testimony)}
-                    disabled={isLive}
-                    style={{
-                      padding: "var(--spacing-2) var(--spacing-4)",
-                      fontWeight: 500,
-                      borderRadius: "8px",
-                      border: "none",
-                      cursor: isLive ? "default" : "pointer",
-                      backgroundColor: isLive
-                        ? "rgb(220, 38, 38)"
-                        : "rgb(147, 51, 234)",
-                      color: "white",
-                      opacity: isLive ? 0.7 : 1,
-                    }}
-                  >
-                    Live
-                  </button>
+                  {!isLive ? (
+                    <button
+                      onClick={() => handleSetLive(testimony)}
+                      style={{
+                        padding: "var(--spacing-2) var(--spacing-4)",
+                        fontWeight: 500,
+                        borderRadius: "8px",
+                        border: "none",
+                        cursor: "pointer",
+                        backgroundColor: "rgb(147, 51, 234)",
+                        color: "white",
+                      }}
+                    >
+                      Live
+                    </button>
+                  ) : (
+                    <button
+                      onClick={handleClearLive}
+                      style={{
+                        padding: "var(--spacing-2) var(--spacing-4)",
+                        fontWeight: 500,
+                        borderRadius: "8px",
+                        border: "none",
+                        cursor: "pointer",
+                        backgroundColor: "rgb(220, 38, 38)",
+                        color: "white",
+                      }}
+                      onMouseOver={(e) => {
+                        e.currentTarget.style.backgroundColor = "rgb(185, 28, 28)";
+                      }}
+                      onMouseOut={(e) => {
+                        e.currentTarget.style.backgroundColor = "rgb(220, 38, 38)";
+                      }}
+                    >
+                      Off Live
+                    </button>
+                  )}
                 </div>
               </div>
             );

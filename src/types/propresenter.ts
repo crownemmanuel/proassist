@@ -82,6 +82,7 @@ export interface ScheduleItem {
   endTime: string;
   duration: string;
   minister?: string;
+  automation?: ScheduleItemAutomation; // Optional ProPresenter slide trigger on start
 }
 
 export interface TimerState {
@@ -101,4 +102,21 @@ export interface AIScheduleResponse {
   action: "none" | "SetCountDown" | "CountDownToTime" | "UpdateSchedule";
   actionValue?: number | string | ScheduleItem[];
   responseText: string;
+}
+
+// Schedule item automation configuration
+export interface ScheduleItemAutomation {
+  presentationUuid: string;
+  slideIndex: number;
+  presentationName?: string;
+  activationClicks?: number; // Number of clicks when starting (default: 1)
+}
+
+// Smart automation rule - trigger based on session name matching
+export interface SmartAutomationRule {
+  id: string;
+  sessionNamePattern: string; // The session name to match (case-insensitive)
+  isExactMatch: boolean; // True for exact match, false for contains match
+  automation: ScheduleItemAutomation;
+  createdAt: number;
 }

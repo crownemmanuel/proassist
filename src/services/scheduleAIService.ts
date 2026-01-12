@@ -11,6 +11,7 @@ import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { ScheduleItem, AIScheduleResponse } from "../types/propresenter";
 import { AIProvider } from "../types";
 import { getAppSettings } from "../utils/aiConfig";
+import { loadSmartAutomations } from "../utils/testimoniesStorage";
 
 // Storage key for AI Assistant settings
 const AI_ASSISTANT_SETTINGS_KEY = "proassist-ai-assistant-settings";
@@ -36,7 +37,7 @@ function getAIAssistantSettings(): AIAssistantSettings {
 }
 
 /**
- * Build the complete system prompt including custom prompts
+ * Build the complete system prompt including custom prompts and smart automations
  */
 function buildSystemPrompt(currentSchedule?: ScheduleItem[]): string {
   const settings = getAIAssistantSettings();
@@ -46,10 +47,26 @@ function buildSystemPrompt(currentSchedule?: ScheduleItem[]): string {
     ? `\n\nCurrent schedule: ${JSON.stringify(currentSchedule)}`
     : "";
   
+  // Include smart automations in context
+  const smartAutomations = loadSmartAutomations();
+  const automationsContext = smartAutomations.length > 0
+    ? `\n\nSaved ProPresenter slide automations that can be attached to schedule items:\n${JSON.stringify(smartAutomations.map(r => ({
+        pattern: r.sessionNamePattern,
+        matchType: r.isExactMatch ? "exact" : "contains",
+        presentationUuid: r.automation.presentationUuid,
+        slideIndex: r.automation.slideIndex,
+        presentationName: r.automation.presentationName,
+      })), null, 2)}`
+    : "";
+  
   let finalPrompt = SYSTEM_PROMPT;
   
   if (customPrompt) {
     finalPrompt = finalPrompt + "\n\n" + customPrompt;
+  }
+  
+  if (automationsContext) {
+    finalPrompt = finalPrompt + automationsContext;
   }
   
   if (contextPrompt) {
@@ -170,9 +187,18 @@ For UpdateSchedule, actionValue should be an array of schedule items with this s
     "startTime": "HH:MM AM/PM",
     "endTime": "HH:MM AM/PM",
     "duration": "XXmins",
-    "minister": "Optional Minister Name"
+    "minister": "Optional Minister Name",
+    "automation": {
+      "presentationUuid": "UUID of ProPresenter presentation",
+      "slideIndex": number,
+      "presentationName": "Optional presentation name",
+      "activationClicks": number (optional, default 1)
+    }
   }
 ]
+
+The "automation" field is optional and is used to trigger a ProPresenter slide when the session starts.
+If you have saved automations in context, you can attach them to matching schedule items.
 
 When creating or modifying a schedule:
 1. Extract all session/event names
@@ -181,8 +207,11 @@ When creating or modifying a schedule:
 4. Include minister/speaker names if available
 5. Assign sequential IDs starting from 1
 6. Ensure times are sequential (each session's startTime should match the previous session's endTime)
+7. If saved automations are available and match a session name, include the automation field
 
-You will receive the current schedule as context. When modifying the schedule, preserve existing IDs and structure where possible.`;
+You will receive the current schedule and any saved ProPresenter slide automations as context. 
+When modifying the schedule, preserve existing IDs and structure where possible.
+When matching automations to sessions, use case-insensitive matching.`;
 
 /**
  * Parse a schedule from an image using AI vision

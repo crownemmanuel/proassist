@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
-import { FirebaseConfig, LiveTestimoniesSettings as LiveTestimoniesSettingsType, NameFormattingType } from "../types/testimonies";
+import { FaDesktop, FaCheck, FaTimes, FaSpinner } from "react-icons/fa";
+import { FirebaseConfig, LiveTestimoniesSettings as LiveTestimoniesSettingsType, NameFormattingType, LiveTestimonyProPresenterConfig } from "../types/testimonies";
 import {
   saveFirebaseConfig,
   loadLiveTestimoniesSettings,
@@ -7,6 +8,10 @@ import {
 } from "../utils/testimoniesStorage";
 import { formatNameForCopy } from "../utils/nameUtils";
 import ImportFirebaseConfigModal from "./ImportFirebaseConfigModal";
+import {
+  getEnabledConnections,
+  getCurrentSlideIndex,
+} from "../services/propresenterService";
 import "../App.css";
 
 const LiveTestimoniesSettings: React.FC = () => {
@@ -25,6 +30,15 @@ const LiveTestimoniesSettings: React.FC = () => {
     type: "success" | "error" | "";
   }>({ text: "", type: "" });
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  
+  // ProPresenter activation state
+  const [proPresenterConfig, setProPresenterConfig] = useState<LiveTestimonyProPresenterConfig | null>(null);
+  const [isLoadingSlide, setIsLoadingSlide] = useState(false);
+  const [slideLoadError, setSlideLoadError] = useState<string | null>(null);
+  const [slideLoadSuccess, setSlideLoadSuccess] = useState(false);
+  const [activationClicks, setActivationClicks] = useState<number>(1);
+  const [takeOffClicks, setTakeOffClicks] = useState<number>(0);
+  const [clearTextFileOnTakeOff, setClearTextFileOnTakeOff] = useState<boolean>(true);
 
   useEffect(() => {
     const settings = loadLiveTestimoniesSettings();
@@ -33,7 +47,62 @@ const LiveTestimoniesSettings: React.FC = () => {
     setFileName(settings.liveTestimonyFileName);
     setNameFormattingType(settings.nameFormatting?.type || "default");
     setCustomLogic(settings.nameFormatting?.customLogic || "");
+    if (settings.proPresenterActivation) {
+      setProPresenterConfig(settings.proPresenterActivation);
+      setActivationClicks(settings.proPresenterActivation.activationClicks ?? 1);
+      setTakeOffClicks(settings.proPresenterActivation.takeOffClicks ?? 0);
+      setClearTextFileOnTakeOff(settings.proPresenterActivation.clearTextFileOnTakeOff !== false); // Default to true
+    }
   }, []);
+  
+  const handleGetSlide = async () => {
+    setIsLoadingSlide(true);
+    setSlideLoadError(null);
+    setSlideLoadSuccess(false);
+
+    const enabledConnections = getEnabledConnections();
+    if (enabledConnections.length === 0) {
+      setSlideLoadError("No enabled ProPresenter connections found. Please enable at least one connection in Settings > ProPresenter.");
+      setIsLoadingSlide(false);
+      return;
+    }
+
+    // Try each enabled connection until one succeeds
+    let lastError: string | null = null;
+    for (const connection of enabledConnections) {
+      try {
+        const slideIndexData = await getCurrentSlideIndex(connection);
+        if (slideIndexData?.presentation_index) {
+          const config: LiveTestimonyProPresenterConfig = {
+            presentationUuid: slideIndexData.presentation_index.presentation_id.uuid,
+            slideIndex: slideIndexData.presentation_index.index,
+            presentationName: slideIndexData.presentation_index.presentation_id.name,
+            activationClicks: activationClicks,
+            takeOffClicks: takeOffClicks,
+            clearTextFileOnTakeOff: clearTextFileOnTakeOff,
+          };
+          setProPresenterConfig(config);
+          setSlideLoadSuccess(true);
+          setIsLoadingSlide(false);
+          return;
+        }
+      } catch (err) {
+        lastError = err instanceof Error ? err.message : "Failed to get slide index";
+      }
+    }
+
+    setSlideLoadError(
+      lastError ||
+        "Failed to get slide index from any ProPresenter connection. Make sure ProPresenter is running and the slide is live."
+    );
+    setIsLoadingSlide(false);
+  };
+
+  const handleRemoveProPresenterConfig = () => {
+    setProPresenterConfig(null);
+    setSlideLoadSuccess(false);
+    setSlideLoadError(null);
+  };
 
   const handleFirebaseConfigChange = (
     field: keyof FirebaseConfig,
@@ -105,6 +174,16 @@ const LiveTestimoniesSettings: React.FC = () => {
         throw new Error("Custom logic is required when not using default formatting");
       }
 
+      // Build ProPresenter config if set
+      const proPresenterActivation = proPresenterConfig
+        ? {
+            ...proPresenterConfig,
+            activationClicks: activationClicks,
+            takeOffClicks: takeOffClicks,
+            clearTextFileOnTakeOff: clearTextFileOnTakeOff,
+          }
+        : undefined;
+
       // Save settings
       const settings: LiveTestimoniesSettingsType = {
         firebaseConfig,
@@ -114,6 +193,7 @@ const LiveTestimoniesSettings: React.FC = () => {
           type: nameFormattingType,
           customLogic: nameFormattingType !== "default" ? customLogic.trim() : undefined,
         },
+        proPresenterActivation,
       };
       saveLiveTestimoniesSettings(settings);
 
@@ -484,6 +564,205 @@ const LiveTestimoniesSettings: React.FC = () => {
               </ul>
             </div>
           )}
+        </div>
+      </div>
+
+      {/* ProPresenter Activation */}
+      <div style={{ marginBottom: "var(--spacing-5)" }}>
+        <h3 style={{ marginBottom: "var(--spacing-3)", display: "flex", alignItems: "center", gap: "8px" }}>
+          <FaDesktop />
+          ProPresenter Activation
+        </h3>
+        <p style={{ marginBottom: "var(--spacing-3)", fontSize: "0.9em", color: "var(--app-text-color-secondary)" }}>
+          Optionally trigger a ProPresenter presentation when a testimony goes live or when cleared.
+          This is useful for showing a graphic overlay when testimonies are being given.
+        </p>
+
+        <div
+          style={{
+            padding: "var(--spacing-3)",
+            backgroundColor: "var(--app-input-bg-color)",
+            borderRadius: "8px",
+            border: "1px solid var(--app-border-color)",
+          }}
+        >
+          <p style={{ margin: "0 0 12px 0", color: "var(--app-text-color)", fontSize: "0.9em" }}>
+            <strong>Instructions:</strong> Go to ProPresenter and put the slide you want to trigger live, then click "Get Slide".
+          </p>
+
+          {slideLoadError && (
+            <div
+              style={{
+                marginBottom: "12px",
+                padding: "10px",
+                backgroundColor: "rgba(220, 38, 38, 0.1)",
+                border: "1px solid rgba(220, 38, 38, 0.3)",
+                borderRadius: "6px",
+                color: "#ef4444",
+                fontSize: "0.9em",
+              }}
+            >
+              {slideLoadError}
+            </div>
+          )}
+
+          {slideLoadSuccess && proPresenterConfig && (
+            <div
+              style={{
+                marginBottom: "12px",
+                padding: "10px",
+                backgroundColor: "rgba(34, 197, 94, 0.1)",
+                border: "1px solid rgba(34, 197, 94, 0.3)",
+                borderRadius: "6px",
+                color: "#22c55e",
+                fontSize: "0.9em",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <FaCheck />
+                <div>
+                  <div style={{ fontWeight: 600 }}>Slide captured!</div>
+                  <div style={{ fontSize: "0.85em", marginTop: "4px", opacity: 0.9 }}>
+                    Presentation: {proPresenterConfig.presentationName || proPresenterConfig.presentationUuid}
+                    <br />
+                    Slide Index: {proPresenterConfig.slideIndex}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {proPresenterConfig && !slideLoadSuccess && (
+            <div
+              style={{
+                marginBottom: "12px",
+                padding: "10px",
+                backgroundColor: "var(--app-header-bg)",
+                border: "1px solid var(--app-border-color)",
+                borderRadius: "6px",
+                fontSize: "0.9em",
+                color: "var(--app-text-color-secondary)",
+              }}
+            >
+              <div style={{ fontWeight: 600, marginBottom: "4px" }}>Current Configuration:</div>
+              <div>
+                Presentation: {proPresenterConfig.presentationName || proPresenterConfig.presentationUuid}
+                <br />
+                Slide Index: {proPresenterConfig.slideIndex}
+              </div>
+            </div>
+          )}
+
+          {/* Click Settings */}
+          {proPresenterConfig && (
+            <div
+              style={{
+                marginBottom: "12px",
+                padding: "10px",
+                backgroundColor: "var(--app-header-bg)",
+                border: "1px solid var(--app-border-color)",
+                borderRadius: "6px",
+              }}
+            >
+              <div style={{ fontSize: "0.85em", fontWeight: 600, marginBottom: "8px", color: "var(--app-text-color)" }}>
+                Animation Trigger Settings:
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+                <div>
+                  <label style={{ fontSize: "0.8em", display: "block", marginBottom: "4px", color: "var(--app-text-color-secondary)" }}>
+                    Go Live Clicks:
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={activationClicks}
+                    onChange={(e) => setActivationClicks(Math.max(1, parseInt(e.target.value) || 1))}
+                    style={{
+                      width: "100%",
+                      padding: "4px 6px",
+                      fontSize: "0.85em",
+                      backgroundColor: "var(--app-input-bg-color)",
+                      color: "var(--app-input-text-color)",
+                      border: "1px solid var(--app-border-color)",
+                      borderRadius: "4px",
+                    }}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: "0.8em", display: "block", marginBottom: "4px", color: "var(--app-text-color-secondary)" }}>
+                    Clear/Off Live Clicks:
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={takeOffClicks}
+                    onChange={(e) => setTakeOffClicks(Math.max(0, parseInt(e.target.value) || 0))}
+                    style={{
+                      width: "100%",
+                      padding: "4px 6px",
+                      fontSize: "0.85em",
+                      backgroundColor: "var(--app-input-bg-color)",
+                      color: "var(--app-input-text-color)",
+                      border: "1px solid var(--app-border-color)",
+                      borderRadius: "4px",
+                    }}
+                  />
+                </div>
+              </div>
+              <div style={{ fontSize: "0.75em", color: "var(--app-text-color-secondary)", marginTop: "6px" }}>
+                Use multiple clicks to trigger ProPresenter animations. "Go Live Clicks" triggers when a testimony is set live. "Clear/Off Live Clicks" triggers when clearing the live testimony.
+              </div>
+              
+              {/* Clear Text File on Take Off Option */}
+              <div style={{ marginTop: "var(--spacing-3)", paddingTop: "var(--spacing-3)", borderTop: "1px solid var(--app-border-color)" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "var(--spacing-2)" }}>
+                  <input
+                    type="checkbox"
+                    id="clearTextFileOnTakeOff"
+                    checked={clearTextFileOnTakeOff}
+                    onChange={(e) => setClearTextFileOnTakeOff(e.target.checked)}
+                    style={{ width: "auto", margin: 0 }}
+                  />
+                  <label
+                    htmlFor="clearTextFileOnTakeOff"
+                    style={{ margin: 0, cursor: "pointer", fontWeight: 500, fontSize: "0.9em" }}
+                  >
+                    Clear text file when taking off live
+                  </label>
+                </div>
+                <div style={{ fontSize: "0.75em", color: "var(--app-text-color-secondary)", marginTop: "4px", marginLeft: "24px" }}>
+                  If unchecked, the text file will remain unchanged when clearing a live testimony. Only the ProPresenter slide will be triggered.
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div style={{ display: "flex", gap: "10px" }}>
+            <button
+              onClick={handleGetSlide}
+              disabled={isLoadingSlide}
+              className="secondary"
+              style={{ minWidth: "140px" }}
+            >
+              {isLoadingSlide ? (
+                <>
+                  <FaSpinner style={{ animation: "spin 1s linear infinite", marginRight: "6px" }} />
+                  Reading...
+                </>
+              ) : (
+                <>
+                  <FaDesktop style={{ marginRight: "6px" }} />
+                  Get Slide
+                </>
+              )}
+            </button>
+            {proPresenterConfig && (
+              <button onClick={handleRemoveProPresenterConfig} className="secondary">
+                <FaTimes style={{ marginRight: "6px" }} />
+                Remove
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
