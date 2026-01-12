@@ -2,6 +2,15 @@
 
 All notable changes to ProAssist will be documented in this file.
 
+## [0.3.3] - 2025-01-12
+
+### Added
+- Vision model recommendations in Timer Assistant settings that dynamically suggest appropriate models based on selected provider
+- Helpful tips for Groq (Llama 4 Scout/Maverick), Gemini (1.5 Flash/Pro, 2.0 Flash), and OpenAI (GPT-4o, GPT-4o mini, GPT-4 Turbo)
+
+### Changed
+- Enhanced Timer Assistant settings UI with contextual model recommendations for better user guidance
+
 ## [0.3.2] - 2025-01-XX
 
 ### Fixed
