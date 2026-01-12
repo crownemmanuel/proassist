@@ -10,13 +10,16 @@ import {
 import "../App.css";
 import IconPickerModal from "./IconPickerModal";
 import GenerateAIPromptModal from "./GenerateAIPromptModal";
+import ActivatePresentationModal from "./ActivatePresentationModal";
 import { fetchGeminiModels, fetchOpenAIModels } from "../services/aiService";
 import { getAppSettings } from "../utils/aiConfig";
 import {
   DEFAULT_JAVASCRIPT_CODE,
   DEFAULT_REGEX_CODE,
 } from "../utils/templateDefaults";
-import { FaArrowLeft } from "react-icons/fa";
+import { FaArrowLeft, FaDesktop, FaChevronDown, FaChevronRight } from "react-icons/fa";
+import { loadProPresenterConnections } from "../services/propresenterService";
+import { ProPresenterActivationConfig } from "../types/propresenter";
 
 interface SettingsDetailProps {
   template: Template;
@@ -64,6 +67,34 @@ const SettingsDetail: React.FC<SettingsDetailProps> = ({
   const [scriptureTextFileIndex, setScriptureTextFileIndex] = useState<number | undefined>(
     template.scriptureTextFileIndex
   );
+  // ProPresenter activation settings
+  const [proPresenterActivation, setProPresenterActivation] = useState<ProPresenterActivationConfig | undefined>(
+    template.proPresenterActivation
+  );
+  const [proPresenterConnectionIds, setProPresenterConnectionIds] = useState<string[]>(
+    template.proPresenterConnectionIds || []
+  );
+  const [proPresenterActivationClicks, setProPresenterActivationClicks] = useState<number>(
+    template.proPresenterActivationClicks ?? 1
+  );
+  const [proPresenterTakeOffClicks, setProPresenterTakeOffClicks] = useState<number>(
+    template.proPresenterTakeOffClicks ?? 0
+  );
+  const [clearTextAfterLive, setClearTextAfterLive] = useState<boolean>(
+    template.clearTextAfterLive ?? false
+  );
+  const [clearTextDelay, setClearTextDelay] = useState<number>(
+    template.clearTextDelay ?? 0
+  );
+  const [autoLoadBibleVerses, setAutoLoadBibleVerses] = useState<boolean>(
+    template.autoLoadBibleVerses ?? false
+  );
+  const [isActivatePresentationModalOpen, setIsActivatePresentationModalOpen] = useState(false);
+  const [proPresenterConnections] = useState(() => loadProPresenterConnections());
+  
+  // Collapsible section states - collapsed by default to keep UI clean
+  const [isScriptureSettingsCollapsed, setIsScriptureSettingsCollapsed] = useState(true);
+  const [isProPresenterCollapsed, setIsProPresenterCollapsed] = useState(true);
 
   const appSettings = useMemo(() => getAppSettings(), []);
   const hasOpenAI = !!appSettings.openAIConfig?.apiKey;
@@ -111,6 +142,13 @@ const SettingsDetail: React.FC<SettingsDetailProps> = ({
       setAiModel(template.aiModel);
       setScriptureReferenceFileIndex(template.scriptureReferenceFileIndex);
       setScriptureTextFileIndex(template.scriptureTextFileIndex);
+      setProPresenterActivation(template.proPresenterActivation);
+      setProPresenterConnectionIds(template.proPresenterConnectionIds || []);
+      setProPresenterActivationClicks(template.proPresenterActivationClicks ?? 1);
+      setProPresenterTakeOffClicks(template.proPresenterTakeOffClicks ?? 0);
+      setClearTextAfterLive(template.clearTextAfterLive ?? false);
+      setClearTextDelay(template.clearTextDelay ?? 0);
+      setAutoLoadBibleVerses(template.autoLoadBibleVerses ?? false);
     }
   }, [template]);
 
@@ -210,6 +248,13 @@ const SettingsDetail: React.FC<SettingsDetailProps> = ({
       aiModel: processingType === "ai" ? aiModel : undefined,
       scriptureReferenceFileIndex,
       scriptureTextFileIndex,
+      proPresenterActivation,
+      proPresenterConnectionIds: proPresenterConnectionIds.length > 0 ? proPresenterConnectionIds : undefined,
+      proPresenterActivationClicks: proPresenterActivationClicks > 1 ? proPresenterActivationClicks : undefined,
+      proPresenterTakeOffClicks: proPresenterTakeOffClicks !== 0 ? proPresenterTakeOffClicks : undefined, // Save if not default (0)
+      clearTextAfterLive: clearTextAfterLive || undefined,
+      clearTextDelay: clearTextAfterLive && clearTextDelay > 0 ? clearTextDelay : undefined,
+      autoLoadBibleVerses: autoLoadBibleVerses || undefined,
     });
   };
 
@@ -571,66 +616,335 @@ const SettingsDetail: React.FC<SettingsDetailProps> = ({
             />
           </div>
 
-          <div className="settings-detail-section">
-            <h4>Auto-Scripture Output Mapping</h4>
-            <p className="instruction-text" style={{ marginBottom: "15px" }}>
-              Configure which text files receive scripture reference and verse text when going live on auto-generated scripture slides.
-              All other files will be blanked when a scripture slide goes live.
-            </p>
-            <div style={{ display: "flex", gap: "20px", flexWrap: "wrap" }}>
-              <div className="form-group" style={{ flex: "1", minWidth: "150px" }}>
-                <label htmlFor="scripture-reference-index">
-                  Reference File Index:
-                </label>
-                <select
-                  id="scripture-reference-index"
-                  value={scriptureReferenceFileIndex ?? ""}
-                  onChange={(e) =>
-                    setScriptureReferenceFileIndex(
-                      e.target.value ? parseInt(e.target.value, 10) : undefined
-                    )
-                  }
-                  className="select-css"
-                >
-                  <option value="">Not Set</option>
-                  <option value="1">File 1 ({outputFileNamePrefix || "prefix"}1.txt)</option>
-                  <option value="2">File 2 ({outputFileNamePrefix || "prefix"}2.txt)</option>
-                  <option value="3">File 3 ({outputFileNamePrefix || "prefix"}3.txt)</option>
-                  <option value="4">File 4 ({outputFileNamePrefix || "prefix"}4.txt)</option>
-                  <option value="5">File 5 ({outputFileNamePrefix || "prefix"}5.txt)</option>
-                  <option value="6">File 6 ({outputFileNamePrefix || "prefix"}6.txt)</option>
-                </select>
-                <p className="instruction-text">
-                  e.g., "John 3:16"
-                </p>
-              </div>
-              <div className="form-group" style={{ flex: "1", minWidth: "150px" }}>
-                <label htmlFor="scripture-text-index">
-                  Verse Text File Index:
-                </label>
-                <select
-                  id="scripture-text-index"
-                  value={scriptureTextFileIndex ?? ""}
-                  onChange={(e) =>
-                    setScriptureTextFileIndex(
-                      e.target.value ? parseInt(e.target.value, 10) : undefined
-                    )
-                  }
-                  className="select-css"
-                >
-                  <option value="">Not Set</option>
-                  <option value="1">File 1 ({outputFileNamePrefix || "prefix"}1.txt)</option>
-                  <option value="2">File 2 ({outputFileNamePrefix || "prefix"}2.txt)</option>
-                  <option value="3">File 3 ({outputFileNamePrefix || "prefix"}3.txt)</option>
-                  <option value="4">File 4 ({outputFileNamePrefix || "prefix"}4.txt)</option>
-                  <option value="5">File 5 ({outputFileNamePrefix || "prefix"}5.txt)</option>
-                  <option value="6">File 6 ({outputFileNamePrefix || "prefix"}6.txt)</option>
-                </select>
-                <p className="instruction-text">
-                  e.g., "For God so loved..."
-                </p>
-              </div>
+          <div className="settings-detail-section collapsible-section">
+            <div 
+              className="collapsible-header"
+              onClick={() => setIsScriptureSettingsCollapsed(!isScriptureSettingsCollapsed)}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+                cursor: "pointer",
+                userSelect: "none",
+              }}
+            >
+              {isScriptureSettingsCollapsed ? <FaChevronRight size={12} /> : <FaChevronDown size={12} />}
+              <h4 style={{ margin: 0 }}>📖 Scripture Settings</h4>
+              {(autoLoadBibleVerses || scriptureReferenceFileIndex !== undefined || scriptureTextFileIndex !== undefined) && (
+                <span style={{
+                  marginLeft: "8px",
+                  padding: "2px 8px",
+                  borderRadius: "4px",
+                  fontSize: "0.7rem",
+                  fontWeight: 500,
+                  backgroundColor: "rgba(34, 197, 94, 0.2)",
+                  color: "rgb(34, 197, 94)",
+                }}>
+                  CONFIGURED
+                </span>
+              )}
             </div>
+            
+            {!isScriptureSettingsCollapsed && (
+              <div className="collapsible-content" style={{ marginTop: "15px" }}>
+                {/* Bible Auto-Loading */}
+                <div className="form-group">
+                  <label style={{ display: "flex", alignItems: "center", gap: "10px", cursor: "pointer" }}>
+                    <input
+                      type="checkbox"
+                      checked={autoLoadBibleVerses}
+                      onChange={(e) => setAutoLoadBibleVerses(e.target.checked)}
+                      style={{ width: "18px", height: "18px", cursor: "pointer" }}
+                    />
+                    <span style={{ fontWeight: 500 }}>Auto-load Bible verses (KJV) by default</span>
+                  </label>
+                  <p className="instruction-text" style={{ marginTop: "8px", marginLeft: "28px" }}>
+                    When enabled, the "Auto-load Bible verses" option will be pre-checked when importing content using this template.
+                    Scripture references (e.g., "John 3:16") will be detected and verses added as slides automatically.
+                  </p>
+                </div>
+
+                {/* Auto-Scripture Output Mapping */}
+                <div style={{ marginTop: "20px", paddingTop: "15px", borderTop: "1px solid var(--app-border-color)" }}>
+                  <label style={{ fontWeight: 600, marginBottom: "10px", display: "block" }}>Auto-Scripture Output Mapping</label>
+                  <p className="instruction-text" style={{ marginBottom: "15px" }}>
+                    Configure which text files receive scripture reference and verse text when going live on auto-generated scripture slides.
+                    All other files will be blanked when a scripture slide goes live.
+                  </p>
+                  <div style={{ display: "flex", gap: "20px", flexWrap: "wrap" }}>
+                    <div className="form-group" style={{ flex: "1", minWidth: "150px" }}>
+                      <label htmlFor="scripture-reference-index">
+                        Reference File Index:
+                      </label>
+                      <select
+                        id="scripture-reference-index"
+                        value={scriptureReferenceFileIndex ?? ""}
+                        onChange={(e) =>
+                          setScriptureReferenceFileIndex(
+                            e.target.value ? parseInt(e.target.value, 10) : undefined
+                          )
+                        }
+                        className="select-css"
+                      >
+                        <option value="">Not Set</option>
+                        <option value="1">File 1 ({outputFileNamePrefix || "prefix"}1.txt)</option>
+                        <option value="2">File 2 ({outputFileNamePrefix || "prefix"}2.txt)</option>
+                        <option value="3">File 3 ({outputFileNamePrefix || "prefix"}3.txt)</option>
+                        <option value="4">File 4 ({outputFileNamePrefix || "prefix"}4.txt)</option>
+                        <option value="5">File 5 ({outputFileNamePrefix || "prefix"}5.txt)</option>
+                        <option value="6">File 6 ({outputFileNamePrefix || "prefix"}6.txt)</option>
+                      </select>
+                      <p className="instruction-text">
+                        e.g., "John 3:16"
+                      </p>
+                    </div>
+                    <div className="form-group" style={{ flex: "1", minWidth: "150px" }}>
+                      <label htmlFor="scripture-text-index">
+                        Verse Text File Index:
+                      </label>
+                      <select
+                        id="scripture-text-index"
+                        value={scriptureTextFileIndex ?? ""}
+                        onChange={(e) =>
+                          setScriptureTextFileIndex(
+                            e.target.value ? parseInt(e.target.value, 10) : undefined
+                          )
+                        }
+                        className="select-css"
+                      >
+                        <option value="">Not Set</option>
+                        <option value="1">File 1 ({outputFileNamePrefix || "prefix"}1.txt)</option>
+                        <option value="2">File 2 ({outputFileNamePrefix || "prefix"}2.txt)</option>
+                        <option value="3">File 3 ({outputFileNamePrefix || "prefix"}3.txt)</option>
+                        <option value="4">File 4 ({outputFileNamePrefix || "prefix"}4.txt)</option>
+                        <option value="5">File 5 ({outputFileNamePrefix || "prefix"}5.txt)</option>
+                        <option value="6">File 6 ({outputFileNamePrefix || "prefix"}6.txt)</option>
+                      </select>
+                      <p className="instruction-text">
+                        e.g., "For God so loved..."
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="settings-detail-section collapsible-section">
+            <div 
+              className="collapsible-header"
+              onClick={() => setIsProPresenterCollapsed(!isProPresenterCollapsed)}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+                cursor: "pointer",
+                userSelect: "none",
+              }}
+            >
+              {isProPresenterCollapsed ? <FaChevronRight size={12} /> : <FaChevronDown size={12} />}
+              <h4 style={{ margin: 0 }}>
+                <FaDesktop style={{ marginRight: "8px", verticalAlign: "middle" }} />
+                ProPresenter Activation
+              </h4>
+              {proPresenterActivation && (
+                <span style={{
+                  marginLeft: "8px",
+                  padding: "2px 8px",
+                  borderRadius: "4px",
+                  fontSize: "0.7rem",
+                  fontWeight: 500,
+                  backgroundColor: "rgba(34, 197, 94, 0.2)",
+                  color: "rgb(34, 197, 94)",
+                }}>
+                  CONFIGURED
+                </span>
+              )}
+            </div>
+            
+            {!isProPresenterCollapsed && (
+              <div className="collapsible-content" style={{ marginTop: "15px" }}>
+                <p className="instruction-text" style={{ marginBottom: "15px" }}>
+                  Configure which ProPresenter presentation and slide to trigger when slides from this template go live.
+                </p>
+                
+                <div className="form-group">
+                  <label>Presentation Activation:</label>
+                  <div style={{ display: "flex", gap: "10px", alignItems: "center", marginBottom: "10px" }}>
+                    <button
+                      type="button"
+                      onClick={() => setIsActivatePresentationModalOpen(true)}
+                      className="secondary"
+                      style={{ display: "flex", alignItems: "center", gap: "8px" }}
+                    >
+                      <FaDesktop />
+                      {proPresenterActivation
+                        ? `Edit: ${proPresenterActivation.presentationName || proPresenterActivation.presentationUuid} (Slide ${proPresenterActivation.slideIndex})`
+                        : "Set ProPresenter Activation"}
+                    </button>
+                    {proPresenterActivation && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setProPresenterActivation(undefined);
+                          setProPresenterConnectionIds([]);
+                        }}
+                        className="secondary"
+                        style={{ padding: "6px 12px" }}
+                      >
+                        Clear
+                      </button>
+                    )}
+                  </div>
+                  {proPresenterActivation && (
+                    <div
+                      style={{
+                        padding: "10px",
+                        backgroundColor: "var(--app-header-bg)",
+                        border: "1px solid var(--app-border-color)",
+                        borderRadius: "6px",
+                        fontSize: "0.9em",
+                        color: "var(--app-text-color-secondary)",
+                      }}
+                    >
+                      <div style={{ fontWeight: 600, marginBottom: "4px" }}>Current Configuration:</div>
+                      <div>
+                        Presentation: {proPresenterActivation.presentationName || proPresenterActivation.presentationUuid}
+                        <br />
+                        Slide Index: {proPresenterActivation.slideIndex}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {proPresenterActivation && (
+                  <div className="form-group">
+                    <label>ProPresenter Connections:</label>
+                    <p className="instruction-text" style={{ marginBottom: "10px" }}>
+                      Select which ProPresenter instances to trigger. Leave all unchecked to trigger on all enabled connections.
+                    </p>
+                    {proPresenterConnections.length === 0 ? (
+                      <p style={{ fontSize: "0.85em", color: "var(--app-text-color-secondary)", fontStyle: "italic" }}>
+                        No ProPresenter connections configured. Go to Settings → ProPresenter to add connections.
+                      </p>
+                    ) : (
+                      <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                        {proPresenterConnections.map((connection) => (
+                          <label
+                            key={connection.id}
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "8px",
+                              padding: "8px",
+                              backgroundColor: "var(--app-header-bg)",
+                              borderRadius: "4px",
+                              border: "1px solid var(--app-border-color)",
+                              cursor: "pointer",
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={proPresenterConnectionIds.includes(connection.id)}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setProPresenterConnectionIds([...proPresenterConnectionIds, connection.id]);
+                                } else {
+                                  setProPresenterConnectionIds(proPresenterConnectionIds.filter((id) => id !== connection.id));
+                                }
+                              }}
+                            />
+                            <div style={{ flex: 1 }}>
+                              <div style={{ fontWeight: 500 }}>{connection.name}</div>
+                              <div style={{ fontSize: "0.85em", color: "var(--app-text-color-secondary)" }}>
+                                {connection.apiUrl}
+                                {connection.isEnabled && (
+                                  <span style={{ marginLeft: "8px", color: "var(--success)" }}>• Enabled</span>
+                                )}
+                              </div>
+                            </div>
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {proPresenterActivation && (
+                  <>
+                    <div className="form-group" style={{ marginTop: "20px", paddingTop: "20px", borderTop: "1px solid var(--app-border-color)" }}>
+                      <label style={{ fontWeight: 600, marginBottom: "10px", display: "block" }}>Animation Triggers:</label>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "15px" }}>
+                        <div>
+                          <label htmlFor="activation-clicks" style={{ fontSize: "0.9em", display: "block", marginBottom: "5px" }}>
+                            Go Live Clicks:
+                          </label>
+                          <input
+                            id="activation-clicks"
+                            type="number"
+                            min="1"
+                            value={proPresenterActivationClicks}
+                            onChange={(e) => setProPresenterActivationClicks(Math.max(1, parseInt(e.target.value) || 1))}
+                            style={{ width: "100%", padding: "6px 8px" }}
+                          />
+                          <p className="instruction-text" style={{ fontSize: "0.8em", marginTop: "4px" }}>
+                            Number of trigger calls when going live (for animations)
+                          </p>
+                        </div>
+                        <div>
+                          <label htmlFor="takeoff-clicks" style={{ fontSize: "0.9em", display: "block", marginBottom: "5px" }}>
+                            Take Off Clicks:
+                          </label>
+                          <input
+                            id="takeoff-clicks"
+                            type="number"
+                            min="0"
+                            value={proPresenterTakeOffClicks}
+                            onChange={(e) => setProPresenterTakeOffClicks(Math.max(0, parseInt(e.target.value) || 0))}
+                            style={{ width: "100%", padding: "6px 8px" }}
+                          />
+                          <p className="instruction-text" style={{ fontSize: "0.8em", marginTop: "4px" }}>
+                            Number of trigger calls for "Off Live" button (0 = no triggers)
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="form-group" style={{ marginTop: "15px" }}>
+                      <label style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer" }}>
+                        <input
+                          type="checkbox"
+                          checked={clearTextAfterLive}
+                          onChange={(e) => setClearTextAfterLive(e.target.checked)}
+                          style={{ width: "18px", height: "18px", cursor: "pointer" }}
+                        />
+                        <span style={{ fontWeight: 500 }}>Clear text files after going live</span>
+                      </label>
+                      {clearTextAfterLive && (
+                        <div style={{ marginTop: "10px", marginLeft: "26px" }}>
+                          <label htmlFor="clear-text-delay" style={{ fontSize: "0.9em", display: "block", marginBottom: "5px" }}>
+                            Delay before clearing (ms):
+                          </label>
+                          <input
+                            id="clear-text-delay"
+                            type="number"
+                            min="0"
+                            step="100"
+                            value={clearTextDelay}
+                            onChange={(e) => setClearTextDelay(Math.max(0, parseInt(e.target.value) || 0))}
+                            style={{ width: "150px", padding: "6px 8px" }}
+                            placeholder="0"
+                          />
+                          <p className="instruction-text" style={{ fontSize: "0.8em", marginTop: "4px" }}>
+                            Wait time before clearing files (to allow exit animations)
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
           </div>
 
           <button
@@ -652,6 +966,15 @@ const SettingsDetail: React.FC<SettingsDetailProps> = ({
         isOpen={isAIPromptModalOpen}
         onClose={() => setIsAIPromptModalOpen(false)}
         processingType={processingType as "javascript" | "regex"}
+      />
+      <ActivatePresentationModal
+        isOpen={isActivatePresentationModalOpen}
+        onClose={() => setIsActivatePresentationModalOpen(false)}
+        onSave={(config) => {
+          setProPresenterActivation(config);
+        }}
+        currentConfig={proPresenterActivation}
+        title="Set ProPresenter Activation for Template"
       />
     </>
   );

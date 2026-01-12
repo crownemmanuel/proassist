@@ -24,6 +24,7 @@ interface SlideDisplayAreaProps {
   template: Template | undefined;
   onUpdateSlide: (slideId: string, newText: string) => void;
   onMakeSlideLive: (slide: Slide) => void;
+  onTakeOffSlide?: (slide: Slide) => void; // New prop for "Take Off" action
   onAddSlide: (layout: LayoutType) => void;
   onDeleteSlide: (slideId: string) => void;
   onChangeSlideLayout: (slideId: string, newLayout: LayoutType) => void; // New prop
@@ -59,6 +60,7 @@ const SlideDisplayArea: React.FC<SlideDisplayAreaProps> = ({
   template,
   onUpdateSlide,
   onMakeSlideLive,
+  onTakeOffSlide,
   onAddSlide,
   onDeleteSlide,
   onChangeSlideLayout, // New prop
@@ -218,6 +220,15 @@ const SlideDisplayArea: React.FC<SlideDisplayAreaProps> = ({
         // Don't block the "Go Live" action if timer fails
       }
     }
+  };
+
+  const handleOffLive = async (slide: Slide) => {
+    // Trigger ProPresenter take off animations if handler is provided
+    if (onTakeOffSlide) {
+      await onTakeOffSlide(slide);
+    }
+    // Clear the live state - this will make "Go Live" button available again
+    setLiveSlideId(null);
   };
 
   const handleRightClick = (event: React.MouseEvent, slideId: string) => {
@@ -676,6 +687,21 @@ const SlideDisplayArea: React.FC<SlideDisplayAreaProps> = ({
                     <FaPlay />
                     {liveSlideId === slide.id ? "Live" : "Go Live"}
                   </button>
+                  {liveSlideId === slide.id && (
+                    <button
+                      onClick={() => handleOffLive(slide)}
+                      className="danger"
+                      style={{
+                        backgroundColor: "#991b1b",
+                        color: "white",
+                        borderColor: "#7f1d1d",
+                      }}
+                      title="Take slide off live and trigger exit animations on ProPresenter"
+                    >
+                      <FaTimes />
+                      Off Live
+                    </button>
+                  )}
                   {onChangeTimerSession && (
                     <TimerDropdown
                       slideId={slide.id}

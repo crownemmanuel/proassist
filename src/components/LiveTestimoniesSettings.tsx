@@ -6,6 +6,7 @@ import {
   saveLiveTestimoniesSettings,
 } from "../utils/testimoniesStorage";
 import { formatNameForCopy } from "../utils/nameUtils";
+import ImportFirebaseConfigModal from "./ImportFirebaseConfigModal";
 import "../App.css";
 
 const LiveTestimoniesSettings: React.FC = () => {
@@ -23,6 +24,7 @@ const LiveTestimoniesSettings: React.FC = () => {
     text: string;
     type: "success" | "error" | "";
   }>({ text: "", type: "" });
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
 
   useEffect(() => {
     const settings = loadLiveTestimoniesSettings();
@@ -53,6 +55,12 @@ const LiveTestimoniesSettings: React.FC = () => {
       }
       return { ...prev, [field]: value };
     });
+  };
+
+  const handleImportConfig = (config: FirebaseConfig) => {
+    setFirebaseConfig(config);
+    setSaveMessage({ text: "Firebase configuration imported successfully", type: "success" });
+    setTimeout(() => setSaveMessage({ text: "", type: "" }), 3000);
   };
 
   const handleSave = () => {
@@ -157,9 +165,19 @@ const LiveTestimoniesSettings: React.FC = () => {
 
       {/* Firebase Configuration */}
       <div style={{ marginBottom: "var(--spacing-5)" }}>
-        <h3 style={{ marginBottom: "var(--spacing-3)" }}>Firebase Configuration</h3>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "var(--spacing-3)" }}>
+          <h3 style={{ margin: 0 }}>Firebase Configuration</h3>
+          <button
+            onClick={() => setIsImportModalOpen(true)}
+            className="secondary"
+            style={{ whiteSpace: "nowrap" }}
+          >
+            Import Config
+          </button>
+        </div>
           <p style={{ marginBottom: "var(--spacing-3)", fontSize: "0.9em", color: "var(--app-text-color-secondary)" }}>
             Enter your Firebase Realtime Database configuration. You can find these values in your Firebase project settings.
+            You can also import from environment variables or JavaScript config object.
           </p>
 
         <div style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-3)" }}>
@@ -493,6 +511,13 @@ const LiveTestimoniesSettings: React.FC = () => {
           </span>
         )}
       </div>
+
+      {/* Import Firebase Config Modal */}
+      <ImportFirebaseConfigModal
+        isOpen={isImportModalOpen}
+        onClose={() => setIsImportModalOpen(false)}
+        onImport={handleImportConfig}
+      />
     </div>
   );
 };

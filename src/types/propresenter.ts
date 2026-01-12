@@ -70,6 +70,8 @@ export interface ProPresenterActivationConfig {
   presentationUuid: string;
   slideIndex: number;
   presentationName?: string;
+  activationClicks?: number; // Per-slide override for activation clicks (default: use template)
+  takeOffClicks?: number; // Per-slide override for take off clicks (default: use template)
 }
 
 // Stage Assist Schedule Types

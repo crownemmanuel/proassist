@@ -28,10 +28,18 @@ const ActivatePresentationModal: React.FC<ActivatePresentationModalProps> = ({
   const [savedConfig, setSavedConfig] = useState<ProPresenterActivationConfig | null>(
     currentConfig || null
   );
+  const [activationClicks, setActivationClicks] = useState<number>(
+    currentConfig?.activationClicks ?? 1
+  );
+  const [takeOffClicks, setTakeOffClicks] = useState<number>(
+    currentConfig?.takeOffClicks ?? 0
+  );
 
   // Reset savedConfig when currentConfig changes
   useEffect(() => {
     setSavedConfig(currentConfig || null);
+    setActivationClicks(currentConfig?.activationClicks ?? 1);
+    setTakeOffClicks(currentConfig?.takeOffClicks ?? 0);
     setSuccess(false);
     setError(null);
   }, [currentConfig]);
@@ -58,6 +66,8 @@ const ActivatePresentationModal: React.FC<ActivatePresentationModalProps> = ({
             presentationUuid: slideIndexData.presentation_index.presentation_id.uuid,
             slideIndex: slideIndexData.presentation_index.index,
             presentationName: slideIndexData.presentation_index.presentation_id.name,
+            activationClicks: activationClicks !== 1 ? activationClicks : undefined,
+            takeOffClicks: takeOffClicks !== 0 ? takeOffClicks : undefined,
           };
           setSavedConfig(config);
           setSuccess(true);
@@ -77,7 +87,17 @@ const ActivatePresentationModal: React.FC<ActivatePresentationModalProps> = ({
   };
 
   const handleSave = () => {
-    onSave(savedConfig || undefined);
+    if (savedConfig) {
+      // Include animation trigger settings in the saved config
+      const configToSave: ProPresenterActivationConfig = {
+        ...savedConfig,
+        activationClicks: activationClicks !== 1 ? activationClicks : undefined,
+        takeOffClicks: takeOffClicks !== 0 ? takeOffClicks : undefined,
+      };
+      onSave(configToSave);
+    } else {
+      onSave(undefined);
+    }
     onClose();
   };
 
@@ -188,6 +208,68 @@ const ActivatePresentationModal: React.FC<ActivatePresentationModalProps> = ({
               Presentation: {currentConfig.presentationName || currentConfig.presentationUuid}
               <br />
               Slide Index: {currentConfig.slideIndex}
+            </div>
+          </div>
+        )}
+
+        {/* Animation Trigger Settings - Compact */}
+        {savedConfig && (
+          <div
+            style={{
+              marginBottom: "12px",
+              padding: "10px",
+              backgroundColor: "var(--app-header-bg)",
+              border: "1px solid var(--app-border-color)",
+              borderRadius: "6px",
+            }}
+          >
+            <div style={{ fontSize: "0.85em", fontWeight: 600, marginBottom: "8px", color: "var(--app-text-color)" }}>
+              Animation Triggers (optional override):
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+              <div>
+                <label style={{ fontSize: "0.8em", display: "block", marginBottom: "4px", color: "var(--app-text-color-secondary)" }}>
+                  Go Live Clicks:
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  value={activationClicks}
+                  onChange={(e) => setActivationClicks(Math.max(1, parseInt(e.target.value) || 1))}
+                  style={{
+                    width: "100%",
+                    padding: "4px 6px",
+                    fontSize: "0.85em",
+                    backgroundColor: "var(--app-input-bg-color)",
+                    color: "var(--app-input-text-color)",
+                    border: "1px solid var(--app-border-color)",
+                    borderRadius: "4px",
+                  }}
+                />
+              </div>
+              <div>
+                <label style={{ fontSize: "0.8em", display: "block", marginBottom: "4px", color: "var(--app-text-color-secondary)" }}>
+                  Off Live Clicks:
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  value={takeOffClicks}
+                  onChange={(e) => setTakeOffClicks(Math.max(0, parseInt(e.target.value) || 0))}
+                  style={{
+                    width: "100%",
+                    padding: "4px 6px",
+                    fontSize: "0.85em",
+                    backgroundColor: "var(--app-input-bg-color)",
+                    color: "var(--app-input-text-color)",
+                    border: "1px solid var(--app-border-color)",
+                    borderRadius: "4px",
+                  }}
+                />
+              </div>
+            </div>
+            <div style={{ fontSize: "0.75em", color: "var(--app-text-color-secondary)", marginTop: "6px" }}>
+              Leave default to use template settings. Set to override for this slide only.
             </div>
           </div>
         )}

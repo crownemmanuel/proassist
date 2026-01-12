@@ -37,6 +37,8 @@ export interface Slide {
     presentationUuid: string;
     slideIndex: number;
     presentationName?: string;
+    activationClicks?: number; // Per-slide override for activation clicks
+    takeOffClicks?: number; // Per-slide override for take off clicks
   }; // Per-slide override for ProPresenter presentation activation
 }
 
@@ -66,6 +68,8 @@ export interface PlaylistItem {
     presentationUuid: string;
     slideIndex: number;
     presentationName?: string;
+    activationClicks?: number; // Per-item override for activation clicks
+    takeOffClicks?: number; // Per-item override for take off clicks
   };
 }
 
@@ -93,6 +97,18 @@ export interface Template {
   // Auto-scripture output mapping
   scriptureReferenceFileIndex?: number; // Which file index (1-6) to write scripture reference to
   scriptureTextFileIndex?: number; // Which file index (1-6) to write scripture text to
+  // ProPresenter activation settings
+  proPresenterActivation?: {
+    presentationUuid: string;
+    slideIndex: number;
+    presentationName?: string;
+  }; // ProPresenter presentation activation config for this template
+  proPresenterConnectionIds?: string[]; // Specific ProPresenter connection IDs to trigger on (empty = all enabled)
+  proPresenterActivationClicks?: number; // Number of times to trigger on "Go Live" (default: 1) - for animations
+  proPresenterTakeOffClicks?: number; // Number of times to trigger on "Take Off" (default: 1) - for exit animations
+  clearTextAfterLive?: boolean; // Whether to clear text files after going live
+  clearTextDelay?: number; // Delay in milliseconds before clearing text (default: 0)
+  autoLoadBibleVerses?: boolean; // Whether to auto-load Bible verses (KJV) by default when importing with this template
 }
 
 export interface AppSettings {

@@ -36,7 +36,7 @@ import {
 } from "../services/liveSlideService";
 import { LiveSlide } from "../types/liveSlides";
 import { calculateSlideBoundaries } from "../utils/liveSlideParser";
-import { triggerPresentationOnAllEnabled } from "../services/propresenterService";
+import { triggerPresentationOnConnections } from "../services/propresenterService";
 import { useNetworkSync } from "../hooks/useNetworkSync";
 import { loadNetworkSyncSettings } from "../services/networkSyncService";
 
@@ -87,11 +87,79 @@ const MainApplicationPage: React.FC = () => {
     | { type: "item"; playlistId: string; id: string; name: string }
     | null
   >(null);
-  // Use the more complete mockTemplatesForMainPage or fetch/get from a shared store
-  const [templates] = useState<Template[]>(() => {
+  // Load templates from localStorage and keep them in sync
+  const [templates, setTemplates] = useState<Template[]>(() => {
     const savedTemplates = localStorage.getItem("proassist-templates");
     return savedTemplates ? JSON.parse(savedTemplates) : [];
   });
+
+  // Function to reload templates from localStorage
+  const reloadTemplates = useCallback(() => {
+    try {
+      const savedTemplates = localStorage.getItem("proassist-templates");
+      if (savedTemplates) {
+        const parsed = JSON.parse(savedTemplates);
+        setTemplates(parsed);
+      }
+    } catch (error) {
+      console.error("Failed to load templates:", error);
+    }
+  }, []);
+
+  // Reload templates when import modal opens (to catch newly added templates)
+  useEffect(() => {
+    if (isImportModalOpen) {
+      reloadTemplates();
+    }
+  }, [isImportModalOpen, reloadTemplates]);
+
+  // Also listen for storage events (when localStorage changes in another tab/window)
+  useEffect(() => {
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === "proassist-templates") {
+        reloadTemplates();
+      }
+    };
+
+    window.addEventListener("storage", handleStorageChange);
+    return () => {
+      window.removeEventListener("storage", handleStorageChange);
+    };
+  }, [reloadTemplates]);
+
+  // Reload templates when the page becomes visible (e.g., navigating back from Settings)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        reloadTemplates();
+      }
+    };
+
+    // Also reload on focus (covers more cases like switching tabs)
+    const handleFocus = () => {
+      reloadTemplates();
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("focus", handleFocus);
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("focus", handleFocus);
+    };
+  }, [reloadTemplates]);
+
+  // Listen for custom template-updated event (emitted when Settings page saves)
+  useEffect(() => {
+    const handleTemplatesUpdated = () => {
+      reloadTemplates();
+    };
+
+    window.addEventListener("templates-updated", handleTemplatesUpdated);
+    return () => {
+      window.removeEventListener("templates-updated", handleTemplatesUpdated);
+    };
+  }, [reloadTemplates]);
 
   // Live Slides server info + websocket connections (for live-linked playlist items)
   const [liveSlidesServerRunning, setLiveSlidesServerRunning] =
@@ -649,8 +717,25 @@ const MainApplicationPage: React.FC = () => {
         playlistItem.defaultProPresenterActivation;
       if (activationConfig) {
         try {
-          const result = await triggerPresentationOnAllEnabled(
-            activationConfig
+          // Get the template to check for specific ProPresenter connections
+          const template = templates.find(
+            (t) => t.name === playlistItem.templateName
+          );
+
+          // Use template's specific connection IDs if available, otherwise use all enabled
+          const connectionIds = template?.proPresenterConnectionIds;
+          // Use slide-level override if present, otherwise use template setting (default: 1)
+          const activationClicks =
+            slide.proPresenterActivation?.activationClicks ??
+            playlistItem.defaultProPresenterActivation?.activationClicks ??
+            template?.proPresenterActivationClicks ??
+            1;
+
+          const result = await triggerPresentationOnConnections(
+            activationConfig,
+            connectionIds,
+            activationClicks,
+            100 // 100ms delay between clicks
           );
           if (result.success > 0) {
             console.log(
@@ -668,12 +753,105 @@ const MainApplicationPage: React.FC = () => {
           // Don't block the "Go Live" action if presentation activation fails
         }
       }
+
+      // Clear text files after going live if configured
+      if (template?.clearTextAfterLive) {
+        const clearDelay = template.clearTextDelay ?? 0;
+        if (clearDelay > 0) {
+          setTimeout(async () => {
+            await clearTextFiles(basePath, prefix);
+          }, clearDelay);
+        } else {
+          await clearTextFiles(basePath, prefix);
+        }
+      }
     } catch (error) {
       console.error("Failed to write slide content to file(s):", error);
       alert("Error making slide live. Check console for details.");
     }
     // Note: The visual feedback (setting liveSlideId in SlideDisplayArea) is handled locally in that component.
     // This function focuses on the side effect (writing to files).
+  };
+
+  // Helper function to clear all text files
+  const clearTextFiles = async (basePath: string, prefix: string) => {
+    try {
+      for (let i = 1; i <= 6; i++) {
+        const filePath = `${basePath}${prefix}${i}.txt`;
+        await invoke("write_text_to_file", { filePath, content: "" });
+      }
+      console.log("Text files cleared after going live");
+    } catch (error) {
+      console.error("Failed to clear text files:", error);
+    }
+  };
+
+  // Function to handle "Take Off" action
+  const handleTakeOffSlide = async (
+    slide: Slide,
+    playlistItem: PlaylistItem | undefined
+  ) => {
+    if (!playlistItem) {
+      console.error("Cannot take off slide: playlist item data is missing.");
+      return;
+    }
+
+    // Find the template used by this playlistItem
+    const template = templates.find(
+      (t) => t.name === playlistItem.templateName
+    );
+
+    if (!template) {
+      console.warn("Template not found for take off action");
+      return;
+    }
+
+    // Trigger ProPresenter presentation activation if configured
+    const activationConfig =
+      slide.proPresenterActivation ||
+      playlistItem.defaultProPresenterActivation;
+
+    if (activationConfig) {
+      // Use slide-level override if present, otherwise use template setting (default: 0)
+      const takeOffClicks =
+        slide.proPresenterActivation?.takeOffClicks ??
+        playlistItem.defaultProPresenterActivation?.takeOffClicks ??
+        template.proPresenterTakeOffClicks ??
+        0;
+
+      // If takeOffClicks is 0, don't trigger ProPresenter at all
+      if (takeOffClicks === 0) {
+        console.log(
+          "Take off clicks set to 0 - skipping ProPresenter triggers"
+        );
+        return;
+      }
+
+      try {
+        // Use template's specific connection IDs if available, otherwise use all enabled
+        const connectionIds = template.proPresenterConnectionIds;
+
+        const result = await triggerPresentationOnConnections(
+          activationConfig,
+          connectionIds,
+          takeOffClicks,
+          100 // 100ms delay between clicks
+        );
+        if (result.success > 0) {
+          console.log(
+            `Take off triggered on ${result.success} ProPresenter instance(s)`
+          );
+        }
+        if (result.failed > 0) {
+          console.warn(
+            `Failed to trigger take off on ${result.failed} instance(s):`,
+            result.errors
+          );
+        }
+      } catch (error) {
+        console.error("Failed to trigger ProPresenter take off:", error);
+      }
+    }
   };
 
   const handleAddSlide = (layout: LayoutType) => {
@@ -968,6 +1146,8 @@ const MainApplicationPage: React.FC = () => {
       liveSlidesLinked: options?.liveSlidesSessionId
         ? options?.liveSlidesLinked ?? true
         : undefined,
+      // Copy ProPresenter activation settings from template
+      defaultProPresenterActivation: selectedTemplate?.proPresenterActivation,
     };
 
     setPlaylists((prevPlaylists) =>
@@ -1637,6 +1817,9 @@ const MainApplicationPage: React.FC = () => {
             }}
             onMakeSlideLive={(slide) =>
               handleMakeSlideLive(slide, currentPlaylistItem)
+            }
+            onTakeOffSlide={(slide) =>
+              handleTakeOffSlide(slide, currentPlaylistItem)
             }
             onAddSlide={handleAddSlide}
             onDeleteSlide={handleDeleteSlide}

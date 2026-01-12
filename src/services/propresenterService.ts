@@ -473,35 +473,82 @@ export async function triggerPresentationSlide(
 }
 
 /**
+ * Trigger presentation activation on specific ProPresenter connections
+ * @param config The activation configuration
+ * @param connectionIds Optional array of connection IDs to trigger on. If empty or undefined, triggers on all enabled connections.
+ * @param clickCount Number of times to trigger (default: 1). For animations, use multiple clicks.
+ * @param delayBetweenClicks Delay in milliseconds between clicks (default: 100ms)
+ */
+export async function triggerPresentationOnConnections(
+  config: ProPresenterActivationConfig,
+  connectionIds?: string[],
+  clickCount: number = 1,
+  delayBetweenClicks: number = 100
+): Promise<{ success: number; failed: number; errors: string[] }> {
+  const allConnections = loadProPresenterConnections();
+  let targetConnections: ProPresenterConnection[];
+
+  if (connectionIds && connectionIds.length > 0) {
+    // Filter to only the specified connections that are enabled
+    targetConnections = allConnections.filter(
+      (conn) => connectionIds.includes(conn.id) && conn.isEnabled
+    );
+  } else {
+    // Default to all enabled connections
+    targetConnections = getEnabledConnections();
+  }
+
+  const results = { success: 0, failed: 0, errors: [] as string[] };
+
+  if (targetConnections.length === 0) {
+    return results;
+  }
+
+  // Trigger multiple times if clickCount > 1
+  for (let click = 0; click < clickCount; click++) {
+    const promises = targetConnections.map(async (connection) => {
+      try {
+        const success = await triggerPresentationSlide(connection, config);
+        if (success) {
+          // Only count success on the first click to avoid inflating numbers
+          if (click === 0) {
+            results.success++;
+          }
+        } else {
+          // Only count failures on the first click
+          if (click === 0) {
+            results.failed++;
+            results.errors.push(`Failed to trigger presentation on ${connection.name}`);
+          }
+        }
+      } catch (error) {
+        // Only count errors on the first click
+        if (click === 0) {
+          results.failed++;
+          results.errors.push(
+            `Error on ${connection.name}: ${error instanceof Error ? error.message : "Unknown error"}`
+          );
+        }
+      }
+    });
+
+    await Promise.allSettled(promises);
+    
+    // Add delay between clicks (except after the last one)
+    if (click < clickCount - 1 && delayBetweenClicks > 0) {
+      await new Promise(resolve => setTimeout(resolve, delayBetweenClicks));
+    }
+  }
+
+  return results;
+}
+
+/**
  * Trigger presentation activation on all enabled ProPresenter instances
+ * @deprecated Use triggerPresentationOnConnections instead for more control
  */
 export async function triggerPresentationOnAllEnabled(
   config: ProPresenterActivationConfig
 ): Promise<{ success: number; failed: number; errors: string[] }> {
-  const enabledConnections = getEnabledConnections();
-  const results = { success: 0, failed: 0, errors: [] as string[] };
-
-  if (enabledConnections.length === 0) {
-    return results;
-  }
-
-  const promises = enabledConnections.map(async (connection) => {
-    try {
-      const success = await triggerPresentationSlide(connection, config);
-      if (success) {
-        results.success++;
-      } else {
-        results.failed++;
-        results.errors.push(`Failed to trigger presentation on ${connection.name}`);
-      }
-    } catch (error) {
-      results.failed++;
-      results.errors.push(
-        `Error on ${connection.name}: ${error instanceof Error ? error.message : "Unknown error"}`
-      );
-    }
-  });
-
-  await Promise.allSettled(promises);
-  return results;
+  return triggerPresentationOnConnections(config);
 }

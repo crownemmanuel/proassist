@@ -45,6 +45,8 @@ const SettingsPage: React.FC = () => {
 
   useEffect(() => {
     localStorage.setItem("proassist-templates", JSON.stringify(templates));
+    // Emit custom event so MainApplicationPage can reload templates immediately
+    window.dispatchEvent(new CustomEvent("templates-updated"));
   }, [templates]);
 
   // Persist current view to localStorage

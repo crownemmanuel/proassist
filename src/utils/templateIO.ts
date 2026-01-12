@@ -157,6 +157,18 @@ function fillTemplateDefaults(t: Template): Template {
       t.processWithAI || t.processingType === "ai" ? t.aiModel : undefined,
     outputPath: t.outputPath || "/tmp/proassist/output/imported/",
     outputFileNamePrefix: t.outputFileNamePrefix || "imported_slide_",
+    // Preserve ProPresenter activation settings if present
+    proPresenterActivation: t.proPresenterActivation,
+    proPresenterConnectionIds: Array.isArray(t.proPresenterConnectionIds) && t.proPresenterConnectionIds.length > 0
+      ? t.proPresenterConnectionIds
+      : undefined,
+    proPresenterActivationClicks: t.proPresenterActivationClicks,
+    proPresenterTakeOffClicks: t.proPresenterTakeOffClicks,
+    clearTextAfterLive: t.clearTextAfterLive,
+    clearTextDelay: t.clearTextDelay,
+    // Preserve scripture output mapping if present
+    scriptureReferenceFileIndex: t.scriptureReferenceFileIndex,
+    scriptureTextFileIndex: t.scriptureTextFileIndex,
   };
 }
 

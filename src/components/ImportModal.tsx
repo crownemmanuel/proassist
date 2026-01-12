@@ -50,7 +50,8 @@ const ImportModal: React.FC<ImportModalProps> = ({
   useEffect(() => {
     if (isOpen) {
       setItemName(""); // Start with empty name - user must enter one
-      setSelectedTemplateName(templates.length > 0 ? templates[0].name : "");
+      const firstTemplate = templates.length > 0 ? templates[0] : null;
+      setSelectedTemplateName(firstTemplate?.name || "");
       setCurrentInputText("");
       setPastedText("");
       setFileName("");
@@ -60,9 +61,23 @@ const ImportModal: React.FC<ImportModalProps> = ({
       setIsLoading(false);
       setAppSettings(getAppSettings());
       setCopyFeedback(""); // Reset feedback
-      setAutoLoadBibleVerses(false);
+      // Set auto-load Bible verses based on template's default setting
+      setAutoLoadBibleVerses(firstTemplate?.autoLoadBibleVerses ?? false);
     }
   }, [isOpen, templates]);
+
+  // Update autoLoadBibleVerses when template changes
+  useEffect(() => {
+    if (isOpen && selectedTemplateName) {
+      const template = templates.find((t) => t.name === selectedTemplateName);
+      if (template) {
+        setAutoLoadBibleVerses(template.autoLoadBibleVerses ?? false);
+        // Clear preview when template changes since we need to re-process
+        setPreviewSlides([]);
+        setProcessedSlidesForImport([]);
+      }
+    }
+  }, [selectedTemplateName]);
 
   const getSelectedTemplate = useCallback(() => {
     return templates.find((t) => t.name === selectedTemplateName);
