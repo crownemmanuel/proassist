@@ -114,6 +114,8 @@ const AIAutomationDropdown: React.FC<AIAutomationDropdownProps> = ({
     // Check if we have an API key for the provider
     const apiKey = provider === "openai" 
       ? appSettings.openAIConfig?.apiKey 
+      : provider === "groq"
+      ? appSettings.groqConfig?.apiKey
       : appSettings.geminiConfig?.apiKey;
     
     if (!apiKey) {
@@ -128,10 +130,15 @@ const AIAutomationDropdown: React.FC<AIAutomationDropdownProps> = ({
 
     try {
       const slideTexts = slidesToProofread.map((s) => s.text);
+      const defaultModel = provider === "openai" 
+        ? "gpt-4o-mini" 
+        : provider === "groq" 
+        ? "llama-3.3-70b-versatile" 
+        : "gemini-1.5-flash-latest";
       const correctedTexts = await proofreadSlideTexts(
         slideTexts,
-        provider as "openai" | "gemini",
-        model || (provider === "openai" ? "gpt-4o-mini" : "gemini-1.5-flash-latest"),
+        provider as "openai" | "gemini" | "groq",
+        model || defaultModel,
         appSettings
       );
 

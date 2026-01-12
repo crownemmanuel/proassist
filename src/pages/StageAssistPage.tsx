@@ -2082,7 +2082,7 @@ const StageAssistPage: React.FC = () => {
                       color: "var(--app-text-color-secondary)",
                     }}
                   >
-                    {selectedProvider === "openai" ? "OpenAI" : "Gemini"}
+                    {selectedProvider === "openai" ? "OpenAI" : selectedProvider === "groq" ? "Groq" : "Gemini"}
                   </span>
                   {availableProviders.length > 1 && (
                     <div style={{ position: "relative" }} ref={providerMenuRef}>
@@ -2141,7 +2141,7 @@ const StageAssistPage: React.FC = () => {
                                 fontSize: "0.875rem",
                               }}
                             >
-                              {provider === "openai" ? "OpenAI" : "Gemini"}
+                              {provider === "openai" ? "OpenAI" : provider === "groq" ? "Groq" : "Gemini"}
                             </button>
                           ))}
                         </div>

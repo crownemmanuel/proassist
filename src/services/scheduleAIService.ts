@@ -7,6 +7,7 @@
 
 import { ChatOpenAI } from "@langchain/openai";
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
+import { ChatGroq } from "@langchain/groq";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { ScheduleItem, AIScheduleResponse } from "../types/propresenter";
 import { AIProvider } from "../types";
@@ -102,10 +103,19 @@ function getAIConfig(
   } else if (preferredProvider) {
     provider = preferredProvider;
     model =
-      preferredProvider === "openai" ? "gpt-4o" : "gemini-1.5-flash-latest";
+      preferredProvider === "openai"
+        ? "gpt-4o"
+        : preferredProvider === "groq"
+        ? "llama-3.3-70b-versatile"
+        : "gemini-1.5-flash-latest";
   } else {
     provider = appSettings.defaultAIProvider || null;
-    model = provider === "openai" ? "gpt-4o" : "gemini-1.5-flash-latest";
+    model =
+      provider === "openai"
+        ? "gpt-4o"
+        : provider === "groq"
+        ? "llama-3.3-70b-versatile"
+        : "gemini-1.5-flash-latest";
   }
 
   if (!provider) {
@@ -124,6 +134,13 @@ function getAIConfig(
         model: "gemini-1.5-flash-latest",
       };
     }
+    if (appSettings.groqConfig?.apiKey) {
+      return {
+        provider: "groq",
+        apiKey: appSettings.groqConfig.apiKey,
+        model: "llama-3.3-70b-versatile",
+      };
+    }
     return null;
   }
 
@@ -131,6 +148,8 @@ function getAIConfig(
   const apiKey =
     provider === "openai"
       ? appSettings.openAIConfig?.apiKey
+      : provider === "groq"
+      ? appSettings.groqConfig?.apiKey
       : appSettings.geminiConfig?.apiKey;
 
   if (!apiKey) {
@@ -142,11 +161,39 @@ function getAIConfig(
         model: "gemini-1.5-flash-latest",
       };
     }
+    if (provider === "openai" && appSettings.groqConfig?.apiKey) {
+      return {
+        provider: "groq",
+        apiKey: appSettings.groqConfig.apiKey,
+        model: "llama-3.3-70b-versatile",
+      };
+    }
     if (provider === "gemini" && appSettings.openAIConfig?.apiKey) {
       return {
         provider: "openai",
         apiKey: appSettings.openAIConfig.apiKey,
         model: "gpt-4o",
+      };
+    }
+    if (provider === "gemini" && appSettings.groqConfig?.apiKey) {
+      return {
+        provider: "groq",
+        apiKey: appSettings.groqConfig.apiKey,
+        model: "llama-3.3-70b-versatile",
+      };
+    }
+    if (provider === "groq" && appSettings.openAIConfig?.apiKey) {
+      return {
+        provider: "openai",
+        apiKey: appSettings.openAIConfig.apiKey,
+        model: "gpt-4o",
+      };
+    }
+    if (provider === "groq" && appSettings.geminiConfig?.apiKey) {
+      return {
+        provider: "gemini",
+        apiKey: appSettings.geminiConfig.apiKey,
+        model: "gemini-1.5-flash-latest",
       };
     }
     return null;
@@ -167,6 +214,9 @@ export function getAvailableProviders(): AIProvider[] {
   }
   if (appSettings.geminiConfig?.apiKey) {
     providers.push("gemini");
+  }
+  if (appSettings.groqConfig?.apiKey) {
+    providers.push("groq");
   }
 
   return providers;
@@ -299,6 +349,28 @@ export async function parseScheduleFromImage(
       ]);
 
       return parseAIResponse(response);
+    } else if (config.provider === "groq") {
+      // Groq now supports vision models with Llama 4 Scout
+      const llm = new ChatGroq({
+        apiKey: config.apiKey,
+        model: "meta-llama/llama-4-scout-17b-16e-instruct", // Vision model
+        temperature: 0.3,
+      });
+
+      const response = await llm.invoke([
+        new SystemMessage(buildSystemPrompt(currentSchedule)),
+        new HumanMessage({
+          content: [
+            { type: "text", text: userMessage },
+            {
+              type: "image_url",
+              image_url: { url: imageBase64 },
+            },
+          ],
+        }),
+      ]);
+
+      return parseAIResponse(response);
     }
 
     return {
@@ -342,8 +414,14 @@ export async function parseScheduleFromText(
         modelName: config.model,
         temperature: 0.3,
       });
-    } else {
+    } else if (config.provider === "gemini") {
       llm = new ChatGoogleGenerativeAI({
+        apiKey: config.apiKey,
+        model: config.model,
+        temperature: 0.3,
+      });
+    } else {
+      llm = new ChatGroq({
         apiKey: config.apiKey,
         model: config.model,
         temperature: 0.3,

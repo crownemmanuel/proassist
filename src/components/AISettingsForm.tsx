@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { AppSettings, AIProvider, AIProviderType, AIModelSetting } from "../types";
 import { getAppSettings, saveAppSettings } from "../utils/aiConfig";
-import { fetchOpenAIModels, fetchGeminiModels } from "../services/aiService";
+import { fetchOpenAIModels, fetchGeminiModels, fetchGroqModels } from "../services/aiService";
 import { FaSpinner } from "react-icons/fa";
 
 interface AISettingsFormProps {
@@ -15,6 +15,9 @@ const AISettingsForm: React.FC<AISettingsFormProps> = () => {
   );
   const [geminiKeyInput, setGeminiKeyInput] = useState(
     appSettings.geminiConfig?.apiKey || ""
+  );
+  const [groqKeyInput, setGroqKeyInput] = useState(
+    appSettings.groqConfig?.apiKey || ""
   );
 
   // Spell check model settings
@@ -70,6 +73,12 @@ const AISettingsForm: React.FC<AISettingsFormProps> = () => {
           if (models.length > 0 && !models.includes(spellCheckModel)) {
             setSpellCheckModel(models[0]);
           }
+        } else if (spellCheckProvider === "groq" && groqKeyInput) {
+          const models = await fetchGroqModels(groqKeyInput);
+          setSpellCheckModels(models);
+          if (models.length > 0 && !models.includes(spellCheckModel)) {
+            setSpellCheckModel(models[0]);
+          }
         } else {
           setSpellCheckModels([]);
         }
@@ -79,7 +88,7 @@ const AISettingsForm: React.FC<AISettingsFormProps> = () => {
         setSpellCheckModelsLoading(false);
       }
     })();
-  }, [spellCheckProvider, openAIKeyInput, geminiKeyInput]);
+  }, [spellCheckProvider, openAIKeyInput, geminiKeyInput, groqKeyInput]);
 
   // Fetch models when timer assistant provider changes
   useEffect(() => {
@@ -103,6 +112,12 @@ const AISettingsForm: React.FC<AISettingsFormProps> = () => {
           if (models.length > 0 && !models.includes(timerAssistantModel)) {
             setTimerAssistantModel(models[0]);
           }
+        } else if (timerAssistantProvider === "groq" && groqKeyInput) {
+          const models = await fetchGroqModels(groqKeyInput);
+          setTimerAssistantModels(models);
+          if (models.length > 0 && !models.includes(timerAssistantModel)) {
+            setTimerAssistantModel(models[0]);
+          }
         } else {
           setTimerAssistantModels([]);
         }
@@ -112,7 +127,7 @@ const AISettingsForm: React.FC<AISettingsFormProps> = () => {
         setTimerAssistantModelsLoading(false);
       }
     })();
-  }, [timerAssistantProvider, openAIKeyInput, geminiKeyInput]);
+  }, [timerAssistantProvider, openAIKeyInput, geminiKeyInput, groqKeyInput]);
 
   const handleSave = () => {
     const spellCheckSetting: AIModelSetting | undefined = 
@@ -129,6 +144,7 @@ const AISettingsForm: React.FC<AISettingsFormProps> = () => {
       ...appSettings,
       openAIConfig: openAIKeyInput ? { apiKey: openAIKeyInput } : undefined,
       geminiConfig: geminiKeyInput ? { apiKey: geminiKeyInput } : undefined,
+      groqConfig: groqKeyInput ? { apiKey: groqKeyInput } : undefined,
       spellCheckModel: spellCheckSetting,
       timerAssistantModel: timerAssistantSetting,
     };
@@ -223,6 +239,32 @@ const AISettingsForm: React.FC<AISettingsFormProps> = () => {
         </div>
       </div>
       <div className="form-group">
+        <label htmlFor="groq-key">Groq API Key:</label>
+        <input
+          type="password" // Keep API keys masked
+          id="groq-key"
+          value={groqKeyInput}
+          onChange={(e) => setGroqKeyInput(e.target.value)}
+          placeholder="Enter your Groq API Key"
+        />
+        <div
+          style={{
+            marginTop: "6px",
+            fontSize: "0.9em",
+            color: "var(--app-text-color-secondary)",
+          }}
+        >
+          Get your Groq key:{" "}
+          <a
+            href="https://console.groq.com/keys"
+            target="_blank"
+            rel="noreferrer noopener"
+          >
+            https://console.groq.com/keys
+          </a>
+        </div>
+      </div>
+      <div className="form-group">
         <label htmlFor="default-ai-provider">Default AI Provider:</label>
         <select
           id="default-ai-provider"
@@ -235,6 +277,9 @@ const AISettingsForm: React.FC<AISettingsFormProps> = () => {
           </option>
           <option value="gemini" disabled={!geminiKeyInput}>
             Gemini
+          </option>
+          <option value="groq" disabled={!groqKeyInput}>
+            Groq
           </option>
         </select>
       </div>
@@ -292,6 +337,9 @@ const AISettingsForm: React.FC<AISettingsFormProps> = () => {
                 </option>
                 <option value="gemini" disabled={!geminiKeyInput}>
                   Gemini
+                </option>
+                <option value="groq" disabled={!groqKeyInput}>
+                  Groq
                 </option>
               </select>
             </div>
@@ -370,6 +418,9 @@ const AISettingsForm: React.FC<AISettingsFormProps> = () => {
                 </option>
                 <option value="gemini" disabled={!geminiKeyInput}>
                   Gemini
+                </option>
+                <option value="groq" disabled={!groqKeyInput}>
+                  Groq
                 </option>
               </select>
             </div>

@@ -6,12 +6,13 @@ import {
   AIProviderType,
   OpenAIModelType,
   GeminiModelType,
+  GroqModelType,
 } from "../types";
 import "../App.css";
 import IconPickerModal from "./IconPickerModal";
 import GenerateAIPromptModal from "./GenerateAIPromptModal";
 import ActivatePresentationModal from "./ActivatePresentationModal";
-import { fetchGeminiModels, fetchOpenAIModels } from "../services/aiService";
+import { fetchGeminiModels, fetchOpenAIModels, fetchGroqModels } from "../services/aiService";
 import { getAppSettings } from "../utils/aiConfig";
 import {
   DEFAULT_JAVASCRIPT_CODE,
@@ -55,7 +56,7 @@ const SettingsDetail: React.FC<SettingsDetailProps> = ({
     template.aiProvider
   );
   const [aiModel, setAiModel] = useState<
-    OpenAIModelType | GeminiModelType | string | undefined
+    OpenAIModelType | GeminiModelType | GroqModelType | string | undefined
   >(template.aiModel);
   const [isIconPickerOpen, setIsIconPickerOpen] = useState(false);
   const [isAIPromptModalOpen, setIsAIPromptModalOpen] = useState(false);
@@ -99,6 +100,7 @@ const SettingsDetail: React.FC<SettingsDetailProps> = ({
   const appSettings = useMemo(() => getAppSettings(), []);
   const hasOpenAI = !!appSettings.openAIConfig?.apiKey;
   const hasGemini = !!appSettings.geminiConfig?.apiKey;
+  const hasGroq = !!appSettings.groqConfig?.apiKey;
 
   const allLayoutTypes: LayoutType[] = [
     "one-line",
@@ -172,6 +174,9 @@ const SettingsDetail: React.FC<SettingsDetailProps> = ({
         } else if (aiProvider === "gemini" && hasGemini) {
           const ids = await fetchGeminiModels(appSettings.geminiConfig!.apiKey);
           setModels(ids);
+        } else if (aiProvider === "groq" && hasGroq) {
+          const ids = await fetchGroqModels(appSettings.groqConfig!.apiKey);
+          setModels(ids);
         } else {
           setModels([]);
         }
@@ -179,7 +184,7 @@ const SettingsDetail: React.FC<SettingsDetailProps> = ({
         setModels([]);
       }
     })();
-  }, [aiProvider, hasOpenAI, hasGemini, appSettings]);
+  }, [aiProvider, hasOpenAI, hasGemini, hasGroq, appSettings]);
 
   // Handle processing type change with default code
   const handleProcessingTypeChange = (
@@ -561,6 +566,9 @@ const SettingsDetail: React.FC<SettingsDetailProps> = ({
                   <option value="gemini" disabled={!hasGemini}>
                     Google Gemini {!hasGemini ? "(add API key first)" : ""}
                   </option>
+                  <option value="groq" disabled={!hasGroq}>
+                    Groq {!hasGroq ? "(add API key first)" : ""}
+                  </option>
                 </select>
               </div>
 
@@ -572,7 +580,7 @@ const SettingsDetail: React.FC<SettingsDetailProps> = ({
                     value={aiModel || ""}
                     onChange={(e) =>
                       setAiModel(
-                        e.target.value as OpenAIModelType | GeminiModelType
+                        e.target.value as OpenAIModelType | GeminiModelType | GroqModelType
                       )
                     }
                     disabled={!aiProvider || models.length === 0}

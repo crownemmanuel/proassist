@@ -1,906 +1,1055 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>ProAssist - AI-Powered Automation for ProPresenter</title>
-    <meta name="description" content="Transform your ProPresenter workflow with AI-powered automation, intelligent slide generation, and real-time collaboration.">
-    <link rel="icon" type="image/png" href="assets/ProAssist.png">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <meta
+      name="description"
+      content="Transform your ProPresenter workflow with AI-powered automation, intelligent slide generation, and real-time collaboration."
+    />
+    <link rel="icon" type="image/png" href="assets/ProAssist.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
     <style>
-        :root {
-            --purple-deep: #7B2FBF;
-            --purple-mid: #9333EA;
-            --purple-light: #A855F7;
-            --cyan-bright: #00D4FF;
-            --cyan-soft: #22D3EE;
-            --bg-dark: #0A0A14;
-            --bg-card: rgba(255, 255, 255, 0.03);
-            --bg-card-hover: rgba(255, 255, 255, 0.06);
-            --text-primary: #FFFFFF;
-            --text-secondary: rgba(255, 255, 255, 0.7);
-            --text-muted: rgba(255, 255, 255, 0.5);
-            --border-subtle: rgba(255, 255, 255, 0.08);
-            --gradient-primary: linear-gradient(135deg, var(--purple-deep) 0%, var(--cyan-bright) 100%);
-            --gradient-radial: radial-gradient(ellipse at 50% 0%, rgba(123, 47, 191, 0.3) 0%, transparent 50%);
-        }
+      :root {
+        --purple-deep: #7b2fbf;
+        --purple-mid: #9333ea;
+        --purple-light: #a855f7;
+        --cyan-bright: #00d4ff;
+        --cyan-soft: #22d3ee;
+        --bg-dark: #0a0a14;
+        --bg-card: rgba(255, 255, 255, 0.03);
+        --bg-card-hover: rgba(255, 255, 255, 0.06);
+        --text-primary: #ffffff;
+        --text-secondary: rgba(255, 255, 255, 0.7);
+        --text-muted: rgba(255, 255, 255, 0.5);
+        --border-subtle: rgba(255, 255, 255, 0.08);
+        --gradient-primary: linear-gradient(
+          135deg,
+          var(--purple-deep) 0%,
+          var(--cyan-bright) 100%
+        );
+        --gradient-radial: radial-gradient(
+          ellipse at 50% 0%,
+          rgba(123, 47, 191, 0.3) 0%,
+          transparent 50%
+        );
+      }
 
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
 
-        html {
-            scroll-behavior: smooth;
-        }
+      html {
+        scroll-behavior: smooth;
+      }
 
-        body {
-            font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-            background-color: var(--bg-dark);
-            color: var(--text-primary);
-            line-height: 1.6;
-            overflow-x: hidden;
-        }
+      body {
+        font-family: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont,
+          "Segoe UI", sans-serif;
+        background-color: var(--bg-dark);
+        color: var(--text-primary);
+        line-height: 1.6;
+        overflow-x: hidden;
+      }
 
-        /* Background Effects */
-        .bg-gradient-overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            height: 100vh;
-            background: var(--gradient-radial);
-            pointer-events: none;
-            z-index: -1;
-        }
+      /* Background Effects */
+      .bg-gradient-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 100vh;
+        background: var(--gradient-radial);
+        pointer-events: none;
+        z-index: -1;
+      }
 
-        .bg-grid {
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background-image: 
-                linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px);
-            background-size: 60px 60px;
-            pointer-events: none;
-            z-index: -1;
-        }
+      .bg-grid {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background-image: linear-gradient(
+            rgba(255, 255, 255, 0.02) 1px,
+            transparent 1px
+          ),
+          linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+        background-size: 60px 60px;
+        pointer-events: none;
+        z-index: -1;
+      }
 
-        /* Navigation */
+      /* Navigation */
+      nav {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        padding: 1rem 2rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        z-index: 1000;
+        backdrop-filter: blur(20px);
+        background: rgba(10, 10, 20, 0.8);
+        border-bottom: 1px solid var(--border-subtle);
+      }
+
+      .logo {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        text-decoration: none;
+        color: var(--text-primary);
+      }
+
+      .logo img {
+        width: 40px;
+        height: 40px;
+        border-radius: 10px;
+      }
+
+      .logo span {
+        font-size: 1.5rem;
+        font-weight: 700;
+        background: var(--gradient-primary);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+      }
+
+      .nav-links {
+        display: flex;
+        gap: 2rem;
+        align-items: center;
+      }
+
+      .nav-links a {
+        color: var(--text-secondary);
+        text-decoration: none;
+        font-weight: 500;
+        font-size: 0.95rem;
+        transition: color 0.3s ease;
+      }
+
+      .nav-links a:hover {
+        color: var(--text-primary);
+      }
+
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.75rem 1.5rem;
+        border-radius: 12px;
+        font-weight: 600;
+        font-size: 0.95rem;
+        text-decoration: none;
+        transition: all 0.3s ease;
+        cursor: pointer;
+        border: none;
+      }
+
+      .btn-primary {
+        background: var(--gradient-primary);
+        color: white;
+        box-shadow: 0 4px 20px rgba(123, 47, 191, 0.4);
+      }
+
+      .btn-primary:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 30px rgba(123, 47, 191, 0.5);
+      }
+
+      .btn-secondary {
+        background: var(--bg-card);
+        color: var(--text-primary);
+        border: 1px solid var(--border-subtle);
+      }
+
+      .btn-secondary:hover {
+        background: var(--bg-card-hover);
+        border-color: rgba(255, 255, 255, 0.15);
+      }
+
+      /* Hero Section */
+      .hero {
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        text-align: center;
+        padding: 8rem 2rem 4rem;
+        position: relative;
+      }
+
+      .hero-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.5rem 1rem;
+        background: var(--bg-card);
+        border: 1px solid var(--border-subtle);
+        border-radius: 100px;
+        font-size: 0.875rem;
+        color: var(--text-secondary);
+        margin-bottom: 2rem;
+      }
+
+      .hero-badge .dot {
+        width: 8px;
+        height: 8px;
+        background: var(--cyan-bright);
+        border-radius: 50%;
+        animation: pulse 2s infinite;
+      }
+
+      @keyframes pulse {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.5;
+        }
+      }
+
+      .hero h1 {
+        font-size: clamp(2.5rem, 6vw, 4.5rem);
+        font-weight: 800;
+        line-height: 1.1;
+        margin-bottom: 1.5rem;
+        max-width: 900px;
+      }
+
+      .hero h1 .gradient-text {
+        background: var(--gradient-primary);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+      }
+
+      .hero p {
+        font-size: 1.25rem;
+        color: var(--text-secondary);
+        max-width: 600px;
+        margin-bottom: 2.5rem;
+        line-height: 1.7;
+      }
+
+      .hero-buttons {
+        display: flex;
+        gap: 1rem;
+        flex-wrap: wrap;
+        justify-content: center;
+      }
+
+      .hero-image {
+        margin-top: 4rem;
+        width: 100%;
+        max-width: 1000px;
+        position: relative;
+      }
+
+      .hero-image::before {
+        content: "";
+        position: absolute;
+        inset: -20%;
+        background: radial-gradient(
+          ellipse at center,
+          rgba(123, 47, 191, 0.2) 0%,
+          transparent 70%
+        );
+        pointer-events: none;
+      }
+
+      .app-preview {
+        width: 100%;
+        border-radius: 16px;
+        border: 1px solid var(--border-subtle);
+        box-shadow: 0 40px 100px rgba(0, 0, 0, 0.5);
+        background: linear-gradient(
+          180deg,
+          rgba(123, 47, 191, 0.1) 0%,
+          rgba(0, 212, 255, 0.05) 100%
+        );
+        padding: 2rem;
+        backdrop-filter: blur(10px);
+      }
+
+      .app-mockup {
+        background: #1a1a2e;
+        border-radius: 12px;
+        height: 400px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        position: relative;
+        overflow: hidden;
+      }
+
+      .app-mockup::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 40px;
+        background: rgba(255, 255, 255, 0.05);
+        border-bottom: 1px solid var(--border-subtle);
+      }
+
+      .app-mockup-content {
+        display: flex;
+        gap: 1rem;
+        padding: 2rem;
+        align-items: center;
+      }
+
+      .app-mockup-sidebar {
+        width: 200px;
+        height: 280px;
+        background: rgba(123, 47, 191, 0.1);
+        border-radius: 8px;
+        border: 1px solid rgba(123, 47, 191, 0.2);
+      }
+
+      .app-mockup-main {
+        flex: 1;
+        height: 280px;
+        background: rgba(0, 212, 255, 0.05);
+        border-radius: 8px;
+        border: 1px solid rgba(0, 212, 255, 0.1);
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+        padding: 1rem;
+      }
+
+      .mockup-slide {
+        height: 30px;
+        background: linear-gradient(
+          90deg,
+          rgba(123, 47, 191, 0.3) 0%,
+          rgba(0, 212, 255, 0.2) 100%
+        );
+        border-radius: 4px;
+      }
+
+      .mockup-slide:nth-child(2) {
+        width: 80%;
+      }
+      .mockup-slide:nth-child(3) {
+        width: 90%;
+      }
+      .mockup-slide:nth-child(4) {
+        width: 70%;
+      }
+
+      /* Features Section */
+      .section {
+        padding: 6rem 2rem;
+        max-width: 1200px;
+        margin: 0 auto;
+      }
+
+      .section-header {
+        text-align: center;
+        margin-bottom: 4rem;
+      }
+
+      .section-header h2 {
+        font-size: 2.5rem;
+        font-weight: 700;
+        margin-bottom: 1rem;
+      }
+
+      .section-header p {
+        color: var(--text-secondary);
+        font-size: 1.125rem;
+        max-width: 600px;
+        margin: 0 auto;
+      }
+
+      .features-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+        gap: 1.5rem;
+      }
+
+      .feature-card {
+        background: var(--bg-card);
+        border: 1px solid var(--border-subtle);
+        border-radius: 20px;
+        padding: 2rem;
+        transition: all 0.3s ease;
+        position: relative;
+        overflow: hidden;
+      }
+
+      .feature-card::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 2px;
+        background: var(--gradient-primary);
+        opacity: 0;
+        transition: opacity 0.3s ease;
+      }
+
+      .feature-card:hover {
+        background: var(--bg-card-hover);
+        transform: translateY(-4px);
+        border-color: rgba(123, 47, 191, 0.3);
+      }
+
+      .feature-card:hover::before {
+        opacity: 1;
+      }
+
+      .feature-icon {
+        width: 56px;
+        height: 56px;
+        background: var(--gradient-primary);
+        border-radius: 14px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 1.5rem;
+        font-size: 1.5rem;
+      }
+
+      .feature-card h3 {
+        font-size: 1.25rem;
+        font-weight: 600;
+        margin-bottom: 0.75rem;
+      }
+
+      .feature-card p {
+        color: var(--text-secondary);
+        font-size: 0.95rem;
+        line-height: 1.6;
+      }
+
+      /* How It Works Section */
+      .how-it-works {
+        background: linear-gradient(
+          180deg,
+          transparent 0%,
+          rgba(123, 47, 191, 0.05) 50%,
+          transparent 100%
+        );
+      }
+
+      .steps {
+        display: flex;
+        flex-direction: column;
+        gap: 3rem;
+        max-width: 800px;
+        margin: 0 auto;
+      }
+
+      .step {
+        display: flex;
+        gap: 2rem;
+        align-items: flex-start;
+      }
+
+      .step-number {
+        width: 60px;
+        height: 60px;
+        min-width: 60px;
+        background: var(--gradient-primary);
+        border-radius: 16px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.5rem;
+        font-weight: 700;
+      }
+
+      .step-content h3 {
+        font-size: 1.5rem;
+        font-weight: 600;
+        margin-bottom: 0.5rem;
+      }
+
+      .step-content p {
+        color: var(--text-secondary);
+        font-size: 1rem;
+        line-height: 1.7;
+      }
+
+      /* Highlight Section */
+      .highlight-section {
+        padding: 6rem 2rem;
+        background: var(--gradient-primary);
+        position: relative;
+        overflow: hidden;
+      }
+
+      .highlight-section::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: radial-gradient(
+            ellipse at 20% 20%,
+            rgba(255, 255, 255, 0.1) 0%,
+            transparent 50%
+          ),
+          radial-gradient(
+            ellipse at 80% 80%,
+            rgba(0, 212, 255, 0.2) 0%,
+            transparent 50%
+          );
+      }
+
+      .highlight-content {
+        max-width: 800px;
+        margin: 0 auto;
+        text-align: center;
+        position: relative;
+        z-index: 1;
+      }
+
+      .highlight-content h2 {
+        font-size: 2.5rem;
+        font-weight: 700;
+        margin-bottom: 1rem;
+      }
+
+      .highlight-content p {
+        font-size: 1.25rem;
+        opacity: 0.9;
+        margin-bottom: 2rem;
+      }
+
+      /* Download Section */
+      .download-section {
+        text-align: center;
+      }
+
+      .platform-cards {
+        display: flex;
+        gap: 1.5rem;
+        justify-content: center;
+        flex-wrap: wrap;
+        margin-top: 3rem;
+      }
+
+      .platform-card {
+        background: var(--bg-card);
+        border: 1px solid var(--border-subtle);
+        border-radius: 20px;
+        padding: 2.5rem 3rem;
+        min-width: 280px;
+        transition: all 0.3s ease;
+      }
+
+      .platform-card:hover {
+        background: var(--bg-card-hover);
+        transform: translateY(-4px);
+        border-color: rgba(123, 47, 191, 0.3);
+      }
+
+      .platform-icon {
+        font-size: 3rem;
+        margin-bottom: 1rem;
+      }
+
+      .platform-card h3 {
+        font-size: 1.5rem;
+        font-weight: 600;
+        margin-bottom: 0.5rem;
+      }
+
+      .platform-card p {
+        color: var(--text-secondary);
+        margin-bottom: 1.5rem;
+      }
+
+      /* Footer */
+      footer {
+        padding: 4rem 2rem 2rem;
+        border-top: 1px solid var(--border-subtle);
+        margin-top: 4rem;
+      }
+
+      .footer-content {
+        max-width: 1200px;
+        margin: 0 auto;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 2rem;
+      }
+
+      .footer-left {
+        display: flex;
+        align-items: center;
+        gap: 2rem;
+      }
+
+      .footer-links {
+        display: flex;
+        gap: 1.5rem;
+      }
+
+      .footer-links a {
+        color: var(--text-secondary);
+        text-decoration: none;
+        font-size: 0.9rem;
+        transition: color 0.3s ease;
+      }
+
+      .footer-links a:hover {
+        color: var(--text-primary);
+      }
+
+      .footer-right {
+        color: var(--text-muted);
+        font-size: 0.875rem;
+      }
+
+      /* Responsive */
+      @media (max-width: 768px) {
         nav {
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            padding: 1rem 2rem;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            z-index: 1000;
-            backdrop-filter: blur(20px);
-            background: rgba(10, 10, 20, 0.8);
-            border-bottom: 1px solid var(--border-subtle);
-        }
-
-        .logo {
-            display: flex;
-            align-items: center;
-            gap: 0.75rem;
-            text-decoration: none;
-            color: var(--text-primary);
-        }
-
-        .logo img {
-            width: 40px;
-            height: 40px;
-            border-radius: 10px;
-        }
-
-        .logo span {
-            font-size: 1.5rem;
-            font-weight: 700;
-            background: var(--gradient-primary);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
+          padding: 1rem;
         }
 
         .nav-links {
-            display: flex;
-            gap: 2rem;
-            align-items: center;
+          display: none;
         }
 
-        .nav-links a {
-            color: var(--text-secondary);
-            text-decoration: none;
-            font-weight: 500;
-            font-size: 0.95rem;
-            transition: color 0.3s ease;
-        }
-
-        .nav-links a:hover {
-            color: var(--text-primary);
-        }
-
-        .btn {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.5rem;
-            padding: 0.75rem 1.5rem;
-            border-radius: 12px;
-            font-weight: 600;
-            font-size: 0.95rem;
-            text-decoration: none;
-            transition: all 0.3s ease;
-            cursor: pointer;
-            border: none;
-        }
-
-        .btn-primary {
-            background: var(--gradient-primary);
-            color: white;
-            box-shadow: 0 4px 20px rgba(123, 47, 191, 0.4);
-        }
-
-        .btn-primary:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 30px rgba(123, 47, 191, 0.5);
-        }
-
-        .btn-secondary {
-            background: var(--bg-card);
-            color: var(--text-primary);
-            border: 1px solid var(--border-subtle);
-        }
-
-        .btn-secondary:hover {
-            background: var(--bg-card-hover);
-            border-color: rgba(255, 255, 255, 0.15);
-        }
-
-        /* Hero Section */
         .hero {
-            min-height: 100vh;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            text-align: center;
-            padding: 8rem 2rem 4rem;
-            position: relative;
-        }
-
-        .hero-badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.5rem;
-            padding: 0.5rem 1rem;
-            background: var(--bg-card);
-            border: 1px solid var(--border-subtle);
-            border-radius: 100px;
-            font-size: 0.875rem;
-            color: var(--text-secondary);
-            margin-bottom: 2rem;
-        }
-
-        .hero-badge .dot {
-            width: 8px;
-            height: 8px;
-            background: var(--cyan-bright);
-            border-radius: 50%;
-            animation: pulse 2s infinite;
-        }
-
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
+          padding: 7rem 1.5rem 3rem;
         }
 
         .hero h1 {
-            font-size: clamp(2.5rem, 6vw, 4.5rem);
-            font-weight: 800;
-            line-height: 1.1;
-            margin-bottom: 1.5rem;
-            max-width: 900px;
-        }
-
-        .hero h1 .gradient-text {
-            background: var(--gradient-primary);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
+          font-size: 2.25rem;
         }
 
         .hero p {
-            font-size: 1.25rem;
-            color: var(--text-secondary);
-            max-width: 600px;
-            margin-bottom: 2.5rem;
-            line-height: 1.7;
+          font-size: 1.1rem;
         }
 
         .hero-buttons {
-            display: flex;
-            gap: 1rem;
-            flex-wrap: wrap;
-            justify-content: center;
+          flex-direction: column;
+          width: 100%;
+          max-width: 300px;
         }
 
-        .hero-image {
-            margin-top: 4rem;
-            width: 100%;
-            max-width: 1000px;
-            position: relative;
+        .btn {
+          justify-content: center;
         }
 
-        .hero-image::before {
-            content: '';
-            position: absolute;
-            inset: -20%;
-            background: radial-gradient(ellipse at center, rgba(123, 47, 191, 0.2) 0%, transparent 70%);
-            pointer-events: none;
-        }
-
-        .app-preview {
-            width: 100%;
-            border-radius: 16px;
-            border: 1px solid var(--border-subtle);
-            box-shadow: 0 40px 100px rgba(0, 0, 0, 0.5);
-            background: linear-gradient(180deg, rgba(123, 47, 191, 0.1) 0%, rgba(0, 212, 255, 0.05) 100%);
-            padding: 2rem;
-            backdrop-filter: blur(10px);
-        }
-
-        .app-mockup {
-            background: #1a1a2e;
-            border-radius: 12px;
-            height: 400px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            position: relative;
-            overflow: hidden;
-        }
-
-        .app-mockup::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            height: 40px;
-            background: rgba(255,255,255,0.05);
-            border-bottom: 1px solid var(--border-subtle);
-        }
-
-        .app-mockup-content {
-            display: flex;
-            gap: 1rem;
-            padding: 2rem;
-            align-items: center;
-        }
-
-        .app-mockup-sidebar {
-            width: 200px;
-            height: 280px;
-            background: rgba(123, 47, 191, 0.1);
-            border-radius: 8px;
-            border: 1px solid rgba(123, 47, 191, 0.2);
-        }
-
-        .app-mockup-main {
-            flex: 1;
-            height: 280px;
-            background: rgba(0, 212, 255, 0.05);
-            border-radius: 8px;
-            border: 1px solid rgba(0, 212, 255, 0.1);
-            display: flex;
-            flex-direction: column;
-            gap: 0.5rem;
-            padding: 1rem;
-        }
-
-        .mockup-slide {
-            height: 30px;
-            background: linear-gradient(90deg, rgba(123, 47, 191, 0.3) 0%, rgba(0, 212, 255, 0.2) 100%);
-            border-radius: 4px;
-        }
-
-        .mockup-slide:nth-child(2) { width: 80%; }
-        .mockup-slide:nth-child(3) { width: 90%; }
-        .mockup-slide:nth-child(4) { width: 70%; }
-
-        /* Features Section */
         .section {
-            padding: 6rem 2rem;
-            max-width: 1200px;
-            margin: 0 auto;
-        }
-
-        .section-header {
-            text-align: center;
-            margin-bottom: 4rem;
+          padding: 4rem 1.5rem;
         }
 
         .section-header h2 {
-            font-size: 2.5rem;
-            font-weight: 700;
-            margin-bottom: 1rem;
-        }
-
-        .section-header p {
-            color: var(--text-secondary);
-            font-size: 1.125rem;
-            max-width: 600px;
-            margin: 0 auto;
-        }
-
-        .features-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-            gap: 1.5rem;
-        }
-
-        .feature-card {
-            background: var(--bg-card);
-            border: 1px solid var(--border-subtle);
-            border-radius: 20px;
-            padding: 2rem;
-            transition: all 0.3s ease;
-            position: relative;
-            overflow: hidden;
-        }
-
-        .feature-card::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            height: 2px;
-            background: var(--gradient-primary);
-            opacity: 0;
-            transition: opacity 0.3s ease;
-        }
-
-        .feature-card:hover {
-            background: var(--bg-card-hover);
-            transform: translateY(-4px);
-            border-color: rgba(123, 47, 191, 0.3);
-        }
-
-        .feature-card:hover::before {
-            opacity: 1;
-        }
-
-        .feature-icon {
-            width: 56px;
-            height: 56px;
-            background: var(--gradient-primary);
-            border-radius: 14px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            margin-bottom: 1.5rem;
-            font-size: 1.5rem;
-        }
-
-        .feature-card h3 {
-            font-size: 1.25rem;
-            font-weight: 600;
-            margin-bottom: 0.75rem;
-        }
-
-        .feature-card p {
-            color: var(--text-secondary);
-            font-size: 0.95rem;
-            line-height: 1.6;
-        }
-
-        /* How It Works Section */
-        .how-it-works {
-            background: linear-gradient(180deg, transparent 0%, rgba(123, 47, 191, 0.05) 50%, transparent 100%);
-        }
-
-        .steps {
-            display: flex;
-            flex-direction: column;
-            gap: 3rem;
-            max-width: 800px;
-            margin: 0 auto;
+          font-size: 2rem;
         }
 
         .step {
-            display: flex;
-            gap: 2rem;
-            align-items: flex-start;
-        }
-
-        .step-number {
-            width: 60px;
-            height: 60px;
-            min-width: 60px;
-            background: var(--gradient-primary);
-            border-radius: 16px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 1.5rem;
-            font-weight: 700;
-        }
-
-        .step-content h3 {
-            font-size: 1.5rem;
-            font-weight: 600;
-            margin-bottom: 0.5rem;
-        }
-
-        .step-content p {
-            color: var(--text-secondary);
-            font-size: 1rem;
-            line-height: 1.7;
-        }
-
-        /* Highlight Section */
-        .highlight-section {
-            padding: 6rem 2rem;
-            background: var(--gradient-primary);
-            position: relative;
-            overflow: hidden;
-        }
-
-        .highlight-section::before {
-            content: '';
-            position: absolute;
-            inset: 0;
-            background: 
-                radial-gradient(ellipse at 20% 20%, rgba(255,255,255,0.1) 0%, transparent 50%),
-                radial-gradient(ellipse at 80% 80%, rgba(0,212,255,0.2) 0%, transparent 50%);
-        }
-
-        .highlight-content {
-            max-width: 800px;
-            margin: 0 auto;
-            text-align: center;
-            position: relative;
-            z-index: 1;
+          flex-direction: column;
+          gap: 1rem;
         }
 
         .highlight-content h2 {
-            font-size: 2.5rem;
-            font-weight: 700;
-            margin-bottom: 1rem;
-        }
-
-        .highlight-content p {
-            font-size: 1.25rem;
-            opacity: 0.9;
-            margin-bottom: 2rem;
-        }
-
-        /* Download Section */
-        .download-section {
-            text-align: center;
-        }
-
-        .platform-cards {
-            display: flex;
-            gap: 1.5rem;
-            justify-content: center;
-            flex-wrap: wrap;
-            margin-top: 3rem;
-        }
-
-        .platform-card {
-            background: var(--bg-card);
-            border: 1px solid var(--border-subtle);
-            border-radius: 20px;
-            padding: 2.5rem 3rem;
-            min-width: 280px;
-            transition: all 0.3s ease;
-        }
-
-        .platform-card:hover {
-            background: var(--bg-card-hover);
-            transform: translateY(-4px);
-            border-color: rgba(123, 47, 191, 0.3);
-        }
-
-        .platform-icon {
-            font-size: 3rem;
-            margin-bottom: 1rem;
-        }
-
-        .platform-card h3 {
-            font-size: 1.5rem;
-            font-weight: 600;
-            margin-bottom: 0.5rem;
-        }
-
-        .platform-card p {
-            color: var(--text-secondary);
-            margin-bottom: 1.5rem;
-        }
-
-        /* Footer */
-        footer {
-            padding: 4rem 2rem 2rem;
-            border-top: 1px solid var(--border-subtle);
-            margin-top: 4rem;
+          font-size: 1.75rem;
         }
 
         .footer-content {
-            max-width: 1200px;
-            margin: 0 auto;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            flex-wrap: wrap;
-            gap: 2rem;
+          flex-direction: column;
+          text-align: center;
         }
 
         .footer-left {
-            display: flex;
-            align-items: center;
-            gap: 2rem;
+          flex-direction: column;
         }
 
-        .footer-links {
-            display: flex;
-            gap: 1.5rem;
+        .app-mockup {
+          height: 250px;
         }
 
-        .footer-links a {
-            color: var(--text-secondary);
-            text-decoration: none;
-            font-size: 0.9rem;
-            transition: color 0.3s ease;
+        .app-mockup-content {
+          flex-direction: column;
+          padding: 3rem 1rem 1rem;
         }
 
-        .footer-links a:hover {
-            color: var(--text-primary);
+        .app-mockup-sidebar {
+          width: 100%;
+          height: 60px;
         }
 
-        .footer-right {
-            color: var(--text-muted);
-            font-size: 0.875rem;
+        .app-mockup-main {
+          height: 120px;
         }
+      }
 
-        /* Responsive */
-        @media (max-width: 768px) {
-            nav {
-                padding: 1rem;
-            }
-
-            .nav-links {
-                display: none;
-            }
-
-            .hero {
-                padding: 7rem 1.5rem 3rem;
-            }
-
-            .hero h1 {
-                font-size: 2.25rem;
-            }
-
-            .hero p {
-                font-size: 1.1rem;
-            }
-
-            .hero-buttons {
-                flex-direction: column;
-                width: 100%;
-                max-width: 300px;
-            }
-
-            .btn {
-                justify-content: center;
-            }
-
-            .section {
-                padding: 4rem 1.5rem;
-            }
-
-            .section-header h2 {
-                font-size: 2rem;
-            }
-
-            .step {
-                flex-direction: column;
-                gap: 1rem;
-            }
-
-            .highlight-content h2 {
-                font-size: 1.75rem;
-            }
-
-            .footer-content {
-                flex-direction: column;
-                text-align: center;
-            }
-
-            .footer-left {
-                flex-direction: column;
-            }
-
-            .app-mockup {
-                height: 250px;
-            }
-
-            .app-mockup-content {
-                flex-direction: column;
-                padding: 3rem 1rem 1rem;
-            }
-
-            .app-mockup-sidebar {
-                width: 100%;
-                height: 60px;
-            }
-
-            .app-mockup-main {
-                height: 120px;
-            }
+      /* Animations */
+      @keyframes fadeInUp {
+        from {
+          opacity: 0;
+          transform: translateY(30px);
         }
-
-        /* Animations */
-        @keyframes fadeInUp {
-            from {
-                opacity: 0;
-                transform: translateY(30px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
+        to {
+          opacity: 1;
+          transform: translateY(0);
         }
+      }
 
-        .animate-in {
-            animation: fadeInUp 0.8s ease forwards;
-        }
+      .animate-in {
+        animation: fadeInUp 0.8s ease forwards;
+      }
 
-        .delay-1 { animation-delay: 0.1s; }
-        .delay-2 { animation-delay: 0.2s; }
-        .delay-3 { animation-delay: 0.3s; }
-        .delay-4 { animation-delay: 0.4s; }
+      .delay-1 {
+        animation-delay: 0.1s;
+      }
+      .delay-2 {
+        animation-delay: 0.2s;
+      }
+      .delay-3 {
+        animation-delay: 0.3s;
+      }
+      .delay-4 {
+        animation-delay: 0.4s;
+      }
     </style>
-</head>
-<body>
+  </head>
+  <body>
     <div class="bg-gradient-overlay"></div>
     <div class="bg-grid"></div>
 
     <!-- Navigation -->
     <nav>
-        <a href="#" class="logo">
-            <img src="assets/ProAssist.png" alt="ProAssist Logo">
-            <span>ProAssist</span>
-        </a>
-        <div class="nav-links">
-            <a href="#features">Features</a>
-            <a href="#how-it-works">How It Works</a>
-            <a href="https://github.com/crownemmanuel/proassist" target="_blank">GitHub</a>
-            <a href="#download" class="btn btn-primary">Download</a>
-        </div>
+      <a href="#" class="logo">
+        <img src="assets/ProAssist.png" alt="ProAssist Logo" />
+        <span>ProAssist</span>
+      </a>
+      <div class="nav-links">
+        <a href="#features">Features</a>
+        <a href="#how-it-works">How It Works</a>
+        <a href="https://github.com/crownemmanuel/proassist" target="_blank"
+          >GitHub</a
+        >
+        <a href="#download" class="btn btn-primary">Download</a>
+      </div>
     </nav>
 
     <!-- Hero Section -->
     <section class="hero">
-        <div class="hero-badge animate-in">
-            <span class="dot"></span>
-            <span>Built for ProPresenter Users</span>
-        </div>
-        <h1 class="animate-in delay-1">
-            AI-Powered Automation for <span class="gradient-text">ProPresenter</span>
-        </h1>
-        <p class="animate-in delay-2">
-            ProAssist helps ProPresenter users spend less time preparing slides and more time focusing on the service. It uses AI to process and format text into ready to use slides, removing repetitive copy and paste tasks. With added automation tools like timers and command based control, ProAssist simplifies both preparation and live operation. Leveraging LLMs, it also allows users to chat with the system and give natural language instructions to make changes directly in ProPresenter.
-        </p>
-        <div class="hero-buttons animate-in delay-3">
-            <a href="https://github.com/crownemmanuel/proassist/releases/latest" class="btn btn-primary">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                    <polyline points="7 10 12 15 17 10"></polyline>
-                    <line x1="12" y1="15" x2="12" y2="3"></line>
-                </svg>
-                Download Free
-            </a>
-            <a href="https://github.com/crownemmanuel/proassist" target="_blank" class="btn btn-secondary">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
-                </svg>
-                View on GitHub
-            </a>
-        </div>
-        <div class="hero-image animate-in delay-4">
-            <div class="app-preview">
-                <div class="app-mockup">
-                    <div class="app-mockup-content">
-                        <div class="app-mockup-sidebar"></div>
-                        <div class="app-mockup-main">
-                            <div class="mockup-slide"></div>
-                            <div class="mockup-slide"></div>
-                            <div class="mockup-slide"></div>
-                            <div class="mockup-slide"></div>
-                        </div>
-                    </div>
-                </div>
+      <div class="hero-badge animate-in">
+        <span class="dot"></span>
+        <span>Built for ProPresenter Users</span>
+      </div>
+      <h1 class="animate-in delay-1">
+        AI-Powered Automation for
+        <span class="gradient-text">ProPresenter</span>
+      </h1>
+      <p class="animate-in delay-2">
+        ProAssist helps ProPresenter users spend less time preparing slides and
+        more time focusing on the service. It uses AI to process and format text
+        into ready to use slides, removing repetitive copy and paste tasks. With
+        added automation tools like timers and command based control, ProAssist
+        simplifies both preparation and live operation. Leveraging LLMs, it also
+        allows users to chat with the system and give natural language
+        instructions to make changes directly in ProPresenter.
+      </p>
+      <div class="hero-buttons animate-in delay-3">
+        <a
+          href="https://github.com/crownemmanuel/proassist/releases/latest"
+          class="btn btn-primary"
+        >
+          <svg
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <polyline points="7 10 12 15 17 10"></polyline>
+            <line x1="12" y1="15" x2="12" y2="3"></line>
+          </svg>
+          Download Free
+        </a>
+        <a
+          href="https://github.com/crownemmanuel/proassist"
+          target="_blank"
+          class="btn btn-secondary"
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+            <path
+              d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"
+            />
+          </svg>
+          View on GitHub
+        </a>
+      </div>
+      <div class="hero-image animate-in delay-4">
+        <div class="app-preview">
+          <div class="app-mockup">
+            <div class="app-mockup-content">
+              <div class="app-mockup-sidebar"></div>
+              <div class="app-mockup-main">
+                <div class="mockup-slide"></div>
+                <div class="mockup-slide"></div>
+                <div class="mockup-slide"></div>
+                <div class="mockup-slide"></div>
+              </div>
             </div>
+          </div>
         </div>
+      </div>
     </section>
 
     <!-- Features Section -->
     <section class="section" id="features">
-        <div class="section-header">
-            <h2>Powerful Features</h2>
-            <p>Everything you need to supercharge your ProPresenter workflow</p>
+      <div class="section-header">
+        <h2>Powerful Features</h2>
+        <p>Everything you need to supercharge your ProPresenter workflow</p>
+      </div>
+      <div class="features-grid">
+        <div class="feature-card">
+          <div class="feature-icon">🤖</div>
+          <h3>AI-Powered Processing</h3>
+          <p>
+            Leverage OpenAI GPT-4 and Google Gemini to intelligently split and
+            format your content into perfectly sized slides.
+          </p>
         </div>
-        <div class="features-grid">
-            <div class="feature-card">
-                <div class="feature-icon">🤖</div>
-                <h3>AI-Powered Processing</h3>
-                <p>Leverage OpenAI GPT-4 and Google Gemini to intelligently split and format your content into perfectly sized slides.</p>
-            </div>
-            <div class="feature-card">
-                <div class="feature-icon">📝</div>
-                <h3>Flexible Templates</h3>
-                <p>Four processing types: Simple, Regex, JavaScript, and AI-Powered. Create custom templates for any content type.</p>
-            </div>
-            <div class="feature-card">
-                <div class="feature-icon">⚡</div>
-                <h3>Real-Time Sync</h3>
-                <p>Instantly update ProPresenter slides with "Go Live" functionality. Changes appear immediately on screen.</p>
-            </div>
-            <div class="feature-card">
-                <div class="feature-icon">🌐</div>
-                <h3>Live Collaboration</h3>
-                <p>WebSocket-based Live Slides system. Edit content from any browser on your network in real-time.</p>
-            </div>
-            <div class="feature-card">
-                <div class="feature-icon">📖</div>
-                <h3>Bible Integration</h3>
-                <p>Automatic scripture lookup and formatting with support for multiple Bible translations.</p>
-            </div>
-            <div class="feature-card">
-                <div class="feature-icon">🎨</div>
-                <h3>Modern Interface</h3>
-                <p>Beautiful dark and light themes with an intuitive, organized layout for efficient workflow.</p>
-            </div>
+        <div class="feature-card">
+          <div class="feature-icon">📝</div>
+          <h3>Flexible Templates</h3>
+          <p>
+            Four processing types: Simple, Regex, JavaScript, and AI-Powered.
+            Create custom templates for any content type.
+          </p>
         </div>
+        <div class="feature-card">
+          <div class="feature-icon">⚡</div>
+          <h3>Real-Time Sync</h3>
+          <p>
+            Instantly update ProPresenter slides with "Go Live" functionality.
+            Changes appear immediately on screen.
+          </p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">🌐</div>
+          <h3>Live Collaboration</h3>
+          <p>
+            WebSocket-based Live Slides system. Edit content from any browser on
+            your network in real-time.
+          </p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">📖</div>
+          <h3>Bible Integration</h3>
+          <p>
+            Automatic scripture lookup and formatting with support for multiple
+            Bible translations.
+          </p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">🎨</div>
+          <h3>Modern Interface</h3>
+          <p>
+            Beautiful dark and light themes with an intuitive, organized layout
+            for efficient workflow.
+          </p>
+        </div>
+      </div>
     </section>
 
     <!-- How It Works Section -->
     <section class="section how-it-works" id="how-it-works">
-        <div class="section-header">
-            <h2>How It Works</h2>
-            <p>Get started in minutes with a simple setup process</p>
+      <div class="section-header">
+        <h2>How It Works</h2>
+        <p>Get started in minutes with a simple setup process</p>
+      </div>
+      <div class="steps">
+        <div class="step">
+          <div class="step-number">1</div>
+          <div class="step-content">
+            <h3>Configure Your Templates</h3>
+            <p>
+              Set up templates with your preferred output paths, file naming
+              conventions, and processing types. ProAssist writes to text files
+              that ProPresenter reads.
+            </p>
+          </div>
         </div>
-        <div class="steps">
-            <div class="step">
-                <div class="step-number">1</div>
-                <div class="step-content">
-                    <h3>Configure Your Templates</h3>
-                    <p>Set up templates with your preferred output paths, file naming conventions, and processing types. ProAssist writes to text files that ProPresenter reads.</p>
-                </div>
-            </div>
-            <div class="step">
-                <div class="step-number">2</div>
-                <div class="step-content">
-                    <h3>Link Files in ProPresenter</h3>
-                    <p>Use ProPresenter's Linked Text feature to connect text boxes to the files ProAssist generates. Each slide line links to a separate file.</p>
-                </div>
-            </div>
-            <div class="step">
-                <div class="step-number">3</div>
-                <div class="step-content">
-                    <h3>Import & Process Content</h3>
-                    <p>Paste your text or upload files. ProAssist automatically splits and formats content according to your template's rules or AI instructions.</p>
-                </div>
-            </div>
-            <div class="step">
-                <div class="step-number">4</div>
-                <div class="step-content">
-                    <h3>Go Live!</h3>
-                    <p>Click any slide to instantly update ProPresenter. Your content appears on screen immediately, perfectly formatted every time.</p>
-                </div>
-            </div>
+        <div class="step">
+          <div class="step-number">2</div>
+          <div class="step-content">
+            <h3>Link Files in ProPresenter</h3>
+            <p>
+              Use ProPresenter's Linked Text feature to connect text boxes to
+              the files ProAssist generates. Each slide line links to a separate
+              file.
+            </p>
+          </div>
         </div>
+        <div class="step">
+          <div class="step-number">3</div>
+          <div class="step-content">
+            <h3>Import & Process Content</h3>
+            <p>
+              Paste your text or upload files. ProAssist automatically splits
+              and formats content according to your template's rules or AI
+              instructions.
+            </p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-number">4</div>
+          <div class="step-content">
+            <h3>Go Live!</h3>
+            <p>
+              Click any slide to instantly update ProPresenter. Your content
+              appears on screen immediately, perfectly formatted every time.
+            </p>
+          </div>
+        </div>
+      </div>
     </section>
 
     <!-- Highlight Section -->
     <section class="highlight-section">
-        <div class="highlight-content">
-            <h2>Built for Worship Teams & Live Events</h2>
-            <p>Whether you're running a Sunday service, live conference, or any presentation that needs real-time text updates, ProAssist streamlines your workflow.</p>
-            <a href="#download" class="btn btn-secondary" style="background: rgba(255,255,255,0.15); border-color: rgba(255,255,255,0.3);">
-                Get Started Today
-            </a>
-        </div>
+      <div class="highlight-content">
+        <h2>Built for Worship Teams & Live Events</h2>
+        <p>
+          Whether you're running a Sunday service, live conference, or any
+          presentation that needs real-time text updates, ProAssist streamlines
+          your workflow.
+        </p>
+        <a
+          href="#download"
+          class="btn btn-secondary"
+          style="
+            background: rgba(255, 255, 255, 0.15);
+            border-color: rgba(255, 255, 255, 0.3);
+          "
+        >
+          Get Started Today
+        </a>
+      </div>
     </section>
 
     <!-- Download Section -->
     <section class="section download-section" id="download">
-        <div class="section-header">
-            <h2>Download ProAssist</h2>
-            <p>Available for macOS and Windows. Free and open source.</p>
+      <div class="section-header">
+        <h2>Download ProAssist</h2>
+        <p>Available for macOS and Windows. Free and open source.</p>
+      </div>
+      <div class="platform-cards">
+        <div class="platform-card">
+          <div class="platform-icon">🍎</div>
+          <h3>macOS</h3>
+          <p>Apple Silicon & Intel</p>
+          <a
+            href="https://github.com/crownemmanuel/proassist/releases/latest"
+            class="btn btn-primary"
+            >Download for Mac</a
+          >
         </div>
-        <div class="platform-cards">
-            <div class="platform-card">
-                <div class="platform-icon">🍎</div>
-                <h3>macOS</h3>
-                <p>Apple Silicon & Intel</p>
-                <a href="https://github.com/crownemmanuel/proassist/releases/latest" class="btn btn-primary">Download for Mac</a>
-            </div>
-            <div class="platform-card">
-                <div class="platform-icon">🪟</div>
-                <h3>Windows</h3>
-                <p>Windows 10 & 11</p>
-                <a href="https://github.com/crownemmanuel/proassist/releases/latest" class="btn btn-primary">Download for Windows</a>
-            </div>
+        <div class="platform-card">
+          <div class="platform-icon">🪟</div>
+          <h3>Windows</h3>
+          <p>Windows 10 & 11</p>
+          <a
+            href="https://github.com/crownemmanuel/proassist/releases/latest"
+            class="btn btn-primary"
+            >Download for Windows</a
+          >
         </div>
+      </div>
     </section>
 
     <!-- Footer -->
     <footer>
-        <div class="footer-content">
-            <div class="footer-left">
-                <a href="#" class="logo">
-                    <img src="assets/ProAssist.png" alt="ProAssist Logo">
-                    <span>ProAssist</span>
-                </a>
-                <div class="footer-links">
-                    <a href="https://github.com/crownemmanuel/proassist" target="_blank">GitHub</a>
-                    <a href="https://github.com/crownemmanuel/proassist/issues" target="_blank">Report Issues</a>
-                    <a href="https://github.com/crownemmanuel/proassist/releases" target="_blank">All Releases</a>
-                </div>
-            </div>
-            <div class="footer-right">
-                Made with ❤️ by Emmanuel Crown
-            </div>
+      <div class="footer-content">
+        <div class="footer-left">
+          <a href="#" class="logo">
+            <img src="assets/ProAssist.png" alt="ProAssist Logo" />
+            <span>ProAssist</span>
+          </a>
+          <div class="footer-links">
+            <a href="https://github.com/crownemmanuel/proassist" target="_blank"
+              >GitHub</a
+            >
+            <a
+              href="https://github.com/crownemmanuel/proassist/issues"
+              target="_blank"
+              >Report Issues</a
+            >
+            <a
+              href="https://github.com/crownemmanuel/proassist/releases"
+              target="_blank"
+              >All Releases</a
+            >
+          </div>
         </div>
+        <div class="footer-right">Made with ❤️ by Emmanuel Crown</div>
+      </div>
     </footer>
 
     <script>
-        // Smooth scroll for navigation links
-        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
-            anchor.addEventListener('click', function (e) {
-                e.preventDefault();
-                const target = document.querySelector(this.getAttribute('href'));
-                if (target) {
-                    target.scrollIntoView({
-                        behavior: 'smooth',
-                        block: 'start'
-                    });
-                }
+      // Smooth scroll for navigation links
+      document.querySelectorAll('a[href^="#"]').forEach((anchor) => {
+        anchor.addEventListener("click", function (e) {
+          e.preventDefault();
+          const target = document.querySelector(this.getAttribute("href"));
+          if (target) {
+            target.scrollIntoView({
+              behavior: "smooth",
+              block: "start",
             });
+          }
         });
+      });
 
-        // Add scroll-based animations
-        const observerOptions = {
-            threshold: 0.1,
-            rootMargin: '0px 0px -50px 0px'
-        };
+      // Add scroll-based animations
+      const observerOptions = {
+        threshold: 0.1,
+        rootMargin: "0px 0px -50px 0px",
+      };
 
-        const observer = new IntersectionObserver((entries) => {
-            entries.forEach(entry => {
-                if (entry.isIntersecting) {
-                    entry.target.style.opacity = '1';
-                    entry.target.style.transform = 'translateY(0)';
-                }
-            });
-        }, observerOptions);
+      const observer = new IntersectionObserver((entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            entry.target.style.opacity = "1";
+            entry.target.style.transform = "translateY(0)";
+          }
+        });
+      }, observerOptions);
 
-        document.querySelectorAll('.feature-card, .step, .platform-card').forEach(el => {
-            el.style.opacity = '0';
-            el.style.transform = 'translateY(30px)';
-            el.style.transition = 'opacity 0.6s ease, transform 0.6s ease';
-            observer.observe(el);
+      document
+        .querySelectorAll(".feature-card, .step, .platform-card")
+        .forEach((el) => {
+          el.style.opacity = "0";
+          el.style.transform = "translateY(30px)";
+          el.style.transition = "opacity 0.6s ease, transform 0.6s ease";
+          observer.observe(el);
         });
     </script>
-</body>
+  </body>
 </html>

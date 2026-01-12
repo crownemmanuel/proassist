@@ -1,6 +1,7 @@
 import { AppSettings, Template, LayoutType, Slide } from "../types";
 import { ChatOpenAI } from "@langchain/openai";
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
+import { ChatGroq } from "@langchain/groq";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { JsonOutputFunctionsParser } from "langchain/output_parsers";
 
@@ -63,6 +64,8 @@ export const generateSlidesFromText = async (
     apiKey = appSettings.openAIConfig?.apiKey;
   } else if (provider === "gemini") {
     apiKey = appSettings.geminiConfig?.apiKey;
+  } else if (provider === "groq") {
+    apiKey = appSettings.groqConfig?.apiKey;
   }
 
   if (!provider || !apiKey) {
@@ -85,6 +88,12 @@ export const generateSlidesFromText = async (
       llm = new ChatGoogleGenerativeAI({
         apiKey: apiKey,
         model: modelName || "gemini-1.5-flash-latest", // Fallback to a default Gemini model
+        temperature: 0.7,
+      });
+    } else if (provider === "groq") {
+      llm = new ChatGroq({
+        apiKey: apiKey,
+        model: modelName || "llama-3.3-70b-versatile", // Fallback to a default Groq model
         temperature: 0.7,
       });
     } else {
@@ -286,7 +295,7 @@ function tryParseSlidesJson(
 export const generateLogicSnippet = async (
   description: string,
   outputType: "regex" | "javascript",
-  providerFromUser: "openai" | "gemini" | undefined,
+  providerFromUser: "openai" | "gemini" | "groq" | undefined,
   modelFromUser: string | undefined,
   appSettings: AppSettings
 ): Promise<string> => {
@@ -297,6 +306,7 @@ export const generateLogicSnippet = async (
   let apiKey: string | undefined;
   if (provider === "openai") apiKey = appSettings.openAIConfig?.apiKey;
   if (provider === "gemini") apiKey = appSettings.geminiConfig?.apiKey;
+  if (provider === "groq") apiKey = appSettings.groqConfig?.apiKey;
   if (!apiKey) return "";
 
   try {
@@ -324,6 +334,21 @@ export const generateLogicSnippet = async (
       const llm = new ChatGoogleGenerativeAI({
         apiKey,
         model: modelFromUser || "gemini-1.5-flash-latest",
+        temperature: 0.3,
+      });
+      const messages = [
+        new SystemMessage(system),
+        new HumanMessage(description),
+      ];
+      const res = await llm.invoke(messages);
+      const text =
+        (res as any)?.content?.[0]?.text ?? (res as any)?.content ?? "";
+      return typeof text === "string" ? text.trim() : "";
+    }
+    if (provider === "groq") {
+      const llm = new ChatGroq({
+        apiKey,
+        model: modelFromUser || "llama-3.3-70b-versatile",
         temperature: 0.3,
       });
       const messages = [
@@ -384,6 +409,28 @@ export const fetchGeminiModels = async (apiKey: string): Promise<string[]> => {
 };
 
 /**
+ * Fetch available Groq model ids.
+ * Groq uses an OpenAI-compatible API at https://api.groq.com/openai/v1/models
+ */
+export const fetchGroqModels = async (apiKey: string): Promise<string[]> => {
+  try {
+    const res = await fetch("https://api.groq.com/openai/v1/models", {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const ids: string[] = (data?.data || []).map((m: any) => m.id);
+    // Filter to chat/text models (exclude whisper, etc.)
+    return ids
+      .filter((id) => !id.includes("whisper") && !id.includes("tool-use") && !id.includes("guard"))
+      .sort();
+  } catch (err) {
+    console.error("fetchGroqModels failed:", err);
+    return [];
+  }
+};
+
+/**
  * Proofread and fix grammatical/spelling errors in slide texts.
  * Returns an array of corrected texts in the same order as input.
  *
@@ -395,7 +442,7 @@ export const fetchGeminiModels = async (apiKey: string): Promise<string[]> => {
  */
 export const proofreadSlideTexts = async (
   slideTexts: string[],
-  provider: "openai" | "gemini",
+  provider: "openai" | "gemini" | "groq",
   modelName: string,
   appSettings: AppSettings
 ): Promise<string[]> => {
@@ -406,6 +453,8 @@ export const proofreadSlideTexts = async (
     apiKey = appSettings.openAIConfig?.apiKey;
   } else if (provider === "gemini") {
     apiKey = appSettings.geminiConfig?.apiKey;
+  } else if (provider === "groq") {
+    apiKey = appSettings.groqConfig?.apiKey;
   }
 
   if (!apiKey) {
@@ -419,10 +468,16 @@ export const proofreadSlideTexts = async (
       modelName: modelName || "gpt-4o-mini",
       temperature: 0, // Low temperature for precise corrections
     });
-  } else {
+  } else if (provider === "gemini") {
     llm = new ChatGoogleGenerativeAI({
       apiKey,
       model: modelName || "gemini-1.5-flash-latest",
+      temperature: 0,
+    });
+  } else {
+    llm = new ChatGroq({
+      apiKey,
+      model: modelName || "llama-3.3-70b-versatile",
       temperature: 0,
     });
   }
