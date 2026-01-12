@@ -1,6 +1,6 @@
 /**
  * Schedule AI Service
- * 
+ *
  * Uses the existing AI infrastructure (Gemini/GPT) to parse schedules from
  * images or text input.
  */
@@ -42,21 +42,21 @@ function getAIAssistantSettings(): AIAssistantSettings {
 function buildSystemPrompt(currentSchedule?: ScheduleItem[]): string {
   const settings = getAIAssistantSettings();
   const customPrompt = settings.customSystemPrompt?.trim() || "";
-  
-  const contextPrompt = currentSchedule 
+
+  const contextPrompt = currentSchedule
     ? `\n\nCurrent schedule: ${JSON.stringify(currentSchedule)}`
     : "";
-  
+
   let finalPrompt = SYSTEM_PROMPT;
-  
+
   if (customPrompt) {
     finalPrompt = finalPrompt + "\n\n" + customPrompt;
   }
-  
+
   if (contextPrompt) {
     finalPrompt = finalPrompt + contextPrompt;
   }
-  
+
   return finalPrompt;
 }
 
@@ -64,28 +64,40 @@ function buildSystemPrompt(currentSchedule?: ScheduleItem[]): string {
  * Get AI configuration from app settings
  * @param preferredProvider Optional provider to use. If not provided, uses default from settings.
  */
-function getAIConfig(preferredProvider?: AIProvider): { provider: AIProvider; apiKey: string; model: string } | null {
+function getAIConfig(
+  preferredProvider?: AIProvider
+): { provider: AIProvider; apiKey: string; model: string } | null {
   // Get from the main app settings using the utility function
   const appSettings = getAppSettings();
-  
+
   // Check if timer assistant model is configured
   const timerAssistantSettings = appSettings.timerAssistantModel;
-  
+
   // Determine provider: prefer configured timer assistant, then preferred, then default
   let provider: AIProvider;
   let model: string;
-  
+
   if (timerAssistantSettings?.provider && timerAssistantSettings?.model) {
     provider = timerAssistantSettings.provider;
     model = timerAssistantSettings.model;
   } else if (preferredProvider) {
     provider = preferredProvider;
-    model = preferredProvider === "openai" ? "gpt-4o" : preferredProvider === "groq" ? "llama-3.3-70b-versatile" : "gemini-1.5-flash-latest";
+    model =
+      preferredProvider === "openai"
+        ? "gpt-4o"
+        : preferredProvider === "groq"
+        ? "llama-3.3-70b-versatile"
+        : "gemini-1.5-flash-latest";
   } else {
     provider = appSettings.defaultAIProvider || null;
-    model = provider === "openai" ? "gpt-4o" : provider === "groq" ? "llama-3.3-70b-versatile" : "gemini-1.5-flash-latest";
+    model =
+      provider === "openai"
+        ? "gpt-4o"
+        : provider === "groq"
+        ? "llama-3.3-70b-versatile"
+        : "gemini-1.5-flash-latest";
   }
-  
+
   if (!provider) {
     // Try any available provider
     if (appSettings.openAIConfig?.apiKey) {
@@ -111,14 +123,15 @@ function getAIConfig(preferredProvider?: AIProvider): { provider: AIProvider; ap
     }
     return null;
   }
-  
+
   // Get API key for the chosen provider
-  const apiKey = provider === "openai" 
-    ? appSettings.openAIConfig?.apiKey 
-    : provider === "groq"
-    ? appSettings.groqConfig?.apiKey
-    : appSettings.geminiConfig?.apiKey;
-  
+  const apiKey =
+    provider === "openai"
+      ? appSettings.openAIConfig?.apiKey
+      : provider === "groq"
+      ? appSettings.groqConfig?.apiKey
+      : appSettings.geminiConfig?.apiKey;
+
   if (!apiKey) {
     // Try fallback to other provider
     if (provider === "openai" && appSettings.geminiConfig?.apiKey) {
@@ -175,7 +188,7 @@ function getAIConfig(preferredProvider?: AIProvider): { provider: AIProvider; ap
 export function getAvailableProviders(): AIProvider[] {
   const appSettings = getAppSettings();
   const providers: AIProvider[] = [];
-  
+
   if (appSettings.openAIConfig?.apiKey) {
     providers.push("openai");
   }
@@ -185,7 +198,7 @@ export function getAvailableProviders(): AIProvider[] {
   if (appSettings.groqConfig?.apiKey) {
     providers.push("groq");
   }
-  
+
   return providers;
 }
 
@@ -235,17 +248,19 @@ export async function parseScheduleFromImage(
   preferredProvider?: AIProvider
 ): Promise<AIScheduleResponse> {
   const config = getAIConfig(preferredProvider);
-  
+
   if (!config) {
     return {
       action: "none",
-      responseText: "AI is not configured. Please add your API key in Settings > AI Configuration.",
+      responseText:
+        "AI is not configured. Please add your API key in Settings > AI Configuration.",
     };
   }
 
   try {
     const currentPeriod = new Date().getHours() >= 12 ? "PM" : "AM";
-    const userMessage = additionalInstructions || 
+    const userMessage =
+      additionalInstructions ||
       `Create the schedule based on the provided image. If a time does not specify AM or PM, use ${currentPeriod}.`;
 
     if (config.provider === "openai") {
@@ -291,11 +306,27 @@ export async function parseScheduleFromImage(
 
       return parseAIResponse(response);
     } else if (config.provider === "groq") {
-      // Groq doesn't support vision models yet, so we return an informative error
-      return {
-        action: "none",
-        responseText: "Groq does not support image processing. Please use OpenAI or Gemini for image-based schedule parsing, or paste the schedule as text.",
-      };
+      // Groq now supports vision models with Llama 4 Scout
+      const llm = new ChatGroq({
+        apiKey: config.apiKey,
+        model: "meta-llama/llama-4-scout-17b-16e-instruct", // Vision model
+        temperature: 0.3,
+      });
+
+      const response = await llm.invoke([
+        new SystemMessage(buildSystemPrompt(currentSchedule)),
+        new HumanMessage({
+          content: [
+            { type: "text", text: userMessage },
+            {
+              type: "image_url",
+              image_url: { url: imageBase64 },
+            },
+          ],
+        }),
+      ]);
+
+      return parseAIResponse(response);
     }
 
     return {
@@ -306,7 +337,9 @@ export async function parseScheduleFromImage(
     console.error("Error parsing schedule from image:", error);
     return {
       action: "none",
-      responseText: `Error parsing schedule: ${error instanceof Error ? error.message : "Unknown error"}`,
+      responseText: `Error parsing schedule: ${
+        error instanceof Error ? error.message : "Unknown error"
+      }`,
     };
   }
 }
@@ -320,11 +353,12 @@ export async function parseScheduleFromText(
   preferredProvider?: AIProvider
 ): Promise<AIScheduleResponse> {
   const config = getAIConfig(preferredProvider);
-  
+
   if (!config) {
     return {
       action: "none",
-      responseText: "AI is not configured. Please add your API key in Settings > AI Configuration.",
+      responseText:
+        "AI is not configured. Please add your API key in Settings > AI Configuration.",
     };
   }
 
@@ -360,7 +394,9 @@ export async function parseScheduleFromText(
     console.error("Error parsing schedule from text:", error);
     return {
       action: "none",
-      responseText: `Error processing request: ${error instanceof Error ? error.message : "Unknown error"}`,
+      responseText: `Error processing request: ${
+        error instanceof Error ? error.message : "Unknown error"
+      }`,
     };
   }
 }
@@ -372,7 +408,7 @@ function parseAIResponse(response: any): AIScheduleResponse {
   try {
     const content = response.content;
     let text = "";
-    
+
     if (typeof content === "string") {
       text = content;
     } else if (Array.isArray(content) && content[0]?.text) {
@@ -415,7 +451,12 @@ export async function processAIChatMessage(
   preferredProvider?: AIProvider
 ): Promise<AIScheduleResponse> {
   if (image) {
-    return parseScheduleFromImage(image, message, currentSchedule, preferredProvider);
+    return parseScheduleFromImage(
+      image,
+      message,
+      currentSchedule,
+      preferredProvider
+    );
   }
   return parseScheduleFromText(message, currentSchedule, preferredProvider);
 }
