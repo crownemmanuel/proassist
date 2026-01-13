@@ -12,6 +12,7 @@
     "build:windows": "tauri build --bundles msi"
   },
   "dependencies": {
+    "@heroicons/react": "^2.2.0",
     "@langchain/core": "^0.3.56",
     "@langchain/google-genai": "^0.2.9",
     "@langchain/groq": "^0.2.4",

@@ -134,6 +134,7 @@ export interface AppSettings {
   // AI Model settings for specific features
   spellCheckModel?: AIModelSetting; // Provider and model for spell checking
   timerAssistantModel?: AIModelSetting; // Provider and model for timer AI assistant
+  globalAssistantModel?: AIModelSetting; // Provider and model for global AI chat assistant
   // Other global settings can be added here
 }
 

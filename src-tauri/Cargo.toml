@@ -33,9 +33,7 @@ tokio-tungstenite = "0.21"
 futures-util = "0.3"
 uuid = { version = "1", features = ["v4"] }
 local-ip-address = "0.6"
-lazy_static = "1.4"
-
-# HTTP server for serving frontend to external devices
+lazy_static = "1.5.0"
 warp = "0.3"
-rust-embed = "8"
-mime_guess = "2"
+rust-embed = "8.9.0"
+mime_guess = "2.0.5"

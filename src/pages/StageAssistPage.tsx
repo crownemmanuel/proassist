@@ -1,19 +1,15 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   FaPlay,
   FaStop,
   FaPlus,
-  FaRobot,
-  FaTimes,
-  FaPaperclip,
-  FaPaperPlane,
   FaUpload,
-  FaCog,
   FaLink,
   FaMagic,
   FaCaretDown,
   FaCloud,
   FaFile,
+  FaImage,
 } from "react-icons/fa";
 import {
   ScheduleItem,
@@ -26,21 +22,13 @@ import {
   changeStageLayoutOnAllEnabled,
 } from "../services/propresenterService";
 import {
-  processAIChatMessage,
-  getAvailableProviders,
-} from "../services/scheduleAIService";
-import {
   formatStageAssistTime,
   useStageAssist,
 } from "../contexts/StageAssistContext";
-import { getAppSettings } from "../utils/aiConfig";
-import { AIProvider } from "../types";
 import { loadNetworkSyncSettings } from "../services/networkSyncService";
 import { loadLiveSlidesSettings } from "../services/liveSlideService";
 import LoadScheduleModal from "../components/LoadScheduleModal";
-import AIAssistantSettingsModal, {
-  getAIAssistantSettings,
-} from "../components/AIAssistantSettingsModal";
+import ImageScheduleUploadModal from "../components/ImageScheduleUploadModal";
 import RemoteAccessLinkModal from "../components/RemoteAccessLinkModal";
 import ScheduleAutomationModal from "../components/ScheduleAutomationModal";
 import { findMatchingAutomation } from "../utils/testimoniesStorage";
@@ -96,12 +84,6 @@ function mergeAutomations(
   return Array.from(byType.values());
 }
 
-interface ChatMessage {
-  role: "user" | "assistant";
-  content: string;
-  image?: string;
-}
-
 const StageAssistPage: React.FC = () => {
   const {
     timerState,
@@ -135,71 +117,6 @@ const StageAssistPage: React.FC = () => {
   } | null>(null);
   const [nextId, setNextId] = useState(100);
 
-  // AI Chat state
-  const [showChat, setShowChat] = useState(false);
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
-  const [chatInput, setChatInput] = useState("");
-  const [attachedImage, setAttachedImage] = useState<string | null>(null);
-  const [isChatLoading, setIsChatLoading] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // AI Provider selection
-  const [availableProviders, setAvailableProviders] = useState<AIProvider[]>(
-    []
-  );
-  const [selectedProvider, setSelectedProvider] = useState<
-    AIProvider | undefined
-  >(undefined);
-  const [showProviderMenu, setShowProviderMenu] = useState(false);
-  const providerMenuRef = useRef<HTMLDivElement>(null);
-
-  // AI Assistant Settings Modal
-  const [showAISettingsModal, setShowAISettingsModal] = useState(false);
-
-  // Initialize available providers and selected provider
-  useEffect(() => {
-    const providers = getAvailableProviders();
-    setAvailableProviders(providers);
-
-    if (providers.length > 0) {
-      const appSettings = getAppSettings();
-      // Use default provider if available, otherwise use first available
-      const defaultProvider = appSettings.defaultAIProvider;
-      if (defaultProvider && providers.includes(defaultProvider)) {
-        setSelectedProvider((prev) => prev || defaultProvider);
-      } else {
-        setSelectedProvider((prev) => {
-          // Only update if current selection is invalid or not set
-          if (!prev || !providers.includes(prev)) {
-            return providers[0];
-          }
-          return prev;
-        });
-      }
-    } else {
-      setSelectedProvider(undefined);
-    }
-  }, [showChat]); // Update when chat opens in case settings changed
-
-  // Close provider menu when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (
-        providerMenuRef.current &&
-        !providerMenuRef.current.contains(event.target as Node)
-      ) {
-        setShowProviderMenu(false);
-      }
-    };
-
-    if (showProviderMenu) {
-      document.addEventListener("mousedown", handleClickOutside);
-      return () => {
-        document.removeEventListener("mousedown", handleClickOutside);
-      };
-    }
-  }, [showProviderMenu]);
-
   // Toast state
   const [toast, setToast] = useState<{
     message: string;
@@ -211,6 +128,7 @@ const StageAssistPage: React.FC = () => {
 
   // Load Schedule Modal state
   const [showLoadScheduleModal, setShowLoadScheduleModal] = useState(false);
+  const [showImageScheduleModal, setShowImageScheduleModal] = useState(false);
   const [showLoadScheduleDropdown, setShowLoadScheduleDropdown] =
     useState(false);
   const loadScheduleDropdownRef = useRef<HTMLDivElement>(null);
@@ -775,128 +693,6 @@ const StageAssistPage: React.FC = () => {
     setTimeout(() => setToast(null), 4000);
   };
 
-  // AI Chat handlers
-  const handleChatSend = async () => {
-    if (!chatInput.trim() && !attachedImage) return;
-
-    const userMessage: ChatMessage = {
-      role: "user",
-      content: chatInput,
-      image: attachedImage || undefined,
-    };
-
-    setChatMessages((prev) => [...prev, userMessage]);
-    setChatInput("");
-    setAttachedImage(null);
-    setIsChatLoading(true);
-
-    try {
-      const response = await processAIChatMessage(
-        chatInput,
-        attachedImage || undefined,
-        schedule,
-        selectedProvider
-      );
-
-      // Handle actions
-      switch (response.action) {
-        case "SetCountDown":
-          if (typeof response.actionValue === "number") {
-            await startCountdown(response.actionValue);
-            showToast(
-              `Timer started for ${Math.floor(response.actionValue / 60)}:${(
-                response.actionValue % 60
-              )
-                .toString()
-                .padStart(2, "0")}`,
-              "success"
-            );
-          }
-          break;
-        case "CountDownToTime":
-          if (typeof response.actionValue === "string") {
-            await startCountdownToTime(response.actionValue);
-            showToast(
-              `Timer set to countdown to ${response.actionValue}`,
-              "success"
-            );
-          }
-          break;
-        case "UpdateSchedule":
-          if (Array.isArray(response.actionValue)) {
-            setSchedule(response.actionValue);
-            showToast("Schedule updated from AI", "success");
-          }
-          break;
-      }
-
-      setChatMessages((prev) => [
-        ...prev,
-        { role: "assistant", content: response.responseText },
-      ]);
-    } catch (error) {
-      setChatMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          content: "Sorry, I encountered an error processing your request.",
-        },
-      ]);
-    } finally {
-      setIsChatLoading(false);
-    }
-  };
-
-  const handleImagePaste = useCallback((e: React.ClipboardEvent) => {
-    const items = e.clipboardData?.items;
-    if (!items) return;
-
-    for (const item of Array.from(items)) {
-      if (item.type.indexOf("image") === 0) {
-        e.preventDefault();
-        const file = item.getAsFile();
-        if (file) {
-          const reader = new FileReader();
-          reader.onload = () => {
-            setAttachedImage(reader.result as string);
-            // Use auto-prompt from settings if available, otherwise use default
-            const settings = getAIAssistantSettings();
-            if (settings.autoPromptForImages) {
-              setChatInput(settings.autoPromptForImages);
-            } else {
-              const currentPeriod = new Date().getHours() >= 12 ? "PM" : "AM";
-              setChatInput(
-                `Create the schedule based on the provided image. If a time does not specify AM or PM, use ${currentPeriod}.`
-              );
-            }
-          };
-          reader.readAsDataURL(file);
-        }
-      }
-    }
-  }, []);
-
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = () => {
-        setAttachedImage(reader.result as string);
-        // Use auto-prompt from settings if available, otherwise use default
-        const settings = getAIAssistantSettings();
-        if (settings.autoPromptForImages) {
-          setChatInput(settings.autoPromptForImages);
-        } else {
-          const currentPeriod = new Date().getHours() >= 12 ? "PM" : "AM";
-          setChatInput(
-            `Create the schedule based on the provided image. If a time does not specify AM or PM, use ${currentPeriod}.`
-          );
-        }
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
   const nextSession = getNextSession();
   const nextSessionIndex =
     currentSessionIndex !== null && nextSession
@@ -970,7 +766,7 @@ const StageAssistPage: React.FC = () => {
                   borderRadius: "8px",
                   boxShadow: "0 4px 12px rgba(0,0,0,0.2)",
                   zIndex: 100,
-                  minWidth: "180px",
+                  minWidth: "200px",
                   overflow: "hidden",
                 }}
               >
@@ -1001,7 +797,37 @@ const StageAssistPage: React.FC = () => {
                     e.currentTarget.style.backgroundColor = "transparent";
                   }}
                 >
-                  <FaFile style={{ opacity: 0.7 }} /> Load from File
+                  <FaFile style={{ opacity: 0.7 }} /> From File
+                </button>
+                <button
+                  onClick={() => {
+                    setShowLoadScheduleDropdown(false);
+                    setShowImageScheduleModal(true);
+                  }}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px",
+                    width: "100%",
+                    padding: "10px 14px",
+                    backgroundColor: "transparent",
+                    color: "var(--app-text-color)",
+                    border: "none",
+                    borderBottom: "1px solid var(--app-border-color)",
+                    cursor: "pointer",
+                    fontSize: "0.875rem",
+                    textAlign: "left",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.backgroundColor =
+                      "var(--app-hover-bg-color)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = "transparent";
+                  }}
+                >
+                  <FaImage style={{ opacity: 0.7, color: "#a855f7" }} />
+                  <span>From Image <span style={{ color: "#a855f7" }}>(AI)</span></span>
                 </button>
                 <button
                   onClick={handleLoadFromMaster}
@@ -2031,358 +1857,6 @@ const StageAssistPage: React.FC = () => {
         </label>
       </div>
 
-      {/* AI Chat Window */}
-      {showChat && (
-        <div
-          style={{
-            position: "fixed",
-            bottom: "80px",
-            right: "20px",
-            width: "400px",
-            maxHeight: "500px",
-            backgroundColor: "var(--app-bg-color)",
-            borderRadius: "12px",
-            border: "1px solid var(--app-border-color)",
-            boxShadow: "0 10px 40px rgba(0,0,0,0.3)",
-            display: "flex",
-            flexDirection: "column",
-            zIndex: 1000,
-          }}
-        >
-          {/* Chat Header */}
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              padding: "var(--spacing-3)",
-              borderBottom: "1px solid var(--app-border-color)",
-            }}
-          >
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "var(--spacing-2)",
-                flex: 1,
-              }}
-            >
-              <span style={{ fontWeight: 600 }}>AI Assistant</span>
-              {selectedProvider && (
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "var(--spacing-1)",
-                  }}
-                >
-                  <span
-                    style={{
-                      fontSize: "0.75rem",
-                      color: "var(--app-text-color-secondary)",
-                    }}
-                  >
-                    {selectedProvider === "openai" ? "OpenAI" : selectedProvider === "groq" ? "Groq" : "Gemini"}
-                  </span>
-                  {availableProviders.length > 1 && (
-                    <div style={{ position: "relative" }} ref={providerMenuRef}>
-                      <button
-                        onClick={() => setShowProviderMenu(!showProviderMenu)}
-                        style={{
-                          background: "none",
-                          border: "none",
-                          color: "var(--app-text-color-secondary)",
-                          cursor: "pointer",
-                          padding: "2px 4px",
-                          fontSize: "0.75rem",
-                        }}
-                        title="Switch provider"
-                      >
-                        ▼
-                      </button>
-                      {showProviderMenu && (
-                        <div
-                          style={{
-                            position: "absolute",
-                            top: "100%",
-                            left: 0,
-                            marginTop: "4px",
-                            backgroundColor: "var(--app-header-bg)",
-                            border: "1px solid var(--app-border-color)",
-                            borderRadius: "6px",
-                            padding: "var(--spacing-1)",
-                            minWidth: "120px",
-                            boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
-                            zIndex: 1001,
-                          }}
-                        >
-                          {availableProviders.map((provider) => (
-                            <button
-                              key={provider}
-                              onClick={() => {
-                                setSelectedProvider(provider);
-                                setShowProviderMenu(false);
-                              }}
-                              style={{
-                                width: "100%",
-                                padding: "var(--spacing-2)",
-                                textAlign: "left",
-                                background:
-                                  provider === selectedProvider
-                                    ? "var(--app-primary-color)"
-                                    : "transparent",
-                                color:
-                                  provider === selectedProvider
-                                    ? "white"
-                                    : "var(--app-text-color)",
-                                border: "none",
-                                borderRadius: "4px",
-                                cursor: "pointer",
-                                fontSize: "0.875rem",
-                              }}
-                            >
-                              {provider === "openai" ? "OpenAI" : provider === "groq" ? "Groq" : "Gemini"}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  <button
-                    onClick={() => setShowAISettingsModal(true)}
-                    style={{
-                      background: "none",
-                      border: "none",
-                      color: "var(--app-text-color-secondary)",
-                      cursor: "pointer",
-                      padding: "4px",
-                      display: "flex",
-                      alignItems: "center",
-                      fontSize: "0.875rem",
-                    }}
-                    title="AI Assistant Settings"
-                  >
-                    <FaCog />
-                  </button>
-                </div>
-              )}
-            </div>
-            <button
-              onClick={() => setShowChat(false)}
-              style={{
-                background: "none",
-                border: "none",
-                color: "var(--app-text-color)",
-                cursor: "pointer",
-                padding: "4px",
-              }}
-            >
-              <FaTimes />
-            </button>
-          </div>
-
-          {/* Chat Messages */}
-          <div
-            style={{
-              flex: 1,
-              overflowY: "auto",
-              padding: "var(--spacing-3)",
-              display: "flex",
-              flexDirection: "column",
-              gap: "var(--spacing-2)",
-              maxHeight: "300px",
-            }}
-          >
-            {chatMessages.length === 0 && (
-              <div
-                style={{
-                  textAlign: "center",
-                  opacity: 0.6,
-                  padding: "var(--spacing-4)",
-                }}
-              >
-                <FaRobot
-                  style={{ fontSize: "2rem", marginBottom: "var(--spacing-2)" }}
-                />
-                <p>Paste a schedule image or type a command</p>
-              </div>
-            )}
-            {chatMessages.map((msg, idx) => (
-              <div
-                key={idx}
-                style={{
-                  alignSelf: msg.role === "user" ? "flex-end" : "flex-start",
-                  maxWidth: "80%",
-                  padding: "var(--spacing-2) var(--spacing-3)",
-                  borderRadius: "12px",
-                  backgroundColor:
-                    msg.role === "user"
-                      ? "rgb(29, 78, 216)"
-                      : "var(--app-header-bg)",
-                  color:
-                    msg.role === "user" ? "white" : "var(--app-text-color)",
-                }}
-              >
-                {msg.image && (
-                  <img
-                    src={msg.image}
-                    alt="Attached"
-                    style={{
-                      maxWidth: "100%",
-                      maxHeight: "150px",
-                      borderRadius: "8px",
-                      marginBottom: "var(--spacing-2)",
-                    }}
-                  />
-                )}
-                <p
-                  style={{
-                    margin: 0,
-                    fontSize: "0.875rem",
-                    whiteSpace: "pre-wrap",
-                  }}
-                >
-                  {msg.content}
-                </p>
-              </div>
-            ))}
-            {isChatLoading && (
-              <div style={{ opacity: 0.6, fontSize: "0.875rem" }}>
-                Thinking...
-              </div>
-            )}
-          </div>
-
-          {/* Chat Input */}
-          <div
-            style={{
-              padding: "var(--spacing-3)",
-              borderTop: "1px solid var(--app-border-color)",
-            }}
-          >
-            {attachedImage && (
-              <div
-                style={{
-                  position: "relative",
-                  marginBottom: "var(--spacing-2)",
-                }}
-              >
-                <img
-                  src={attachedImage}
-                  alt="Attached"
-                  style={{ maxHeight: "100px", borderRadius: "8px" }}
-                />
-                <button
-                  onClick={() => setAttachedImage(null)}
-                  style={{
-                    position: "absolute",
-                    top: "4px",
-                    right: "4px",
-                    background: "rgba(0,0,0,0.5)",
-                    border: "none",
-                    borderRadius: "50%",
-                    color: "white",
-                    width: "24px",
-                    height: "24px",
-                    cursor: "pointer",
-                  }}
-                >
-                  <FaTimes />
-                </button>
-              </div>
-            )}
-            <div style={{ display: "flex", gap: "var(--spacing-2)" }}>
-              <input
-                type="file"
-                ref={fileInputRef}
-                accept="image/*"
-                style={{ display: "none" }}
-                onChange={handleFileSelect}
-              />
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                style={{
-                  background: "none",
-                  border: "none",
-                  color: "var(--app-text-color)",
-                  cursor: "pointer",
-                  padding: "var(--spacing-2)",
-                }}
-              >
-                <FaPaperclip />
-              </button>
-              <textarea
-                value={chatInput}
-                onChange={(e) => setChatInput(e.target.value)}
-                onPaste={handleImagePaste}
-                placeholder="Type a message or paste an image..."
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    handleChatSend();
-                  }
-                }}
-                style={{
-                  flex: 1,
-                  padding: "var(--spacing-2)",
-                  borderRadius: "8px",
-                  border: "1px solid var(--app-border-color)",
-                  backgroundColor: "var(--app-input-bg-color)",
-                  color: "var(--app-input-text-color)",
-                  resize: "none",
-                  minHeight: "60px",
-                }}
-              />
-              <button
-                onClick={handleChatSend}
-                disabled={
-                  isChatLoading || (!chatInput.trim() && !attachedImage)
-                }
-                style={{
-                  padding: "var(--spacing-2)",
-                  backgroundColor: "rgb(29, 78, 216)",
-                  color: "white",
-                  border: "none",
-                  borderRadius: "8px",
-                  cursor: "pointer",
-                  opacity:
-                    isChatLoading || (!chatInput.trim() && !attachedImage)
-                      ? 0.5
-                      : 1,
-                }}
-              >
-                <FaPaperPlane />
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* AI Assistant FAB */}
-      <button
-        onClick={() => setShowChat(!showChat)}
-        style={{
-          position: "fixed",
-          bottom: "20px",
-          right: "20px",
-          display: "flex",
-          alignItems: "center",
-          gap: "var(--spacing-2)",
-          padding: "var(--spacing-3) var(--spacing-4)",
-          backgroundColor: "rgb(29, 78, 216)",
-          color: "white",
-          border: "none",
-          borderRadius: "30px",
-          cursor: "pointer",
-          boxShadow: "0 4px 20px rgba(0,0,0,0.3)",
-          fontWeight: 600,
-          zIndex: 999,
-        }}
-      >
-        <FaRobot />
-        AI Assistant
-      </button>
-
       {/* Toast */}
       {toast && (
         <div
@@ -2421,10 +1895,15 @@ const StageAssistPage: React.FC = () => {
         }}
       />
 
-      {/* AI Assistant Settings Modal */}
-      <AIAssistantSettingsModal
-        isOpen={showAISettingsModal}
-        onClose={() => setShowAISettingsModal(false)}
+      {/* Image Schedule Upload Modal */}
+      <ImageScheduleUploadModal
+        isOpen={showImageScheduleModal}
+        onClose={() => setShowImageScheduleModal(false)}
+        onScheduleLoad={(newSchedule) => {
+          setSchedule(newSchedule);
+          setShowImageScheduleModal(false);
+          showToast(`Schedule loaded with ${newSchedule.length} items`, "success");
+        }}
       />
 
       {/* Remote Access Link Modal */}

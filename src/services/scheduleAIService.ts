@@ -14,36 +14,10 @@ import { AIProvider } from "../types";
 import { getAppSettings } from "../utils/aiConfig";
 import { loadSmartAutomations } from "../utils/testimoniesStorage";
 
-// Storage key for AI Assistant settings
-const AI_ASSISTANT_SETTINGS_KEY = "proassist-ai-assistant-settings";
-
-interface AIAssistantSettings {
-  customSystemPrompt?: string;
-  autoPromptForImages?: string;
-}
-
 /**
- * Get AI Assistant settings from localStorage
- */
-function getAIAssistantSettings(): AIAssistantSettings {
-  try {
-    const stored = localStorage.getItem(AI_ASSISTANT_SETTINGS_KEY);
-    if (stored) {
-      return JSON.parse(stored);
-    }
-  } catch (error) {
-    console.error("Failed to load AI Assistant settings:", error);
-  }
-  return {};
-}
-
-/**
- * Build the complete system prompt including custom prompts and smart automations
+ * Build the complete system prompt including smart automations
  */
 function buildSystemPrompt(currentSchedule?: ScheduleItem[]): string {
-  const settings = getAIAssistantSettings();
-  const customPrompt = settings.customSystemPrompt?.trim() || "";
-
   const contextPrompt = currentSchedule
     ? `\n\nCurrent schedule: ${JSON.stringify(currentSchedule)}`
     : "";
@@ -64,10 +38,6 @@ function buildSystemPrompt(currentSchedule?: ScheduleItem[]): string {
       : "";
 
   let finalPrompt = SYSTEM_PROMPT;
-
-  if (customPrompt) {
-    finalPrompt = finalPrompt + "\n\n" + customPrompt;
-  }
 
   if (automationsContext) {
     finalPrompt = finalPrompt + automationsContext;

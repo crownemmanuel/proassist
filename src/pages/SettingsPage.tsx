@@ -38,7 +38,7 @@ const SettingsPage: React.FC = () => {
   const [currentView, setCurrentView] = useState<SettingsView>(() => {
     try {
       const saved = localStorage.getItem("proassist-settings-current-view");
-      if (saved && ["templates", "aiConfiguration", "liveTestimonies", "liveSlides", "proPresenter", "version"].includes(saved)) {
+      if (saved && ["templates", "aiConfiguration", "liveTestimonies", "network", "proPresenter", "version"].includes(saved)) {
         return saved as SettingsView;
       }
     } catch {

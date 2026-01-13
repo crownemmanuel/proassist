@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   BrowserRouter as Router,
   Routes,
@@ -38,6 +38,13 @@ import {
   startLiveSlidesServer,
 } from "./services/liveSlideService";
 import UpdateNotification from "./components/UpdateNotification";
+
+// Global Chat Assistant imports
+import GlobalChatButton from "./components/GlobalChatButton";
+import GlobalChatDrawer from "./components/GlobalChatDrawer";
+import { Template, Playlist, Slide } from "./types";
+import { ScheduleItem } from "./types/propresenter";
+import { SetTimerParams } from "./types/globalChat";
 
 // Navigation component that uses useLocation
 function Navigation({
@@ -194,7 +201,105 @@ function AppContent({
   toggleTheme: () => void;
 }) {
   const location = useLocation();
+  const { schedule, startCountdown, startCountdownToTime, stopTimer: _stopStageTimer } = useStageAssist();
   const isNotepadPage = location.pathname.includes("/live-slides/notepad/");
+
+  // Global Chat State
+  const [isChatOpen, setIsChatOpen] = useState(false);
+  const [templates, setTemplates] = useState<Template[]>([]);
+
+  // Load templates from localStorage
+  const loadTemplates = useCallback(() => {
+    try {
+      const saved = localStorage.getItem("proassist-templates");
+      if (saved) {
+        setTemplates(JSON.parse(saved));
+      }
+    } catch (error) {
+      console.error("Failed to load templates:", error);
+    }
+  }, []);
+
+  // Load templates on mount and listen for updates
+  useEffect(() => {
+    loadTemplates();
+
+    const handleTemplatesUpdated = () => loadTemplates();
+    window.addEventListener("templates-updated", handleTemplatesUpdated);
+    window.addEventListener("storage", (e) => {
+      if (e.key === "proassist-templates") loadTemplates();
+    });
+
+    return () => {
+      window.removeEventListener("templates-updated", handleTemplatesUpdated);
+    };
+  }, [loadTemplates]);
+
+  // Determine current page for chat context
+  const getCurrentPage = ():
+    | "main"
+    | "stageAssist"
+    | "liveSlides"
+    | "media"
+    | "settings"
+    | "help" => {
+    if (location.pathname === "/") return "main";
+    if (location.pathname === "/stage-assist") return "stageAssist";
+    if (location.pathname.includes("/live-slides")) return "liveSlides";
+    if (location.pathname === "/live-testimonies") return "media";
+    if (location.pathname === "/settings") return "settings";
+    if (location.pathname === "/help") return "help";
+    return "main";
+  };
+
+  // Chat action callbacks
+  const handleSlidesCreated = useCallback(
+    (slides: Slide[], templateId: string) => {
+      // Dispatch event for MainApplicationPage to handle
+      window.dispatchEvent(
+        new CustomEvent("ai-slides-created", { detail: { slides, templateId } })
+      );
+    },
+    []
+  );
+
+  const handlePlaylistCreated = useCallback((playlist: Playlist) => {
+    // Dispatch event for MainApplicationPage to handle
+    window.dispatchEvent(
+      new CustomEvent("ai-playlist-created", { detail: { playlist } })
+    );
+  }, []);
+
+  const handleTimerSet = useCallback(
+    async (params: SetTimerParams) => {
+      // Use the same timer logic as the StageAssist page
+      // This ensures the nav bar timer display updates and ProPresenter timers are synced
+      console.log("Timer set via AI:", params);
+
+      if (params.type === "countdown" && typeof params.value === "number") {
+        // Countdown timer with duration in seconds
+        await startCountdown(params.value);
+      } else if (params.type === "countdownToTime" && typeof params.value === "string") {
+        // Countdown to specific time (e.g., "10:30 AM")
+        const timeMatch = params.value.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
+        if (timeMatch) {
+          const time = `${timeMatch[1]}:${timeMatch[2]}`;
+          const period = timeMatch[3].toUpperCase() as "AM" | "PM";
+          await startCountdownToTime(time, period);
+        }
+      }
+    },
+    [startCountdown, startCountdownToTime]
+  );
+
+  const handleScheduleUpdated = useCallback((newSchedule: ScheduleItem[]) => {
+    // Dispatch event for StageAssistPage to handle
+    window.dispatchEvent(
+      new CustomEvent("ai-schedule-updated", {
+        detail: { schedule: newSchedule },
+      })
+    );
+  }, []);
 
   if (isNotepadPage) {
     // Notepad page gets full viewport without navigation
@@ -216,25 +321,44 @@ function AppContent({
   const isHelpPage = location.pathname === "/help";
 
   return (
-    <div className="container">
-      <Navigation theme={theme} toggleTheme={toggleTheme} />
-      {/* Keep all components mounted but show/hide based on route */}
-      <div style={{ display: isMainPage ? "block" : "none" }}>
-        <MainApplicationPage />
+    <>
+      <div className="container">
+        <Navigation theme={theme} toggleTheme={toggleTheme} />
+        {/* Keep all components mounted but show/hide based on route */}
+        <div style={{ display: isMainPage ? "block" : "none" }}>
+          <MainApplicationPage />
+        </div>
+        <div style={{ display: isSettingsPage ? "block" : "none" }}>
+          <SettingsPage />
+        </div>
+        <div style={{ display: isLiveTestimoniesPage ? "block" : "none" }}>
+          <MediaView />
+        </div>
+        <div style={{ display: isStageAssistPage ? "block" : "none" }}>
+          <StageAssistPage />
+        </div>
+        <div style={{ display: isHelpPage ? "block" : "none" }}>
+          <HelpPage />
+        </div>
       </div>
-      <div style={{ display: isSettingsPage ? "block" : "none" }}>
-        <SettingsPage />
-      </div>
-      <div style={{ display: isLiveTestimoniesPage ? "block" : "none" }}>
-        <MediaView />
-      </div>
-      <div style={{ display: isStageAssistPage ? "block" : "none" }}>
-        <StageAssistPage />
-      </div>
-      <div style={{ display: isHelpPage ? "block" : "none" }}>
-        <HelpPage />
-      </div>
-    </div>
+
+      {/* Global AI Chat Assistant */}
+      <GlobalChatButton
+        onClick={() => setIsChatOpen(!isChatOpen)}
+        isOpen={isChatOpen}
+      />
+      <GlobalChatDrawer
+        isOpen={isChatOpen}
+        onClose={() => setIsChatOpen(false)}
+        currentPage={getCurrentPage()}
+        templates={templates}
+        currentSchedule={schedule}
+        onSlidesCreated={handleSlidesCreated}
+        onPlaylistCreated={handlePlaylistCreated}
+        onTimerSet={handleTimerSet}
+        onScheduleUpdated={handleScheduleUpdated}
+      />
+    </>
   );
 }
 

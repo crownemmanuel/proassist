@@ -174,6 +174,62 @@ const MainApplicationPage: React.FC = () => {
     };
   }, [reloadTemplates]);
 
+  // Listen for AI-created slides event (from Global AI Chat Assistant)
+  useEffect(() => {
+    const handleAISlidesCreated = (event: CustomEvent<{ slides: Slide[]; templateId: string }>) => {
+      const { slides, templateId } = event.detail;
+      
+      if (!selectedPlaylistId) {
+        // If no playlist selected, create a new one
+        const newPlaylistId = `playlist-${Date.now()}`;
+        const newPlaylist: Playlist = {
+          id: newPlaylistId,
+          name: "AI Generated",
+          items: [],
+        };
+        setPlaylists(prev => [...prev, newPlaylist]);
+        setSelectedPlaylistId(newPlaylistId);
+        // Continue with the newly created playlist
+        setTimeout(() => {
+          window.dispatchEvent(new CustomEvent("ai-slides-created", { detail: { slides, templateId } }));
+        }, 100);
+        return;
+      }
+
+      // Find the template
+      const template = templates.find(t => t.id === templateId);
+      const templateName = template?.name || "AI Generated";
+      const templateColor = template?.color || "#3b82f6";
+
+      // Create a new playlist item with the slides
+      const newPlaylistItem: PlaylistItem = {
+        id: `item-${Date.now()}`,
+        title: slides[0]?.text?.split("\n")[0]?.substring(0, 50) || "AI Slides",
+        slides: slides,
+        templateName: templateName,
+        templateColor: templateColor,
+        defaultProPresenterActivation: template?.proPresenterActivation,
+      };
+
+      setPlaylists((prevPlaylists) =>
+        prevPlaylists.map((p) => {
+          if (p.id === selectedPlaylistId) {
+            return { ...p, items: [...p.items, newPlaylistItem] };
+          }
+          return p;
+        })
+      );
+      setSelectedItemId(newPlaylistItem.id);
+      
+      console.log("AI slides added to playlist:", newPlaylistItem);
+    };
+
+    window.addEventListener("ai-slides-created", handleAISlidesCreated as EventListener);
+    return () => {
+      window.removeEventListener("ai-slides-created", handleAISlidesCreated as EventListener);
+    };
+  }, [selectedPlaylistId, templates]);
+
   // Live Slides server info + websocket connections (for live-linked playlist items)
   const [liveSlidesServerRunning, setLiveSlidesServerRunning] =
     useState<boolean>(false);

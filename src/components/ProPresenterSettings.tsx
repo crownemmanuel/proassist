@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { FaPlus, FaTrash, FaCheck, FaTimes, FaEdit, FaSave } from "react-icons/fa";
+import { FaPlus, FaTrash, FaCheck, FaTimes, FaEdit, FaSave, FaChevronDown, FaChevronRight } from "react-icons/fa";
 import {
   ProPresenterConnection,
 } from "../types/propresenter";
@@ -10,6 +10,8 @@ import {
   testTimer,
   generateUUID,
 } from "../services/propresenterService";
+import ProPresenterAITemplatesSettings from "./ProPresenterAITemplatesSettings";
+import { loadProPresenterAITemplates } from "../utils/proPresenterAITemplates";
 import "../App.css";
 
 interface ConnectionStatus {
@@ -21,9 +23,14 @@ const ProPresenterSettings: React.FC = () => {
   const [connections, setConnections] = useState<ProPresenterConnection[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [connectionStatuses, setConnectionStatuses] = useState<Record<string, ConnectionStatus>>({});
+  const [isAITemplatesExpanded, setIsAITemplatesExpanded] = useState(true);
+  const [aiTemplatesCount, setAiTemplatesCount] = useState(0);
 
   useEffect(() => {
     setConnections(loadProPresenterConnections());
+    // Load AI templates count for display
+    const templates = loadProPresenterAITemplates();
+    setAiTemplatesCount(templates.length);
   }, []);
 
   const handleSave = () => {
@@ -345,6 +352,59 @@ const ProPresenterSettings: React.FC = () => {
           })}
         </div>
       )}
+
+      {/* AI Templates Section */}
+      <div style={{
+        marginTop: "var(--spacing-6)",
+        padding: "var(--spacing-4)",
+        backgroundColor: "var(--app-header-bg)",
+        borderRadius: "12px",
+        border: "1px solid var(--app-border-color)",
+      }}>
+        <div 
+          onClick={() => setIsAITemplatesExpanded(!isAITemplatesExpanded)}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            cursor: "pointer",
+            userSelect: "none",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: "var(--spacing-2)" }}>
+            {isAITemplatesExpanded ? <FaChevronDown size={12} /> : <FaChevronRight size={12} />}
+            <h2 style={{ margin: 0, fontSize: "1.1rem" }}>
+              ProPresenter AI Templates
+            </h2>
+            <span style={{
+              padding: "2px 8px",
+              borderRadius: "12px",
+              fontSize: "0.75rem",
+              fontWeight: 500,
+              backgroundColor: aiTemplatesCount > 0 ? "rgba(59, 130, 246, 0.2)" : "rgba(255, 255, 255, 0.1)",
+              color: aiTemplatesCount > 0 ? "rgb(59, 130, 246)" : "var(--app-text-color-secondary)",
+            }}>
+              ({aiTemplatesCount})
+            </span>
+          </div>
+        </div>
+        
+        {isAITemplatesExpanded && (
+          <div style={{ marginTop: "var(--spacing-4)" }}>
+            <p style={{ 
+              margin: 0, 
+              marginBottom: "var(--spacing-4)",
+              fontSize: "0.875rem", 
+              color: "var(--app-text-color-secondary)" 
+            }}>
+              Templates for the AI to display content directly on ProPresenter. Each writes text to a file and triggers a slide.
+            </p>
+            <ProPresenterAITemplatesSettings 
+              onTemplatesChange={(templates) => setAiTemplatesCount(templates.length)}
+            />
+          </div>
+        )}
+      </div>
 
       {/* Info Section */}
       <div style={{

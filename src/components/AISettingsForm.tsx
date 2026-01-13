@@ -1,8 +1,21 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { AppSettings, AIProvider, AIProviderType, AIModelSetting } from "../types";
 import { getAppSettings, saveAppSettings } from "../utils/aiConfig";
 import { fetchOpenAIModels, fetchGeminiModels, fetchGroqModels } from "../services/aiService";
-import { FaSpinner } from "react-icons/fa";
+import { FaSpinner, FaChevronDown, FaChevronUp, FaPlus, FaTrash, FaMagic, FaDownload } from "react-icons/fa";
+import {
+  ProPresenterAITemplate,
+  ProPresenterAITemplateUseCase,
+} from "../types/globalChat";
+import {
+  loadProPresenterAITemplates,
+  saveProPresenterAITemplates,
+  USE_CASE_LABELS,
+} from "../utils/proPresenterAITemplates";
+import {
+  getEnabledConnections,
+  getCurrentSlideIndex,
+} from "../services/propresenterService";
 
 interface AISettingsFormProps {
   // Props if any, e.g., onSettingsChange callback if SettingsPage needs to react
@@ -40,6 +53,23 @@ const AISettingsForm: React.FC<AISettingsFormProps> = () => {
   const [timerAssistantModels, setTimerAssistantModels] = useState<string[]>([]);
   const [timerAssistantModelsLoading, setTimerAssistantModelsLoading] = useState(false);
 
+  // Global AI Assistant model settings
+  const [globalAssistantProvider, setGlobalAssistantProvider] = useState<AIProviderType | "">(
+    appSettings.globalAssistantModel?.provider || ""
+  );
+  const [globalAssistantModel, setGlobalAssistantModel] = useState(
+    appSettings.globalAssistantModel?.model || ""
+  );
+  const [globalAssistantModels, setGlobalAssistantModels] = useState<string[]>([]);
+  const [globalAssistantModelsLoading, setGlobalAssistantModelsLoading] = useState(false);
+
+  // ProPresenter AI Templates
+  const [ppAITemplates, setPPAITemplates] = useState<ProPresenterAITemplate[]>([]);
+  const [ppAITemplatesExpanded, setPPAITemplatesExpanded] = useState(false);
+  const [editingTemplate, setEditingTemplate] = useState<ProPresenterAITemplate | null>(null);
+  const [isAddingTemplate, setIsAddingTemplate] = useState(false);
+  const [fetchingFromPP, setFetchingFromPP] = useState(false);
+
   useEffect(() => {
     // Update local state if settings are changed elsewhere (e.g. theme toggle)
     const settings = getAppSettings();
@@ -48,6 +78,11 @@ const AISettingsForm: React.FC<AISettingsFormProps> = () => {
     setSpellCheckModel(settings.spellCheckModel?.model || "");
     setTimerAssistantProvider(settings.timerAssistantModel?.provider || "");
     setTimerAssistantModel(settings.timerAssistantModel?.model || "");
+    setGlobalAssistantProvider(settings.globalAssistantModel?.provider || "");
+    setGlobalAssistantModel(settings.globalAssistantModel?.model || "");
+    
+    // Load ProPresenter AI Templates
+    setPPAITemplates(loadProPresenterAITemplates());
   }, []); // Re-evaluate if a dependency on global changes is needed
 
   // Fetch models when spell check provider changes
@@ -129,6 +164,45 @@ const AISettingsForm: React.FC<AISettingsFormProps> = () => {
     })();
   }, [timerAssistantProvider, openAIKeyInput, geminiKeyInput, groqKeyInput]);
 
+  // Fetch models when global assistant provider changes
+  useEffect(() => {
+    (async () => {
+      if (!globalAssistantProvider) {
+        setGlobalAssistantModels([]);
+        return;
+      }
+      
+      setGlobalAssistantModelsLoading(true);
+      try {
+        if (globalAssistantProvider === "openai" && openAIKeyInput) {
+          const models = await fetchOpenAIModels(openAIKeyInput);
+          setGlobalAssistantModels(models);
+          if (models.length > 0 && !models.includes(globalAssistantModel)) {
+            setGlobalAssistantModel(models[0]);
+          }
+        } else if (globalAssistantProvider === "gemini" && geminiKeyInput) {
+          const models = await fetchGeminiModels(geminiKeyInput);
+          setGlobalAssistantModels(models);
+          if (models.length > 0 && !models.includes(globalAssistantModel)) {
+            setGlobalAssistantModel(models[0]);
+          }
+        } else if (globalAssistantProvider === "groq" && groqKeyInput) {
+          const models = await fetchGroqModels(groqKeyInput);
+          setGlobalAssistantModels(models);
+          if (models.length > 0 && !models.includes(globalAssistantModel)) {
+            setGlobalAssistantModel(models[0]);
+          }
+        } else {
+          setGlobalAssistantModels([]);
+        }
+      } catch {
+        setGlobalAssistantModels([]);
+      } finally {
+        setGlobalAssistantModelsLoading(false);
+      }
+    })();
+  }, [globalAssistantProvider, openAIKeyInput, geminiKeyInput, groqKeyInput]);
+
   const handleSave = () => {
     const spellCheckSetting: AIModelSetting | undefined = 
       spellCheckProvider && spellCheckModel
@@ -140,6 +214,11 @@ const AISettingsForm: React.FC<AISettingsFormProps> = () => {
         ? { provider: timerAssistantProvider as AIProviderType, model: timerAssistantModel }
         : undefined;
 
+    const globalAssistantSetting: AIModelSetting | undefined =
+      globalAssistantProvider && globalAssistantModel
+        ? { provider: globalAssistantProvider as AIProviderType, model: globalAssistantModel }
+        : undefined;
+
     const newSettings: AppSettings = {
       ...appSettings,
       openAIConfig: openAIKeyInput ? { apiKey: openAIKeyInput } : undefined,
@@ -147,9 +226,14 @@ const AISettingsForm: React.FC<AISettingsFormProps> = () => {
       groqConfig: groqKeyInput ? { apiKey: groqKeyInput } : undefined,
       spellCheckModel: spellCheckSetting,
       timerAssistantModel: timerAssistantSetting,
+      globalAssistantModel: globalAssistantSetting,
     };
     saveAppSettings(newSettings);
     setAppSettings(newSettings); // Update local state
+    
+    // Note: PP AI Templates are saved immediately when modified (add/edit/delete)
+    // so we don't need to save them here
+    
     alert("AI settings saved!"); // Simple feedback
   };
 
@@ -182,6 +266,96 @@ const AISettingsForm: React.FC<AISettingsFormProps> = () => {
       setTimerAssistantModels([]);
     }
   };
+
+  const handleGlobalAssistantProviderChange = (provider: AIProviderType | "") => {
+    setGlobalAssistantProvider(provider);
+    // Model will be fetched and set by the useEffect
+    if (!provider) {
+      setGlobalAssistantModel("");
+      setGlobalAssistantModels([]);
+    }
+  };
+
+  // ProPresenter AI Templates handlers
+  const handleAddTemplate = () => {
+    const newTemplate: ProPresenterAITemplate = {
+      id: `pp-ai-tpl-${Date.now()}`,
+      name: "",
+      description: "",
+      useCase: "custom",
+      maxLines: 3,
+      outputPath: "",
+      outputFileNamePrefix: "",
+      presentationUuid: "",
+      slideIndex: 0,
+      activationClicks: 1,
+    };
+    setEditingTemplate(newTemplate);
+    setIsAddingTemplate(true);
+  };
+
+  const handleSaveTemplate = () => {
+    if (!editingTemplate) return;
+    if (!editingTemplate.name || !editingTemplate.outputPath || !editingTemplate.outputFileNamePrefix || !editingTemplate.presentationUuid) {
+      alert("Please fill in Name, Output Folder Path, File Name Prefix, and Presentation UUID");
+      return;
+    }
+
+    let updatedTemplates: ProPresenterAITemplate[];
+    if (isAddingTemplate) {
+      updatedTemplates = [...ppAITemplates, editingTemplate];
+    } else {
+      updatedTemplates = ppAITemplates.map(t => t.id === editingTemplate.id ? editingTemplate : t);
+    }
+    
+    // Update state and immediately save to localStorage
+    setPPAITemplates(updatedTemplates);
+    saveProPresenterAITemplates(updatedTemplates);
+    console.log("[AISettings] Saved template:", editingTemplate.name, "Total:", updatedTemplates.length);
+    
+    setEditingTemplate(null);
+    setIsAddingTemplate(false);
+  };
+
+  const handleDeleteTemplate = (id: string) => {
+    if (window.confirm("Delete this ProPresenter AI template?")) {
+      const updatedTemplates = ppAITemplates.filter(t => t.id !== id);
+      setPPAITemplates(updatedTemplates);
+      // Immediately save to localStorage
+      saveProPresenterAITemplates(updatedTemplates);
+      console.log("[AISettings] Deleted template. Remaining:", updatedTemplates.length);
+    }
+  };
+
+  // Get template info from ProPresenter (similar to ProPresenter Activation)
+  const handleGetFromProPresenter = useCallback(async () => {
+    const connections = getEnabledConnections();
+    if (connections.length === 0) {
+      alert("No ProPresenter connections enabled");
+      return;
+    }
+
+    setFetchingFromPP(true);
+    try {
+      const conn = connections[0];
+      const result = await getCurrentSlideIndex(conn);
+      
+      if (result && result.presentation_index?.presentation_id?.uuid && typeof result.presentation_index?.index === "number") {
+        setEditingTemplate(prev => prev ? {
+          ...prev,
+          presentationUuid: result.presentation_index.presentation_id.uuid,
+          slideIndex: result.presentation_index.index,
+        } : null);
+        alert(`Got presentation: ${result.presentation_index?.presentation_id?.name || "Unknown"}\nSlide index: ${result.presentation_index.index}`);
+      } else {
+        alert("Could not get current slide info from ProPresenter. Make sure a presentation is active.");
+      }
+    } catch (error) {
+      alert(`Error: ${error instanceof Error ? error.message : "Failed to get from ProPresenter"}`);
+    } finally {
+      setFetchingFromPP(false);
+    }
+  }, []);
 
   return (
     <div className="settings-form-section">
@@ -386,7 +560,7 @@ const AISettingsForm: React.FC<AISettingsFormProps> = () => {
           </div>
         </div>
 
-        {/* Timer AI Assistant Model */}
+        {/* Timer Image Upload AI Processor */}
         <div
           style={{
             backgroundColor: "var(--app-header-bg)",
@@ -396,8 +570,17 @@ const AISettingsForm: React.FC<AISettingsFormProps> = () => {
           }}
         >
           <div style={{ fontWeight: 500, marginBottom: "10px", display: "flex", alignItems: "center", gap: "8px" }}>
-            <span style={{ color: "#3b82f6" }}>⏱</span> Timer AI Assistant
+            <span style={{ color: "#3b82f6" }}>⏱</span> Timer Image Upload AI Processor
           </div>
+          <p
+            style={{
+              fontSize: "0.8em",
+              color: "var(--app-text-color-secondary)",
+              marginBottom: "12px",
+            }}
+          >
+            Used when uploading schedule images via "Load Schedule → From Image (AI)" on the Timer page.
+          </p>
           <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
             <div style={{ flex: "1", minWidth: "140px" }}>
               <label
@@ -487,6 +670,274 @@ const AISettingsForm: React.FC<AISettingsFormProps> = () => {
             )}
           </p>
         </div>
+
+        {/* Global AI Assistant Model */}
+        <div
+          style={{
+            backgroundColor: "var(--app-header-bg)",
+            padding: "14px",
+            borderRadius: "8px",
+            marginBottom: "12px",
+          }}
+        >
+          <div style={{ fontWeight: 500, marginBottom: "10px", display: "flex", alignItems: "center", gap: "8px" }}>
+            <FaMagic style={{ color: "#a855f7" }} /> Global AI Assistant
+          </div>
+          <p
+            style={{
+              fontSize: "0.8em",
+              color: "var(--app-text-color-secondary)",
+              marginBottom: "12px",
+            }}
+          >
+            The floating AI assistant that can create slides, control timers, and interact with ProPresenter.
+          </p>
+          <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
+            <div style={{ flex: "1", minWidth: "140px" }}>
+              <label
+                htmlFor="global-assistant-provider"
+                style={{ fontSize: "0.85em", display: "block", marginBottom: "4px" }}
+              >
+                Provider:
+              </label>
+              <select
+                id="global-assistant-provider"
+                value={globalAssistantProvider}
+                onChange={(e) => handleGlobalAssistantProviderChange(e.target.value as AIProviderType | "")}
+                style={{ width: "100%" }}
+              >
+                <option value="">Use Default</option>
+                <option value="openai" disabled={!openAIKeyInput}>
+                  OpenAI
+                </option>
+                <option value="gemini" disabled={!geminiKeyInput}>
+                  Gemini
+                </option>
+                <option value="groq" disabled={!groqKeyInput}>
+                  Groq
+                </option>
+              </select>
+            </div>
+            <div style={{ flex: "2", minWidth: "200px" }}>
+              <label
+                htmlFor="global-assistant-model"
+                style={{ fontSize: "0.85em", display: "block", marginBottom: "4px" }}
+              >
+                Model:
+              </label>
+              <div style={{ position: "relative" }}>
+                <select
+                  id="global-assistant-model"
+                  value={globalAssistantModel}
+                  onChange={(e) => setGlobalAssistantModel(e.target.value)}
+                  disabled={!globalAssistantProvider || globalAssistantModelsLoading}
+                  style={{ width: "100%" }}
+                >
+                  {!globalAssistantProvider && <option value="">Select provider first</option>}
+                  {globalAssistantModelsLoading && <option value="">Loading models...</option>}
+                  {!globalAssistantModelsLoading && globalAssistantProvider && globalAssistantModels.length === 0 && (
+                    <option value="">No models found</option>
+                  )}
+                  {globalAssistantModels.map((model) => (
+                    <option key={model} value={model}>
+                      {model}
+                    </option>
+                  ))}
+                </select>
+                {globalAssistantModelsLoading && (
+                  <FaSpinner
+                    style={{
+                      position: "absolute",
+                      right: "30px",
+                      top: "50%",
+                      transform: "translateY(-50%)",
+                      animation: "spin 1s linear infinite",
+                      color: "#a855f7",
+                    }}
+                  />
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Collapsible ProPresenter AI Templates */}
+          <div style={{ marginTop: "16px", borderTop: "1px solid var(--app-border-color)", paddingTop: "12px" }}>
+            <button
+              onClick={() => setPPAITemplatesExpanded(!ppAITemplatesExpanded)}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+                background: "none",
+                border: "none",
+                color: "var(--app-text-color)",
+                cursor: "pointer",
+                padding: "4px 0",
+                width: "100%",
+                textAlign: "left",
+              }}
+            >
+              {ppAITemplatesExpanded ? <FaChevronUp /> : <FaChevronDown />}
+              <span style={{ fontWeight: 500 }}>ProPresenter AI Templates</span>
+              <span style={{ fontSize: "0.8em", color: "var(--app-text-color-secondary)", marginLeft: "8px" }}>
+                ({ppAITemplates.length})
+              </span>
+            </button>
+
+            {ppAITemplatesExpanded && (
+              <div style={{ marginTop: "12px" }}>
+                <p
+                  style={{
+                    fontSize: "0.8em",
+                    color: "var(--app-text-color-secondary)",
+                    marginBottom: "12px",
+                  }}
+                >
+                  Templates for the AI to display content directly on ProPresenter. Each writes text to a file and triggers a slide.
+                </p>
+
+                {/* Template List */}
+                {ppAITemplates.length === 0 && !isAddingTemplate && (
+                  <div
+                    style={{
+                      padding: "16px",
+                      border: "1px dashed var(--app-border-color)",
+                      borderRadius: "8px",
+                      textAlign: "center",
+                      color: "var(--app-text-color-secondary)",
+                    }}
+                  >
+                    No templates configured. Add one to enable AI to display directly on ProPresenter.
+                  </div>
+                )}
+
+                {ppAITemplates.map((template) => (
+                  <div
+                    key={template.id}
+                    style={{
+                      padding: "10px",
+                      backgroundColor: "rgba(255,255,255,0.03)",
+                      borderRadius: "6px",
+                      marginBottom: "8px",
+                      border: editingTemplate?.id === template.id ? "1px solid #a855f7" : "1px solid transparent",
+                    }}
+                  >
+                    {editingTemplate?.id === template.id && !isAddingTemplate ? (
+                      <TemplateEditForm
+                        template={editingTemplate}
+                        setTemplate={setEditingTemplate}
+                        onSave={handleSaveTemplate}
+                        onCancel={() => setEditingTemplate(null)}
+                        onGetFromPP={handleGetFromProPresenter}
+                        fetchingFromPP={fetchingFromPP}
+                      />
+                    ) : (
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                        <div>
+                          <div style={{ fontWeight: 500, display: "flex", alignItems: "center", gap: "8px" }}>
+                            {template.name}
+                            <span
+                              style={{
+                                fontSize: "0.7em",
+                                padding: "2px 6px",
+                                backgroundColor: "rgba(168, 85, 247, 0.2)",
+                                color: "#d8b4fe",
+                                borderRadius: "4px",
+                              }}
+                            >
+                              {USE_CASE_LABELS[template.useCase]}
+                            </span>
+                          </div>
+                          <div style={{ fontSize: "0.8em", color: "var(--app-text-color-secondary)", marginTop: "4px" }}>
+                            {template.description}
+                          </div>
+                          <div style={{ fontSize: "0.75em", color: "var(--app-text-color-secondary)", marginTop: "4px" }}>
+                            Slide: {template.slideIndex} | Max lines: {template.maxLines}
+                          </div>
+                        </div>
+                        <div style={{ display: "flex", gap: "4px" }}>
+                          <button
+                            onClick={() => setEditingTemplate(template)}
+                            style={{
+                              padding: "6px 10px",
+                              background: "rgba(255,255,255,0.1)",
+                              border: "none",
+                              borderRadius: "4px",
+                              color: "var(--app-text-color)",
+                              cursor: "pointer",
+                              fontSize: "0.8em",
+                            }}
+                          >
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => handleDeleteTemplate(template.id)}
+                            style={{
+                              padding: "6px",
+                              background: "rgba(239, 68, 68, 0.2)",
+                              border: "none",
+                              borderRadius: "4px",
+                              color: "#fca5a5",
+                              cursor: "pointer",
+                            }}
+                          >
+                            <FaTrash size={12} />
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+
+                {/* Add new template form */}
+                {isAddingTemplate && editingTemplate && (
+                  <div
+                    style={{
+                      padding: "12px",
+                      backgroundColor: "rgba(168, 85, 247, 0.1)",
+                      border: "1px solid rgba(168, 85, 247, 0.3)",
+                      borderRadius: "8px",
+                      marginBottom: "8px",
+                    }}
+                  >
+                    <div style={{ fontWeight: 500, marginBottom: "10px" }}>New ProPresenter AI Template</div>
+                    <TemplateEditForm
+                      template={editingTemplate}
+                      setTemplate={setEditingTemplate}
+                      onSave={handleSaveTemplate}
+                      onCancel={() => { setEditingTemplate(null); setIsAddingTemplate(false); }}
+                      onGetFromPP={handleGetFromProPresenter}
+                      fetchingFromPP={fetchingFromPP}
+                    />
+                  </div>
+                )}
+
+                {/* Add button */}
+                {!isAddingTemplate && !editingTemplate && (
+                  <button
+                    onClick={handleAddTemplate}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "6px",
+                      padding: "8px 12px",
+                      backgroundColor: "#a855f7",
+                      border: "none",
+                      borderRadius: "6px",
+                      color: "#fff",
+                      cursor: "pointer",
+                      fontSize: "0.85em",
+                      marginTop: "8px",
+                    }}
+                  >
+                    <FaPlus size={12} />
+                    Add Template
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
       <button
@@ -512,6 +963,212 @@ const AISettingsForm: React.FC<AISettingsFormProps> = () => {
           to { transform: translateY(-50%) rotate(360deg); }
         }
       `}</style>
+    </div>
+  );
+};
+
+// Template Edit Form Component
+interface TemplateEditFormProps {
+  template: ProPresenterAITemplate;
+  setTemplate: React.Dispatch<React.SetStateAction<ProPresenterAITemplate | null>>;
+  onSave: () => void;
+  onCancel: () => void;
+  onGetFromPP: () => void;
+  fetchingFromPP: boolean;
+}
+
+const TemplateEditForm: React.FC<TemplateEditFormProps> = ({
+  template,
+  setTemplate,
+  onSave,
+  onCancel,
+  onGetFromPP,
+  fetchingFromPP,
+}) => {
+  const useCases: ProPresenterAITemplateUseCase[] = [
+    "lower-third",
+    "prayer",
+    "scripture",
+    "announcement",
+    "points-3line",
+    "points-6line",
+    "custom",
+  ];
+
+  const updateField = <K extends keyof ProPresenterAITemplate>(
+    field: K,
+    value: ProPresenterAITemplate[K]
+  ) => {
+    setTemplate(prev => prev ? { ...prev, [field]: value } : null);
+  };
+
+  return (
+    <div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "10px" }}>
+        <div>
+          <label style={{ fontSize: "0.8em", display: "block", marginBottom: "4px" }}>Name *</label>
+          <input
+            type="text"
+            value={template.name}
+            onChange={(e) => updateField("name", e.target.value)}
+            placeholder="e.g., Lower Third"
+            style={{ width: "100%", padding: "6px 8px", borderRadius: "4px", border: "1px solid var(--app-border-color)", backgroundColor: "var(--app-bg-color)" }}
+          />
+        </div>
+        <div>
+          <label style={{ fontSize: "0.8em", display: "block", marginBottom: "4px" }}>Use Case</label>
+          <select
+            value={template.useCase}
+            onChange={(e) => updateField("useCase", e.target.value as ProPresenterAITemplateUseCase)}
+            style={{ width: "100%", padding: "6px 8px", borderRadius: "4px", border: "1px solid var(--app-border-color)", backgroundColor: "var(--app-bg-color)" }}
+          >
+            {useCases.map(uc => (
+              <option key={uc} value={uc}>{USE_CASE_LABELS[uc]}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      <div style={{ marginBottom: "10px" }}>
+        <label style={{ fontSize: "0.8em", display: "block", marginBottom: "4px" }}>Description (AI uses this to select the template)</label>
+        <input
+          type="text"
+          value={template.description}
+          onChange={(e) => updateField("description", e.target.value)}
+          placeholder="e.g., Good for speaker names and titles"
+          style={{ width: "100%", padding: "6px 8px", borderRadius: "4px", border: "1px solid var(--app-border-color)", backgroundColor: "var(--app-bg-color)" }}
+        />
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "10px", marginBottom: "10px" }}>
+        <div>
+          <label style={{ fontSize: "0.8em", display: "block", marginBottom: "4px" }}>Max Lines</label>
+          <input
+            type="number"
+            min={1}
+            max={10}
+            value={template.maxLines}
+            onChange={(e) => updateField("maxLines", parseInt(e.target.value) || 3)}
+            style={{ width: "100%", padding: "6px 8px", borderRadius: "4px", border: "1px solid var(--app-border-color)", backgroundColor: "var(--app-bg-color)" }}
+          />
+        </div>
+        <div>
+          <label style={{ fontSize: "0.8em", display: "block", marginBottom: "4px" }}>Slide Index</label>
+          <input
+            type="number"
+            min={0}
+            value={template.slideIndex}
+            onChange={(e) => updateField("slideIndex", parseInt(e.target.value) || 0)}
+            style={{ width: "100%", padding: "6px 8px", borderRadius: "4px", border: "1px solid var(--app-border-color)", backgroundColor: "var(--app-bg-color)" }}
+          />
+        </div>
+        <div>
+          <label style={{ fontSize: "0.8em", display: "block", marginBottom: "4px" }}>Go Live Clicks</label>
+          <input
+            type="number"
+            min={1}
+            max={10}
+            value={template.activationClicks || 1}
+            onChange={(e) => updateField("activationClicks", parseInt(e.target.value) || 1)}
+            style={{ width: "100%", padding: "6px 8px", borderRadius: "4px", border: "1px solid var(--app-border-color)", backgroundColor: "var(--app-bg-color)" }}
+          />
+        </div>
+      </div>
+
+      <div style={{ marginBottom: "10px" }}>
+        <label style={{ fontSize: "0.8em", display: "block", marginBottom: "4px" }}>Output Folder Path *</label>
+        <input
+          type="text"
+          value={template.outputPath}
+          onChange={(e) => updateField("outputPath", e.target.value)}
+          placeholder="/path/to/output/folder/"
+          style={{ width: "100%", padding: "6px 8px", borderRadius: "4px", border: "1px solid var(--app-border-color)", backgroundColor: "var(--app-bg-color)" }}
+        />
+        <p style={{ fontSize: "0.7em", color: "var(--app-text-color-secondary)", marginTop: "4px" }}>
+          Folder where files are written (e.g., /Users/you/ProPresenter/live/)
+        </p>
+      </div>
+
+      <div style={{ marginBottom: "10px" }}>
+        <label style={{ fontSize: "0.8em", display: "block", marginBottom: "4px" }}>File Name Prefix *</label>
+        <input
+          type="text"
+          value={template.outputFileNamePrefix}
+          onChange={(e) => updateField("outputFileNamePrefix", e.target.value)}
+          placeholder="verse_"
+          style={{ width: "100%", padding: "6px 8px", borderRadius: "4px", border: "1px solid var(--app-border-color)", backgroundColor: "var(--app-bg-color)" }}
+        />
+        <p style={{ fontSize: "0.7em", color: "var(--app-text-color-secondary)", marginTop: "4px" }}>
+          Creates files like: verse_1.txt, verse_2.txt, etc.
+        </p>
+      </div>
+
+      <div style={{ marginBottom: "10px" }}>
+        <label style={{ fontSize: "0.8em", display: "block", marginBottom: "4px" }}>Presentation UUID *</label>
+        <div style={{ display: "flex", gap: "8px" }}>
+          <input
+            type="text"
+            value={template.presentationUuid}
+            onChange={(e) => updateField("presentationUuid", e.target.value)}
+            placeholder="Get from ProPresenter"
+            style={{ flex: 1, padding: "6px 8px", borderRadius: "4px", border: "1px solid var(--app-border-color)", backgroundColor: "var(--app-bg-color)" }}
+          />
+          <button
+            onClick={onGetFromPP}
+            disabled={fetchingFromPP}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "6px",
+              padding: "6px 12px",
+              backgroundColor: "#22c55e",
+              border: "none",
+              borderRadius: "4px",
+              color: "#fff",
+              cursor: fetchingFromPP ? "wait" : "pointer",
+              fontSize: "0.8em",
+              opacity: fetchingFromPP ? 0.7 : 1,
+            }}
+          >
+            {fetchingFromPP ? <FaSpinner style={{ animation: "spin 1s linear infinite" }} /> : <FaDownload />}
+            Get from PP
+          </button>
+        </div>
+        <p style={{ fontSize: "0.7em", color: "var(--app-text-color-secondary)", marginTop: "4px" }}>
+          Select a slide in ProPresenter, then click "Get from PP" to auto-fill.
+        </p>
+      </div>
+
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px", marginTop: "12px" }}>
+        <button
+          onClick={onCancel}
+          style={{
+            padding: "6px 14px",
+            backgroundColor: "rgba(255,255,255,0.1)",
+            border: "none",
+            borderRadius: "4px",
+            color: "var(--app-text-color)",
+            cursor: "pointer",
+            fontSize: "0.85em",
+          }}
+        >
+          Cancel
+        </button>
+        <button
+          onClick={onSave}
+          style={{
+            padding: "6px 14px",
+            backgroundColor: "#a855f7",
+            border: "none",
+            borderRadius: "4px",
+            color: "#fff",
+            cursor: "pointer",
+            fontSize: "0.85em",
+          }}
+        >
+          Save
+        </button>
+      </div>
     </div>
   );
 };

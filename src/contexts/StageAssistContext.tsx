@@ -378,6 +378,32 @@ export const StageAssistProvider: React.FC<{ children: React.ReactNode }> = ({ c
     };
   }, [timerState.isRunning]);
 
+  // Listen for AI-triggered timer stop events
+  useEffect(() => {
+    const handleAITimerStop = () => {
+      setTimerState((prev) => ({ ...prev, isRunning: false }));
+    };
+
+    window.addEventListener("ai-timer-stopped", handleAITimerStop);
+    return () => {
+      window.removeEventListener("ai-timer-stopped", handleAITimerStop);
+    };
+  }, []);
+
+  // Listen for AI-triggered schedule update events
+  useEffect(() => {
+    const handleAIScheduleUpdate = (event: CustomEvent<{ schedule: ScheduleItem[] }>) => {
+      const newSchedule = normalizeSchedule(event.detail.schedule);
+      console.log("[AI] Schedule updated:", newSchedule);
+      setSchedule(newSchedule);
+    };
+
+    window.addEventListener("ai-schedule-updated", handleAIScheduleUpdate as EventListener);
+    return () => {
+      window.removeEventListener("ai-schedule-updated", handleAIScheduleUpdate as EventListener);
+    };
+  }, []);
+
   const startSession = useCallback(
     async (index: number) => {
       const session = schedule[index];
