@@ -8,7 +8,7 @@
 
 import { Document } from 'flexsearch';
 import { loadVerses } from './bibleService';
-import { DetectedBibleReference } from '../types/smartVasis';
+import { DetectedBibleReference } from '../types/smartVerses';
 
 // =============================================================================
 // TYPES
@@ -151,7 +151,7 @@ export async function searchBibleText(
 
 /**
  * Search and return as DetectedBibleReference format
- * For use in SmartVasis
+ * For use in SmartVerses
  */
 export async function searchBibleTextAsReferences(
   query: string,

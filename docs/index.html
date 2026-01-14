@@ -419,6 +419,49 @@
         opacity: 1;
       }
 
+      .ai-agent-callout {
+        grid-column: 1 / -1;
+        background: var(--gradient-primary);
+        border: none;
+        border-radius: 24px;
+        padding: 3rem 2.5rem;
+        margin: 2rem 0;
+        position: relative;
+        overflow: hidden;
+        box-shadow: 0 20px 60px rgba(123, 47, 191, 0.4);
+      }
+
+      .ai-agent-callout::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: radial-gradient(
+          ellipse at 50% 50%,
+          rgba(255, 255, 255, 0.15) 0%,
+          transparent 70%
+        );
+        pointer-events: none;
+      }
+
+      .ai-agent-callout h3 {
+        font-size: 2rem;
+        font-weight: 700;
+        margin-bottom: 1rem;
+        color: white;
+        position: relative;
+        z-index: 1;
+      }
+
+      .ai-agent-callout p {
+        font-size: 1.25rem;
+        color: rgba(255, 255, 255, 0.95);
+        line-height: 1.7;
+        margin: 0;
+        position: relative;
+        z-index: 1;
+        max-width: 900px;
+      }
+
       .feature-icon {
         width: 56px;
         height: 56px;
@@ -699,6 +742,18 @@
         .app-mockup-main {
           height: 120px;
         }
+
+        .ai-agent-callout {
+          padding: 2rem 1.5rem;
+        }
+
+        .ai-agent-callout h3 {
+          font-size: 1.5rem;
+        }
+
+        .ai-agent-callout p {
+          font-size: 1.1rem;
+        }
       }
 
       /* Animations */
@@ -744,6 +799,7 @@
       <div class="nav-links">
         <a href="#features">Features</a>
         <a href="#how-it-works">How It Works</a>
+        <a href="#advanced-features">Advanced</a>
         <a href="https://github.com/crownemmanuel/proassist" target="_blank"
           >GitHub</a
         >
@@ -762,13 +818,7 @@
         <span class="gradient-text">ProPresenter</span>
       </h1>
       <p class="animate-in delay-2">
-        ProAssist helps ProPresenter users spend less time preparing slides and
-        more time focusing on the service. It uses AI to process and format text
-        into ready to use slides, removing repetitive copy and paste tasks. With
-        added automation tools like timers and command based control, ProAssist
-        simplifies both preparation and live operation. Leveraging LLMs, it also
-        allows users to chat with the system and give natural language
-        instructions to make changes directly in ProPresenter.
+        ProAssist is the ultimate automation companion for ProPresenter. Transform raw text into beautifully formatted slides with AI-powered processing, manage schedules and timers with Stage Assist, collaborate in real-time with Live Slides, search and display Bible verses with SmartVerses, and control ProPresenter presentations with advanced automation. All powered by intelligent AI assistants that understand your workflow.
       </p>
       <div class="hero-buttons animate-in delay-3">
         <a
@@ -825,55 +875,111 @@
     <section class="section" id="features">
       <div class="section-header">
         <h2>Powerful Features</h2>
-        <p>Everything you need to supercharge your ProPresenter workflow</p>
+        <p>Comprehensive automation tools for modern worship and presentation teams</p>
       </div>
       <div class="features-grid">
         <div class="feature-card">
           <div class="feature-icon">🤖</div>
           <h3>AI-Powered Processing</h3>
           <p>
-            Leverage OpenAI GPT-4 and Google Gemini to intelligently split and
-            format your content into perfectly sized slides.
+            Leverage OpenAI GPT-4, Google Gemini, and Groq to intelligently split and format your content into perfectly sized slides. Support for multiple AI providers and models.
           </p>
         </div>
         <div class="feature-card">
           <div class="feature-icon">📝</div>
           <h3>Flexible Templates</h3>
           <p>
-            Four processing types: Simple, Regex, JavaScript, and AI-Powered.
-            Create custom templates for any content type.
+            Four processing types: Simple, Regex, JavaScript, and AI-Powered. Create custom templates with color coding, icons, and layout options for any content type.
           </p>
         </div>
         <div class="feature-card">
           <div class="feature-icon">⚡</div>
           <h3>Real-Time Sync</h3>
           <p>
-            Instantly update ProPresenter slides with "Go Live" functionality.
-            Changes appear immediately on screen.
+            Instantly update ProPresenter slides with "Go Live" functionality. Changes appear immediately on screen with automatic file writing and ProPresenter activation.
           </p>
         </div>
         <div class="feature-card">
           <div class="feature-icon">🌐</div>
-          <h3>Live Collaboration</h3>
+          <h3>Live Slides Collaboration</h3>
           <p>
-            WebSocket-based Live Slides system. Edit content from any browser on
-            your network in real-time.
+            WebSocket-based real-time editing system. Share typing URLs with team members to edit slides from any browser on your network. Perfect for remote presenters.
+          </p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">⏱️</div>
+          <h3>Stage Assist Timer</h3>
+          <p>
+            Powerful timer and schedule management with countdown timers, schedule automation, ProPresenter integration, and remote access. Auto-adjust sessions dynamically.
           </p>
         </div>
         <div class="feature-card">
           <div class="feature-icon">📖</div>
-          <h3>Bible Integration</h3>
+          <h3>SmartVerses Bible Tools</h3>
           <p>
-            Automatic scripture lookup and formatting with support for multiple
-            Bible translations.
+            AI-powered Bible search with direct reference parsing, live transcription with automatic verse detection, paraphrase detection, and instant "Go Live" to ProPresenter.
+          </p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">🎤</div>
+          <h3>Live Testimonies</h3>
+          <p>
+            Manage testimonies from Firebase with real-time updates. Set testimonies live with keyboard navigation, automatic formatting, and ProPresenter integration.
+          </p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">🔗</div>
+          <h3>Network Sync</h3>
+          <p>
+            Synchronize playlists and schedules across multiple ProAssist instances. Master/Slave/Peer modes for seamless multi-device workflows.
+          </p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">💬</div>
+          <h3>Global AI Assistant</h3>
+          <p>
+            Context-aware AI chat assistant available throughout the app. Create slides, manage playlists, set timers, update schedules, and proofread content with natural language.
+          </p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">✨</div>
+          <h3>AI Automation</h3>
+          <p>
+            Automated slide proofreading, timer session assignment, and AI prompt generation. Smart corrections highlighted automatically for quick review.
+          </p>
+        </div>
+        <div class="feature-card ai-agent-callout">
+          <h3>AI Agents That Control Your Presentation Software</h3>
+          <p>
+            ProAssist features intelligent AI agents that understand your workflow and automatically control ProPresenter. From triggering slides based on timer schedules to detecting Bible verses in live transcription and instantly displaying them, these AI agents work behind the scenes to make your presentations seamless and professional.
+          </p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">🎯</div>
+          <h3>Advanced ProPresenter Control</h3>
+          <p>
+            Multi-instance ProPresenter connections, per-slide activation, stage layout changes, timer synchronization, and custom click configurations for complete control.
+          </p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">📥</div>
+          <h3>Multiple Import Options</h3>
+          <p>
+            Import from text files, Live Slides sessions, network masters, or generate content with AI. Flexible import workflows for any scenario.
+          </p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">🖼️</div>
+          <h3>AI Schedule Extraction</h3>
+          <p>
+            Upload an image of your schedule and let AI extract all sessions automatically. Perfect for quickly importing schedules from printed materials.
           </p>
         </div>
         <div class="feature-card">
           <div class="feature-icon">🎨</div>
           <h3>Modern Interface</h3>
           <p>
-            Beautiful dark and light themes with an intuitive, organized layout
-            for efficient workflow.
+            Beautiful dark and light themes with an intuitive, organized layout. Searchable help system, keyboard shortcuts, and smooth animations throughout.
           </p>
         </div>
       </div>
@@ -889,11 +995,9 @@
         <div class="step">
           <div class="step-number">1</div>
           <div class="step-content">
-            <h3>Configure Your Templates</h3>
+            <h3>Configure Your Templates & Settings</h3>
             <p>
-              Set up templates with your preferred output paths, file naming
-              conventions, and processing types. ProAssist writes to text files
-              that ProPresenter reads.
+              Set up templates with output paths, file naming conventions, and processing types (Simple, Regex, JavaScript, or AI-Powered). Configure ProPresenter connections, AI providers, network sync, and other advanced settings.
             </p>
           </div>
         </div>
@@ -902,9 +1006,7 @@
           <div class="step-content">
             <h3>Link Files in ProPresenter</h3>
             <p>
-              Use ProPresenter's Linked Text feature to connect text boxes to
-              the files ProAssist generates. Each slide line links to a separate
-              file.
+              Use ProPresenter's Linked Text feature to connect text boxes to the files ProAssist generates. Each slide line links to a separate file. Configure presentation activation for automatic slide changes.
             </p>
           </div>
         </div>
@@ -913,19 +1015,16 @@
           <div class="step-content">
             <h3>Import & Process Content</h3>
             <p>
-              Paste your text or upload files. ProAssist automatically splits
-              and formats content according to your template's rules or AI
-              instructions.
+              Import from text files, Live Slides sessions, network masters, or use AI to generate content. ProAssist automatically splits and formats content according to your template's rules or AI instructions. Use the Global AI Assistant for natural language processing.
             </p>
           </div>
         </div>
         <div class="step">
           <div class="step-number">4</div>
           <div class="step-content">
-            <h3>Go Live!</h3>
+            <h3>Go Live & Automate</h3>
             <p>
-              Click any slide to instantly update ProPresenter. Your content
-              appears on screen immediately, perfectly formatted every time.
+              Click any slide to instantly update ProPresenter. Use Stage Assist for timer management and schedule automation. Leverage SmartVerses for Bible verses, Live Testimonies for speaker management, and Live Slides for real-time collaboration.
             </p>
           </div>
         </div>
@@ -937,9 +1036,7 @@
       <div class="highlight-content">
         <h2>Built for Worship Teams & Live Events</h2>
         <p>
-          Whether you're running a Sunday service, live conference, or any
-          presentation that needs real-time text updates, ProAssist streamlines
-          your workflow.
+          Whether you're running a Sunday service, live conference, or any presentation that needs real-time text updates, ProAssist streamlines your workflow. From AI-powered slide generation to timer management, Bible verse lookup, live testimonies, and real-time collaboration—everything you need is in one powerful application.
         </p>
         <a
           href="#download"
@@ -951,6 +1048,58 @@
         >
           Get Started Today
         </a>
+      </div>
+    </section>
+
+    <!-- Advanced Features Section -->
+    <section class="section" id="advanced-features">
+      <div class="section-header">
+        <h2>Advanced Capabilities</h2>
+        <p>Powerful tools for professional production teams</p>
+      </div>
+      <div class="features-grid" style="grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));">
+        <div class="feature-card">
+          <div class="feature-icon">🎙️</div>
+          <h3>Live Transcription</h3>
+          <p>
+            Real-time speech-to-text with AssemblyAI integration. Automatically detect Bible references in speech and trigger ProPresenter slides instantly.
+          </p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">🔍</div>
+          <h3>Smart Bible Search</h3>
+          <p>
+            Direct reference parsing (John 3:16) or AI-powered phrase search. Navigate between verses, detect paraphrased content, and extract key points.
+          </p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">📅</div>
+          <h3>Schedule Automation</h3>
+          <p>
+            Automatically trigger ProPresenter slides and change stage layouts when timer sessions start. Dynamic time adjustment keeps everything on track.
+          </p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">🌍</div>
+          <h3>Remote Access</h3>
+          <p>
+            Access timer controls remotely via shareable links. Perfect for stage managers and production teams working from different locations.
+          </p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">🔄</div>
+          <h3>Multi-Device Sync</h3>
+          <p>
+            Keep playlists and schedules synchronized across multiple devices. Master/Slave/Peer modes ensure everyone stays in sync.
+          </p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">🎬</div>
+          <h3>ProPresenter Control</h3>
+          <p>
+            Control multiple ProPresenter instances simultaneously. Configure per-slide activation, stage layouts, timer sync, and custom click patterns.
+          </p>
+        </div>
       </div>
     </section>
 

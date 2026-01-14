@@ -40,7 +40,7 @@ interface GlobalChatDrawerProps {
     | "stageAssist"
     | "liveSlides"
     | "media"
-    | "smartVasis"
+    | "smartVerses"
     | "settings"
     | "help";
   templates: Template[];

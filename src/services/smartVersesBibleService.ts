@@ -1,10 +1,10 @@
 /**
- * SmartVasis Bible Service
+ * SmartVerses Bible Service
  * 
  * Enhanced Bible reference parsing service with context-aware parsing,
  * speech-to-text preprocessing, and verse lookup capabilities.
  * 
- * Based on the "Bible Pacer" system from the original SmartVasis app.
+ * Based on the "Bible Pacer" system from the original SmartVerses app.
  */
 
 import { bcv_parser } from "bible-passage-reference-parser/esm/bcv_parser";
@@ -13,7 +13,7 @@ import {
   ParsedBibleReference, 
   BibleParseContext, 
   DetectedBibleReference 
-} from "../types/smartVasis";
+} from "../types/smartVerses";
 import { loadVerses } from "./bibleService";
 
 // =============================================================================
@@ -192,10 +192,119 @@ function preprocessBibleReference(reference: string): string {
   // This handles cases like "Luke. Three. Three." -> "Luke Three Three"
   let normalized = reference.replace(/\.\s*/g, ' ');
 
+  // Step 1b: Remove commas that speech-to-text often inserts between words
+  // Example: "Romans, three, five" -> "Romans three five"
+  // IMPORTANT: We only remove commas that follow letters, so verse lists like "John 3:16, 17"
+  // (comma after a digit) remain intact.
+  normalized = normalized.replace(/([A-Za-z])\s*,\s*(?=[A-Za-z0-9])/g, '$1 ');
+
   // Step 2: Clean up multiple spaces
   normalized = normalized.replace(/\s+/g, ' ').trim();
 
   return normalized;
+}
+
+/**
+ * Normalize common speech-to-text pattern: "Book 3, 5" -> "Book 3:5"
+ *
+ * AssemblyAI (and similar STT) frequently produces "Romans three, five" or "Romans 3, 5"
+ * when the speaker means Romans 3:5. The BCV parser interprets "3, 5" as chapters 3 and 5,
+ * so we rewrite this to a chapter:verse form before parsing.
+ */
+function normalizeCommaSeparatedChapterVerse(text: string): string {
+  return text.replace(
+    /\b((?:[1-3]\s*)?[A-Za-z][A-Za-z0-9]*(?:\s+[A-Za-z][A-Za-z0-9]*)*)\s+(\d{1,3})\s*,\s*(\d{1,3})(?=[^\d]|$)/gi,
+    (_match, book, chapter, verse) => `${book} ${chapter}:${verse}`
+  );
+}
+
+/**
+ * Resolve a book name to the canonical form used in the verse data.
+ */
+function resolveBookName(bookText: string): string {
+  // NOTE: `bcv_parser` does not return OSIS for a bare book name (e.g., "john"),
+  // so we probe with a minimal reference ("Book 1:1") to resolve the OSIS book.
+  const normalizedBookText = bookText
+    .trim()
+    .replace(/\s+/g, " ")
+    .replace(/^([1-3])\s*(?=[A-Za-z])/, "$1 "); // "1john" -> "1 john"
+
+  const parser = getParser();
+  parser.parse(`${normalizedBookText} 1:1`);
+  const osis = parser.osis?.() as string | undefined;
+  if (osis && osis.length > 0) {
+    const first = osis.split(",")[0];
+    const osisBook = first.split(".")[0];
+    return mapBookName(osisBook);
+  }
+
+  // Fallback: return normalized input (may be lowercased); downstream parsing is case-insensitive.
+  return normalizedBookText;
+}
+
+/**
+ * Try to interpret combined chapter+verse digits like "John316" as "John 3:16".
+ * Only applies when there is exactly one valid match in the verse data.
+ */
+async function normalizeCombinedChapterVerseInput(text: string): Promise<string> {
+  const BOOKS_REGEX =
+    "(?:Genesis|Exodus|Leviticus|Numbers|Deuteronomy|" +
+    "Joshua|Judges|Ruth|1\\s*Samuel|2\\s*Samuel|1\\s*Kings|2\\s*Kings|" +
+    "1\\s*Chronicles|2\\s*Chronicles|Ezra|Nehemiah|Esther|Job|Psalms|" +
+    "Proverbs|Ecclesiastes|Song\\s+of\\s+Solomon|Isaiah|Jeremiah|Lamentations|" +
+    "Ezekiel|Daniel|Hosea|Joel|Amos|Obadiah|Jonah|Micah|Nahum|Habakkuk|" +
+    "Zephaniah|Haggai|Zechariah|Malachi|Matthew|Mark|Luke|John|Acts|Romans|" +
+    "1\\s*Corinthians|2\\s*Corinthians|Galatians|Ephesians|Philippians|Colossians|" +
+    "1\\s*Thessalonians|2\\s*Thessalonians|1\\s*Timothy|2\\s*Timothy|Titus|Philemon|" +
+    "Hebrews|James|1\\s*Peter|2\\s*Peter|1\\s*John|2\\s*John|3\\s*John|Jude|Revelation)";
+
+  const combinedRegex = new RegExp(
+    `(?:\\b(?:the\\s+)?(?:book\\s+of\\s+))?(?<book>${BOOKS_REGEX})\\s*(?<combined>\\d{3,5})\\b`,
+    "gi"
+  );
+
+  const verses = await loadVerses();
+  let result = text;
+  let match: RegExpExecArray | null;
+
+  while ((match = combinedRegex.exec(result)) !== null) {
+    const groups = match.groups as { book?: string; combined?: string } | undefined;
+    const bookText = groups?.book;
+    const combined = groups?.combined;
+    if (!bookText || !combined) continue;
+
+    const bookName = resolveBookName(bookText);
+    const candidates: Array<{ chapter: number; verse: number }> = [];
+
+    // Try chapter lengths of 1 and 2 digits (most realistic)
+    for (const chapterLen of [1, 2]) {
+      if (combined.length <= chapterLen) continue;
+      const chapter = parseInt(combined.slice(0, chapterLen), 10);
+      const verse = parseInt(combined.slice(chapterLen), 10);
+      if (!Number.isFinite(chapter) || !Number.isFinite(verse)) continue;
+      if (chapter <= 0 || verse <= 0) continue;
+      candidates.push({ chapter, verse });
+    }
+
+    const valid = candidates.filter((c) => {
+      const key = `${bookName} ${c.chapter}:${c.verse}`;
+      return key in verses;
+    });
+
+    if (valid.length === 1) {
+      const { chapter, verse } = valid[0];
+      const replacement = `${bookName} ${chapter}:${verse}`;
+      result =
+        result.slice(0, match.index) +
+        replacement +
+        result.slice(match.index + match[0].length);
+
+      // Reset regex index after replacement
+      combinedRegex.lastIndex = match.index + replacement.length;
+    }
+  }
+
+  return result;
 }
 
 // =============================================================================
@@ -356,7 +465,7 @@ export function parseVerseReference(reference: string): ParsedBibleReference[] |
     const preprocessed = preprocessBibleReference(reference);
 
     // Step 2: Convert written numbers to numeric values
-    const textToProcess = wordsToNumbers(preprocessed);
+    const textToProcess = normalizeCommaSeparatedChapterVerse(wordsToNumbers(preprocessed));
 
     // Check for "chapter X verse Y" without book name (use context)
     const chapterVersePattern = /chapter\s+(\d+)[,\s]+verse\s+(\d+)/i;
@@ -449,48 +558,40 @@ export function parseVerseReference(reference: string): ParsedBibleReference[] |
     // Standard parsing using bcv_parser
     const parser = getParser();
     parser.parse(textToProcess);
-    const osisResults = parser.osis_and_indices();
-    
     passages = [];
 
-    for (const result of osisResults) {
-      if (result.osis) {
-        const osisRefs = result.osis.split(',');
-        for (const osisRef of osisRefs) {
-          const parts = osisRef.trim().split('.');
-          if (parts.length >= 3) {
-            const book = parts[0];
-            const chapter = parseInt(parts[1], 10);
-            
-            // Handle verse ranges like "John.3.16-John.3.18"
-            let startVerse = 1;
-            let endVerse = 1;
-            
-            if (parts[2].includes('-')) {
-              const [start, endPart] = parts[2].split('-');
-              startVerse = parseInt(start, 10);
-              // endPart might be just verse number or full reference
-              const endVersePart = endPart.split('.').pop() || endPart;
-              endVerse = parseInt(endVersePart, 10);
-            } else {
-              startVerse = parseInt(parts[2], 10);
-              endVerse = startVerse;
-            }
+    // Use `parser.entities[].passages[]` to avoid fragile string parsing of OSIS ranges.
+    // This correctly handles:
+    // - chapter-only inputs (e.g., "Romans 3" => start v=1, end v=31)
+    // - verse ranges (e.g., "John 3:16-18")
+    // - multiple references (e.g., "Romans 3:3, 5")
+    const entities = ((parser as unknown) as any).entities as Array<any> | undefined;
+    for (const entity of entities || []) {
+      const entityPassages = (entity as any).passages as Array<any> | undefined;
+      if (!entityPassages) continue;
 
-            if (!isNaN(chapter) && !isNaN(startVerse)) {
-              const mappedBook = mapBookName(book);
-              passages.push({
-                book: mappedBook,
-                fullBookName: book,
-                chapter,
-                startVerse,
-                endVerse,
-                translation: 'default',
-                displayRef: createDisplayRef(book, chapter, startVerse, endVerse !== startVerse ? endVerse : undefined),
-              });
-            }
-          }
-        }
+      for (const p of entityPassages) {
+        if (!p?.valid?.valid) continue;
+
+        const start = p.start;
+        const end = p.end || p.start;
+
+        if (!start?.b || !start?.c) continue;
+
+        const book = mapBookName(start.b);
+        const chapter = start.c;
+        const startVerse = start.v || 1;
+        const endVerse = end.v || startVerse;
+
+        passages.push({
+          book,
+          fullBookName: start.b,
+          chapter,
+          startVerse,
+          endVerse,
+          translation: 'default',
+          displayRef: createDisplayRef(start.b, chapter, startVerse, endVerse !== startVerse ? endVerse : undefined),
+        });
       }
     }
 
@@ -638,8 +739,13 @@ export async function lookupVerses(reference: ParsedBibleReference): Promise<Arr
  */
 export async function detectAndLookupReferences(text: string): Promise<DetectedBibleReference[]> {
   const results: DetectedBibleReference[] = [];
-  
-  const parsed = parseVerseReference(text);
+
+  // Normalize common speech/typo patterns before parsing
+  const preprocessed = preprocessBibleReference(text);
+  const numericText = wordsToNumbers(preprocessed);
+  const normalizedText = await normalizeCombinedChapterVerseInput(numericText);
+
+  const parsed = parseVerseReference(normalizedText);
   if (!parsed || parsed.length === 0) {
     return results;
   }

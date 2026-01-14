@@ -62,7 +62,7 @@ export interface ProPresenterAITemplate {
 
 export interface AIAssistantContext {
   // App state
-  currentPage: "main" | "stageAssist" | "liveSlides" | "media" | "smartVasis" | "settings" | "help";
+  currentPage: "main" | "stageAssist" | "liveSlides" | "media" | "smartVerses" | "settings" | "help";
 
   // Available templates (for slide creation)
   availableTemplates: Array<{

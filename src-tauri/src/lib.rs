@@ -844,6 +844,52 @@ fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
 }
 
+// ============================================================================
+// AssemblyAI Token Generation (Tauri Backend)
+// ============================================================================
+
+#[derive(Debug, Deserialize)]
+struct AssemblyAiTokenResponse {
+    token: String,
+}
+
+#[tauri::command]
+async fn assemblyai_create_realtime_token(
+    api_key: String,
+    expires_in: Option<u64>,
+) -> Result<String, String> {
+    let expires_in = expires_in.unwrap_or(3600);
+
+    let client = reqwest::Client::new();
+    let resp = client
+        .post("https://api.assemblyai.com/v2/realtime/token")
+        .header("Authorization", api_key)
+        .header("Content-Type", "application/json")
+        .json(&serde_json::json!({ "expires_in": expires_in }))
+        .send()
+        .await
+        .map_err(|e| format!("assemblyai_token_request_failed:{}", e))?;
+
+    let status = resp.status();
+    let body = resp
+        .text()
+        .await
+        .map_err(|e| format!("assemblyai_token_read_failed:{}", e))?;
+
+    if !status.is_success() {
+        return Err(format!(
+            "assemblyai_token_failed:{}:{}",
+            status.as_u16(),
+            body
+        ));
+    }
+
+    let parsed: AssemblyAiTokenResponse = serde_json::from_str(&body)
+        .map_err(|e| format!("assemblyai_token_parse_failed:{}:{}", e, body))?;
+
+    Ok(parsed.token)
+}
+
 #[tauri::command]
 fn write_text_to_file(file_path: String, content: String) -> Result<(), String> {
     use std::fs::{create_dir_all, File};
@@ -1188,6 +1234,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             greet,
+            assemblyai_create_realtime_token,
             write_text_to_file,
             start_live_slides_server,
             stop_live_slides_server,

@@ -726,12 +726,15 @@ const MainApplicationPage: React.FC = () => {
       }));
     }
 
+    const liveSlidesSettings = playlistItem.liveSlidesSessionId
+      ? loadLiveSlidesSettings()
+      : null;
+
     console.log("Making slide live:", slide);
-    if (playlistItem.liveSlidesSessionId) {
-      const ls = loadLiveSlidesSettings();
+    if (liveSlidesSettings) {
       console.log("Using Live Slides output settings");
       console.log(
-        `Output Path: ${ls.outputPath}, Prefix: ${ls.outputFilePrefix}`
+        `Output Path: ${liveSlidesSettings.outputPath}, Prefix: ${liveSlidesSettings.outputFilePrefix}`
       );
     } else if (template) {
       console.log("Using template:", template.name);
@@ -743,11 +746,11 @@ const MainApplicationPage: React.FC = () => {
     const lines = slide.text.split("\n");
     const basePath = (
       playlistItem.liveSlidesSessionId
-        ? loadLiveSlidesSettings().outputPath
+        ? liveSlidesSettings?.outputPath
         : template?.outputPath || ""
     ).replace(/\/?$/, "/");
     const prefix = playlistItem.liveSlidesSessionId
-      ? loadLiveSlidesSettings().outputFilePrefix
+      ? liveSlidesSettings?.outputFilePrefix
       : template?.outputFileNamePrefix || "";
 
     // Check if this is an auto-scripture slide with custom mapping configured
@@ -856,7 +859,8 @@ const MainApplicationPage: React.FC = () => {
       // Trigger ProPresenter presentation activation if configured
       const activationConfig =
         slide.proPresenterActivation ||
-        playlistItem.defaultProPresenterActivation;
+        playlistItem.defaultProPresenterActivation ||
+        liveSlidesSettings?.proPresenterActivation;
       if (activationConfig) {
         try {
           // Get the template to check for specific ProPresenter connections
@@ -870,6 +874,7 @@ const MainApplicationPage: React.FC = () => {
           const activationClicks =
             slide.proPresenterActivation?.activationClicks ??
             playlistItem.defaultProPresenterActivation?.activationClicks ??
+            liveSlidesSettings?.proPresenterActivation?.activationClicks ??
             template?.proPresenterActivationClicks ??
             1;
 
@@ -938,27 +943,33 @@ const MainApplicationPage: React.FC = () => {
       return;
     }
 
-    // Find the template used by this playlistItem
-    const template = templates.find(
-      (t) => t.name === playlistItem.templateName
-    );
+    const isLiveSlidesItem = !!playlistItem.liveSlidesSessionId;
+    const template = isLiveSlidesItem
+      ? undefined
+      : templates.find((t) => t.name === playlistItem.templateName);
 
-    if (!template) {
+    if (!template && !isLiveSlidesItem) {
       console.warn("Template not found for take off action");
       return;
     }
 
+    const liveSlidesSettings = isLiveSlidesItem
+      ? loadLiveSlidesSettings()
+      : null;
+
     // Trigger ProPresenter presentation activation if configured
     const activationConfig =
       slide.proPresenterActivation ||
-      playlistItem.defaultProPresenterActivation;
+      playlistItem.defaultProPresenterActivation ||
+      liveSlidesSettings?.proPresenterActivation;
 
     if (activationConfig) {
       // Use slide-level override if present, otherwise use template setting (default: 0)
       const takeOffClicks =
         slide.proPresenterActivation?.takeOffClicks ??
         playlistItem.defaultProPresenterActivation?.takeOffClicks ??
-        template.proPresenterTakeOffClicks ??
+        liveSlidesSettings?.proPresenterActivation?.takeOffClicks ??
+        template?.proPresenterTakeOffClicks ??
         0;
 
       // If takeOffClicks is 0, don't trigger ProPresenter at all
@@ -971,7 +982,7 @@ const MainApplicationPage: React.FC = () => {
 
       try {
         // Use template's specific connection IDs if available, otherwise use all enabled
-        const connectionIds = template.proPresenterConnectionIds;
+        const connectionIds = template?.proPresenterConnectionIds;
 
         const result = await triggerPresentationOnConnections(
           activationConfig,
@@ -992,6 +1003,22 @@ const MainApplicationPage: React.FC = () => {
         }
       } catch (error) {
         console.error("Failed to trigger ProPresenter take off:", error);
+      }
+    }
+
+    if (isLiveSlidesItem) {
+      const shouldClear =
+        liveSlidesSettings?.proPresenterActivation?.clearTextFileOnTakeOff !==
+        false;
+      if (shouldClear) {
+        const basePath = (liveSlidesSettings?.outputPath || "").replace(
+          /\/?$/,
+          "/"
+        );
+        const prefix = liveSlidesSettings?.outputFilePrefix || "";
+        if (basePath && prefix) {
+          await clearTextFiles(basePath, prefix);
+        }
       }
     }
   };

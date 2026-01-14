@@ -82,6 +82,16 @@ export interface LiveSlidesSettings {
   autoStartServer: boolean;
   outputPath: string;
   outputFilePrefix: string;
+  proPresenterActivation?: LiveSlidesProPresenterConfig;
+}
+
+export interface LiveSlidesProPresenterConfig {
+  presentationUuid: string;
+  slideIndex: number;
+  presentationName?: string;
+  activationClicks: number; // Number of clicks when going live (default: 1)
+  takeOffClicks: number; // Number of clicks when taking off (default: 0)
+  clearTextFileOnTakeOff?: boolean; // Whether to clear text files on take off
 }
 
 // Default settings

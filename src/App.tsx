@@ -29,7 +29,7 @@ import HelpPage from "./pages/HelpPage";
 import MediaView from "./pages/MediaView";
 import LiveSlidesNotepad from "./pages/LiveSlidesNotepad";
 import StageAssistPage from "./pages/StageAssistPage";
-import SmartVasisPage from "./pages/SmartVasisPage";
+import SmartVersesPage from "./pages/SmartVersesPage";
 import {
   StageAssistProvider,
   useStageAssist,
@@ -101,13 +101,13 @@ function Navigation({
         <span>Live Testimonies</span>
       </Link>
       <Link
-        to="/smartvasis"
+        to="/smartverses"
         className={`nav-action-button ${
-          isActive("/smartvasis") ? "active" : ""
+          isActive("/smartverses") ? "active" : ""
         }`}
       >
         <FaBible />
-        <span>SmartVasis</span>
+        <span>SmartVerses</span>
       </Link>
       <Link
         to="/settings"
@@ -265,14 +265,14 @@ function AppContent({
     | "stageAssist"
     | "liveSlides"
     | "media"
-    | "smartVasis"
+    | "smartVerses"
     | "settings"
     | "help" => {
     if (location.pathname === "/") return "main";
     if (location.pathname === "/stage-assist") return "stageAssist";
     if (location.pathname.includes("/live-slides")) return "liveSlides";
     if (location.pathname === "/live-testimonies") return "media";
-    if (location.pathname === "/smartvasis") return "smartVasis";
+    if (location.pathname === "/smartverses") return "smartVerses";
     if (location.pathname === "/settings") return "settings";
     if (location.pathname === "/help") return "help";
     return "main";
@@ -353,7 +353,7 @@ function AppContent({
   const isMainPage = location.pathname === "/";
   const isSettingsPage = location.pathname === "/settings";
   const isLiveTestimoniesPage = location.pathname === "/live-testimonies";
-  const isSmartVasisPage = location.pathname === "/smartvasis";
+  const isSmartVersesPage = location.pathname === "/smartverses";
   const isStageAssistPage = location.pathname === "/stage-assist";
   const isHelpPage = location.pathname === "/help";
 
@@ -371,8 +371,8 @@ function AppContent({
         <div style={{ display: isLiveTestimoniesPage ? "block" : "none" }}>
           <MediaView />
         </div>
-        <div style={{ display: isSmartVasisPage ? "block" : "none" }}>
-          <SmartVasisPage />
+        <div style={{ display: isSmartVersesPage ? "block" : "none" }}>
+          <SmartVersesPage />
         </div>
         <div style={{ display: isStageAssistPage ? "block" : "none" }}>
           <StageAssistPage />
@@ -383,10 +383,12 @@ function AppContent({
       </div>
 
       {/* Global AI Chat Assistant */}
-      <GlobalChatButton
-        onClick={() => setIsChatOpen(!isChatOpen)}
-        isOpen={isChatOpen}
-      />
+      {!isSmartVersesPage && (
+        <GlobalChatButton
+          onClick={() => setIsChatOpen(!isChatOpen)}
+          isOpen={isChatOpen}
+        />
+      )}
       <GlobalChatDrawer
         isOpen={isChatOpen}
         onClose={() => setIsChatOpen(false)}

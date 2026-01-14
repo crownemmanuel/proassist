@@ -374,6 +374,32 @@ const AISettingsForm: React.FC<AISettingsFormProps> = () => {
     <div className="settings-form-section">
       <h3>AI Provider Configuration</h3>
       <div className="form-group">
+        <label htmlFor="groq-key">Groq API Key (Recommended - Super Fast):</label>
+        <input
+          type="password" // Keep API keys masked
+          id="groq-key"
+          value={groqKeyInput}
+          onChange={(e) => setGroqKeyInput(e.target.value)}
+          placeholder="Enter your Groq API Key"
+        />
+        <div
+          style={{
+            marginTop: "6px",
+            fontSize: "0.9em",
+            color: "var(--app-text-color-secondary)",
+          }}
+        >
+          Get your Free Groq API Key:{" "}
+          <a
+            href="https://console.groq.com/keys"
+            target="_blank"
+            rel="noreferrer noopener"
+          >
+            https://console.groq.com/keys
+          </a>
+        </div>
+      </div>
+      <div className="form-group">
         <label htmlFor="openai-key">OpenAI API Key:</label>
         <input
           type="password" // Keep API keys masked
@@ -426,32 +452,6 @@ const AISettingsForm: React.FC<AISettingsFormProps> = () => {
         </div>
       </div>
       <div className="form-group">
-        <label htmlFor="groq-key">Groq API Key:</label>
-        <input
-          type="password" // Keep API keys masked
-          id="groq-key"
-          value={groqKeyInput}
-          onChange={(e) => setGroqKeyInput(e.target.value)}
-          placeholder="Enter your Groq API Key"
-        />
-        <div
-          style={{
-            marginTop: "6px",
-            fontSize: "0.9em",
-            color: "var(--app-text-color-secondary)",
-          }}
-        >
-          Get your Groq key:{" "}
-          <a
-            href="https://console.groq.com/keys"
-            target="_blank"
-            rel="noreferrer noopener"
-          >
-            https://console.groq.com/keys
-          </a>
-        </div>
-      </div>
-      <div className="form-group">
         <label htmlFor="default-ai-provider">Default AI Provider:</label>
         <select
           id="default-ai-provider"
@@ -466,7 +466,7 @@ const AISettingsForm: React.FC<AISettingsFormProps> = () => {
             Gemini
           </option>
           <option value="groq" disabled={!groqKeyInput}>
-            Groq
+            Groq (Recommended - Super Fast)
           </option>
         </select>
       </div>

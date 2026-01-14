@@ -1,7 +1,7 @@
 /**
- * SmartVasis Types
+ * SmartVerses Types
  * 
- * Type definitions for the SmartVasis smart Bible lookup feature.
+ * Type definitions for the SmartVerses smart Bible lookup feature.
  */
 
 // =============================================================================
@@ -121,7 +121,7 @@ export interface BibleSearchResult {
   error?: string;
 }
 
-export interface SmartVasisChatMessage {
+export interface SmartVersesChatMessage {
   id: string;
   type: 'query' | 'result' | 'system';
   content: string;
@@ -135,7 +135,7 @@ export interface SmartVasisChatMessage {
 // SETTINGS TYPES
 // =============================================================================
 
-export interface SmartVasisSettings {
+export interface SmartVersesSettings {
   // Transcription settings
   transcriptionEngine: TranscriptionEngine;
   assemblyAIApiKey?: string;
@@ -164,8 +164,12 @@ export interface SmartVasisSettings {
     presentationUuid: string;
     slideIndex: number;
     presentationName?: string;
+    activationClicks?: number;   // Number of clicks when going live (default: 1)
+    takeOffClicks?: number;      // Number of clicks when taking off live (default: 0)
+    clearTextFileOnTakeOff?: boolean; // Whether to clear text files when taking off live (default: true)
   };
   proPresenterConnectionIds?: string[];
+  selectedProPresenterConnectionId?: string; // The connection to use for Get Slide
   
   // Output settings
   bibleOutputPath?: string;
@@ -175,7 +179,7 @@ export interface SmartVasisSettings {
   clearTextDelay?: number;
 }
 
-export const DEFAULT_SMART_VASIS_SETTINGS: SmartVasisSettings = {
+export const DEFAULT_SMART_VERSES_SETTINGS: SmartVersesSettings = {
   transcriptionEngine: 'assemblyai',
   enableAISearch: false, // Off by default - uses text search instead
   bibleSearchProvider: 'groq',
@@ -183,7 +187,7 @@ export const DEFAULT_SMART_VASIS_SETTINGS: SmartVasisSettings = {
   enableParaphraseDetection: true,
   enableKeyPointExtraction: false,
   paraphraseConfidenceThreshold: 0.6,
-  autoAddDetectedToHistory: true,
+  autoAddDetectedToHistory: false,
   highlightDirectReferences: true,
   highlightParaphrasedReferences: true,
   directReferenceColor: '#ec4899', // Pink
@@ -197,5 +201,5 @@ export const DEFAULT_SMART_VASIS_SETTINGS: SmartVasisSettings = {
 // STORAGE KEYS
 // =============================================================================
 
-export const SMART_VASIS_SETTINGS_KEY = 'proassist-smartvasis-settings';
-export const SMART_VASIS_CHAT_HISTORY_KEY = 'proassist-smartvasis-chat-history';
+export const SMART_VERSES_SETTINGS_KEY = 'proassist-smartverses-settings';
+export const SMART_VERSES_CHAT_HISTORY_KEY = 'proassist-smartverses-chat-history';

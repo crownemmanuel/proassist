@@ -1,5 +1,5 @@
 /**
- * SmartVasis AI Service
+ * SmartVerses AI Service
  * 
  * Provides AI-powered Bible analysis capabilities:
  * - Paraphrase detection (detecting when someone paraphrases Bible verses)
@@ -18,8 +18,8 @@ import {
   ParaphrasedVerse,
   TranscriptAnalysisResult,
   DetectedBibleReference,
-} from "../types/smartVasis";
-import { lookupVerse, parseVerseReference } from "./smartVasisBibleService";
+} from "../types/smartVerses";
+import { lookupVerse, parseVerseReference } from "./smartVersesBibleService";
 
 // =============================================================================
 // TYPES
@@ -121,7 +121,16 @@ export async function analyzeTranscriptChunk(
   detectParaphrases: boolean = true,
   extractKeyPoints: boolean = false
 ): Promise<TranscriptAnalysisResult> {
-  console.log("🤖 Analyzing transcript chunk:", transcriptChunk.substring(0, 100) + "...");
+  const debugAI =
+    typeof window !== "undefined" &&
+    typeof localStorage !== "undefined" &&
+    localStorage.getItem("smartverses_debug_ai") === "1";
+
+  if (debugAI) {
+    console.log("[SmartVerses][AI] analyzeTranscriptChunk input:", transcriptChunk);
+  } else {
+    console.log("🤖 Analyzing transcript chunk:", transcriptChunk.substring(0, 100) + "...");
+  }
 
   // Return empty results if nothing to analyze or both options disabled
   if (!transcriptChunk.trim() || (!detectParaphrases && !extractKeyPoints)) {
@@ -130,8 +139,17 @@ export async function analyzeTranscriptChunk(
 
   // Skip very short chunks (less than 10 words)
   const wordCount = transcriptChunk.trim().split(/\s+/).length;
-  if (wordCount < 10) {
-    console.log("⚠️ Skipping AI analysis - chunk too short:", wordCount, "words");
+  // NOTE: In practice, many recognizable paraphrases are short (e.g., "For God so loved the world").
+  // We keep a guard to control cost, but allow slightly shorter chunks.
+  const minWords = 6;
+  if (wordCount < minWords) {
+    console.log(
+      "⚠️ Skipping AI analysis - chunk too short:",
+      wordCount,
+      "words. (min=" + minWords + ")",
+      "chunk=",
+      transcriptChunk
+    );
     return { paraphrasedVerses: [], keyPoints: [] };
   }
 
@@ -201,6 +219,11 @@ Return ONLY valid JSON, no other text.`;
 
   try {
     const llm = getLLM(provider, apiKey, 0.7);
+    if (debugAI) {
+      console.log("[SmartVerses][AI] provider:", provider);
+      console.log("[SmartVerses][AI] systemPrompt chars:", systemPrompt.length);
+      console.log("[SmartVerses][AI] userPrompt:", userPrompt);
+    }
     const messages = [
       new SystemMessage(systemPrompt),
       new HumanMessage(userPrompt),
@@ -212,6 +235,10 @@ Return ONLY valid JSON, no other text.`;
       typeof rawContent === "string" 
         ? rawContent 
         : (rawContent as Array<{ text?: string }>)?.[0]?.text ?? "";
+
+    if (debugAI) {
+      console.log("[SmartVerses][AI] raw response:", rawText);
+    }
 
     const parsed = tryParseJson<TranscriptAnalysisResult>(rawText.trim());
     
@@ -248,8 +275,8 @@ Return ONLY valid JSON, no other text.`;
  * 
  * @param query - The user's search query
  * @param appSettings - App settings containing API keys
- * @param overrideProvider - Optional provider override (for SmartVasis settings)
- * @param overrideModel - Optional model override (for SmartVasis settings)
+ * @param overrideProvider - Optional provider override (for SmartVerses settings)
+ * @param overrideModel - Optional model override (for SmartVerses settings)
  */
 export async function searchBibleWithAI(
   query: string,

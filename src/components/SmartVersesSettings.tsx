@@ -1,7 +1,7 @@
 /**
- * SmartVasis Settings Component
+ * SmartVerses Settings Component
  * 
- * Settings panel for configuring SmartVasis features:
+ * Settings panel for configuring SmartVerses features:
  * - Transcription engine (AssemblyAI)
  * - AI settings (paraphrase detection, etc.)
  * - Display settings (colors)
@@ -10,17 +10,19 @@
  */
 
 import React, { useState, useEffect, useCallback } from "react";
-import { FaMicrophone, FaRobot, FaPalette, FaPlay, FaFileExport, FaSave, FaKey, FaCheckCircle, FaSpinner } from "react-icons/fa";
+import { FaMicrophone, FaRobot, FaPalette, FaFileExport, FaSave, FaKey, FaSpinner, FaDesktop, FaCheck, FaTimes } from "react-icons/fa";
 import {
-  SmartVasisSettings as SmartVasisSettingsType,
-  DEFAULT_SMART_VASIS_SETTINGS,
+  SmartVersesSettings as SmartVersesSettingsType,
+  DEFAULT_SMART_VERSES_SETTINGS,
   TranscriptionEngine,
-} from "../types/smartVasis";
+} from "../types/smartVerses";
 import {
-  loadSmartVasisSettings,
-  saveSmartVasisSettings,
+  loadSmartVersesSettings,
+  saveSmartVersesSettings,
 } from "../services/transcriptionService";
-import { getEnabledConnections } from "../services/propresenterService";
+import { getAssemblyAITemporaryToken } from "../services/assemblyaiTokenService";
+import { getEnabledConnections, getCurrentSlideIndex } from "../services/propresenterService";
+import { ProPresenterConnection } from "../types/propresenter";
 import { getAppSettings } from "../utils/aiConfig";
 import { fetchOpenAIModels, fetchGeminiModels, fetchGroqModels } from "../services/aiService";
 import "../App.css";
@@ -29,8 +31,8 @@ import "../App.css";
 // MAIN COMPONENT
 // =============================================================================
 
-const SmartVasisSettings: React.FC = () => {
-  const [settings, setSettings] = useState<SmartVasisSettingsType>(DEFAULT_SMART_VASIS_SETTINGS);
+const SmartVersesSettings: React.FC = () => {
+  const [settings, setSettings] = useState<SmartVersesSettingsType>(DEFAULT_SMART_VERSES_SETTINGS);
   const [isSaving, setIsSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [availableMics, setAvailableMics] = useState<MediaDeviceInfo[]>([]);
@@ -38,11 +40,36 @@ const SmartVasisSettings: React.FC = () => {
   // Bible Search AI model state
   const [bibleSearchModels, setBibleSearchModels] = useState<string[]>([]);
   const [bibleSearchModelsLoading, setBibleSearchModelsLoading] = useState(false);
+  
+  // ProPresenter activation state
+  const [enabledConnections, setEnabledConnections] = useState<ProPresenterConnection[]>([]);
+  const [selectedConnectionId, setSelectedConnectionId] = useState<string>("");
+  const [isLoadingSlide, setIsLoadingSlide] = useState(false);
+  const [slideLoadError, setSlideLoadError] = useState<string | null>(null);
+  const [slideLoadSuccess, setSlideLoadSuccess] = useState(false);
+  const [activationClicks, setActivationClicks] = useState<number>(1);
+  const [takeOffClicks, setTakeOffClicks] = useState<number>(0);
+  const [clearTextFileOnTakeOff, setClearTextFileOnTakeOff] = useState<boolean>(true);
 
   // Load settings on mount
   useEffect(() => {
-    setSettings(loadSmartVasisSettings());
+    const savedSettings = loadSmartVersesSettings();
+    setSettings(savedSettings);
     loadMicrophones();
+    
+    // Load ProPresenter connections
+    const connections = getEnabledConnections();
+    setEnabledConnections(connections);
+    if (connections.length > 0) {
+      setSelectedConnectionId(savedSettings.selectedProPresenterConnectionId || connections[0].id);
+    }
+    
+    // Load ProPresenter activation settings
+    if (savedSettings.proPresenterActivation) {
+      setActivationClicks(savedSettings.proPresenterActivation.activationClicks ?? 1);
+      setTakeOffClicks(savedSettings.proPresenterActivation.takeOffClicks ?? 0);
+      setClearTextFileOnTakeOff(savedSettings.proPresenterActivation.clearTextFileOnTakeOff !== false);
+    }
   }, []);
 
   // Load models when provider changes
@@ -104,30 +131,88 @@ const SmartVasisSettings: React.FC = () => {
   };
 
   // Handle settings change
-  const handleChange = (key: keyof SmartVasisSettingsType, value: unknown) => {
+  const handleChange = (key: keyof SmartVersesSettingsType, value: unknown) => {
     setSettings(prev => ({ ...prev, [key]: value }));
     setSaveMessage(null);
   };
 
-  // Handle ProPresenter activation change
-  const handleProPresenterChange = (key: string, value: unknown) => {
+  // Handle Get Slide from ProPresenter
+  const handleGetSlide = async () => {
+    setIsLoadingSlide(true);
+    setSlideLoadError(null);
+    setSlideLoadSuccess(false);
+
+    if (enabledConnections.length === 0) {
+      setSlideLoadError("No enabled ProPresenter connections found. Please enable at least one connection in Settings > ProPresenter.");
+      setIsLoadingSlide(false);
+      return;
+    }
+
+    // Find the selected connection
+    const connection = enabledConnections.find(c => c.id === selectedConnectionId) || enabledConnections[0];
+
+    try {
+      const slideIndexData = await getCurrentSlideIndex(connection);
+      if (slideIndexData?.presentation_index) {
+        const newActivation = {
+          presentationUuid: slideIndexData.presentation_index.presentation_id.uuid,
+          slideIndex: slideIndexData.presentation_index.index,
+          presentationName: slideIndexData.presentation_index.presentation_id.name,
+          activationClicks: activationClicks,
+          takeOffClicks: takeOffClicks,
+          clearTextFileOnTakeOff: clearTextFileOnTakeOff,
+        };
+        setSettings(prev => ({
+          ...prev,
+          proPresenterActivation: newActivation,
+          selectedProPresenterConnectionId: selectedConnectionId,
+        }));
+        setSlideLoadSuccess(true);
+        setIsLoadingSlide(false);
+        return;
+      } else {
+        setSlideLoadError("No active presentation found. Make sure a slide is live in ProPresenter.");
+      }
+    } catch (err) {
+      setSlideLoadError(err instanceof Error ? err.message : "Failed to get slide index");
+    }
+
+    setIsLoadingSlide(false);
+  };
+
+  // Handle removing ProPresenter configuration
+  const handleRemoveProPresenterConfig = () => {
     setSettings(prev => ({
       ...prev,
-      proPresenterActivation: {
-        ...(prev.proPresenterActivation || { presentationUuid: "", slideIndex: 0 }),
-        [key]: value,
-      },
+      proPresenterActivation: undefined,
     }));
-    setSaveMessage(null);
+    setSlideLoadSuccess(false);
+    setSlideLoadError(null);
   };
 
   // Save settings
   const handleSave = () => {
     setIsSaving(true);
     try {
-      saveSmartVasisSettings(settings);
+      // Build the settings with updated ProPresenter activation
+      const settingsToSave: SmartVersesSettingsType = {
+        ...settings,
+        selectedProPresenterConnectionId: selectedConnectionId,
+        proPresenterActivation: settings.proPresenterActivation
+          ? {
+              ...settings.proPresenterActivation,
+              activationClicks: activationClicks,
+              takeOffClicks: takeOffClicks,
+              clearTextFileOnTakeOff: clearTextFileOnTakeOff,
+            }
+          : undefined,
+      };
+      
+      saveSmartVersesSettings(settingsToSave);
+      // Update local state to match what was saved
+      setSettings(settingsToSave);
       // Dispatch custom event so other components can react immediately
-      window.dispatchEvent(new CustomEvent("smartvasis-settings-changed", { detail: settings }));
+      window.dispatchEvent(new CustomEvent("smartverses-settings-changed", { detail: settingsToSave }));
       setSaveMessage("Settings saved successfully!");
       setTimeout(() => setSaveMessage(null), 3000);
     } catch (error) {
@@ -146,22 +231,14 @@ const SmartVasisSettings: React.FC = () => {
     }
 
     try {
-      const response = await fetch("https://api.assemblyai.com/v2/realtime/token", {
-        method: "POST",
-        headers: {
-          "Authorization": settings.assemblyAIApiKey,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ expires_in: 60 }),
-      });
-
-      if (response.ok) {
+      await getAssemblyAITemporaryToken(settings.assemblyAIApiKey, 60);
+      {
         alert("✅ AssemblyAI API key is valid!");
-      } else {
-        alert("❌ Invalid API key. Please check and try again.");
       }
-    } catch {
-      alert("❌ Failed to validate API key. Check your internet connection.");
+    } catch (err) {
+      const msg =
+        err instanceof Error ? err.message : typeof err === "string" ? err : JSON.stringify(err);
+      alert(`❌ Failed to validate API key.\n\n${msg}`);
     }
   };
 
@@ -223,9 +300,9 @@ const SmartVasisSettings: React.FC = () => {
 
   return (
     <div style={{ maxWidth: "800px" }}>
-      <h2 style={{ marginBottom: "var(--spacing-4)" }}>SmartVasis Settings</h2>
+      <h2 style={{ marginBottom: "var(--spacing-4)" }}>SmartVerses Settings</h2>
       <p style={{ marginBottom: "var(--spacing-6)", color: "var(--app-text-color-secondary)" }}>
-        Configure SmartVasis smart Bible lookup and live transcription features.
+        Configure SmartVerses smart Bible lookup and live transcription features.
       </p>
 
       {/* Transcription Settings */}
@@ -332,7 +409,7 @@ const SmartVasisSettings: React.FC = () => {
                 <option value="">Select Provider</option>
                 <option value="openai">OpenAI</option>
                 <option value="gemini">Google Gemini</option>
-                <option value="groq">Groq</option>
+                <option value="groq">Groq (Recommended - Super Fast)</option>
               </select>
             </div>
 
@@ -486,12 +563,17 @@ const SmartVasisSettings: React.FC = () => {
         </div>
       </div>
 
-      {/* ProPresenter Integration */}
+      {/* ProPresenter Activation */}
       <div style={sectionStyle}>
         <div style={sectionHeaderStyle}>
-          <FaPlay />
-          <h3 style={{ margin: 0 }}>ProPresenter Integration</h3>
+          <FaDesktop />
+          <h3 style={{ margin: 0 }}>ProPresenter Activation</h3>
         </div>
+
+        <p style={{ marginBottom: "var(--spacing-4)", fontSize: "0.9em", color: "var(--app-text-color-secondary)" }}>
+          Optionally trigger a ProPresenter presentation when a verse goes live or when cleared.
+          This is useful for showing a graphic overlay when verses are being displayed.
+        </p>
 
         <div style={fieldStyle}>
           <label style={checkboxLabelStyle}>
@@ -507,45 +589,248 @@ const SmartVasisSettings: React.FC = () => {
           </p>
         </div>
 
-        <div style={fieldStyle}>
-          <label style={labelStyle}>Presentation UUID</label>
-          <input
-            type="text"
-            value={settings.proPresenterActivation?.presentationUuid || ""}
-            onChange={(e) => handleProPresenterChange("presentationUuid", e.target.value)}
-            placeholder="ProPresenter presentation UUID"
-            style={inputStyle}
-          />
-        </div>
-
-        <div style={fieldStyle}>
-          <label style={labelStyle}>Slide Index</label>
-          <input
-            type="number"
-            min="0"
-            value={settings.proPresenterActivation?.slideIndex || 0}
-            onChange={(e) => handleProPresenterChange("slideIndex", parseInt(e.target.value) || 0)}
-            style={inputStyle}
-          />
-        </div>
-
-        <div style={fieldStyle}>
-          <label style={labelStyle}>ProPresenter Connections</label>
-          <div style={{ 
-            padding: "var(--spacing-2)", 
+        <div
+          style={{
+            padding: "var(--spacing-3)",
             backgroundColor: "var(--app-bg-color)",
-            borderRadius: "6px",
-            fontSize: "0.85rem",
-          }}>
-            {getEnabledConnections().length > 0 ? (
-              <p style={{ margin: 0, color: "var(--success)" }}>
-                <FaCheckCircle style={{ marginRight: "6px" }} />
-                {getEnabledConnections().length} connection(s) enabled
-              </p>
-            ) : (
+            borderRadius: "8px",
+            border: "1px solid var(--app-border-color)",
+          }}
+        >
+          <p style={{ margin: "0 0 12px 0", color: "var(--app-text-color)", fontSize: "0.9em" }}>
+            <strong>Instructions:</strong> Go to ProPresenter and put the slide you want to trigger live, then click "Get Slide".
+          </p>
+
+          {slideLoadError && (
+            <div
+              style={{
+                marginBottom: "12px",
+                padding: "10px",
+                backgroundColor: "rgba(220, 38, 38, 0.1)",
+                border: "1px solid rgba(220, 38, 38, 0.3)",
+                borderRadius: "6px",
+                color: "#ef4444",
+                fontSize: "0.9em",
+              }}
+            >
+              {slideLoadError}
+            </div>
+          )}
+
+          {slideLoadSuccess && settings.proPresenterActivation && (
+            <div
+              style={{
+                marginBottom: "12px",
+                padding: "10px",
+                backgroundColor: "rgba(34, 197, 94, 0.1)",
+                border: "1px solid rgba(34, 197, 94, 0.3)",
+                borderRadius: "6px",
+                color: "#22c55e",
+                fontSize: "0.9em",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <FaCheck />
+                <div>
+                  <div style={{ fontWeight: 600 }}>Slide captured!</div>
+                  <div style={{ fontSize: "0.85em", marginTop: "4px", opacity: 0.9 }}>
+                    Presentation: {settings.proPresenterActivation.presentationName || settings.proPresenterActivation.presentationUuid}
+                    <br />
+                    Slide Index: {settings.proPresenterActivation.slideIndex}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {settings.proPresenterActivation && !slideLoadSuccess && (
+            <div
+              style={{
+                marginBottom: "12px",
+                padding: "10px",
+                backgroundColor: "var(--app-header-bg)",
+                border: "1px solid var(--app-border-color)",
+                borderRadius: "6px",
+                fontSize: "0.9em",
+                color: "var(--app-text-color-secondary)",
+              }}
+            >
+              <div style={{ fontWeight: 600, marginBottom: "4px" }}>Current Configuration:</div>
+              <div>
+                Presentation: {settings.proPresenterActivation.presentationName || settings.proPresenterActivation.presentationUuid}
+                <br />
+                Slide Index: {settings.proPresenterActivation.slideIndex}
+              </div>
+            </div>
+          )}
+
+          {/* Animation Trigger Settings */}
+          {settings.proPresenterActivation && (
+            <div
+              style={{
+                marginBottom: "12px",
+                padding: "10px",
+                backgroundColor: "var(--app-header-bg)",
+                border: "1px solid var(--app-border-color)",
+                borderRadius: "6px",
+              }}
+            >
+              <div style={{ fontSize: "0.85em", fontWeight: 600, marginBottom: "8px", color: "var(--app-text-color)" }}>
+                Animation Trigger Settings:
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+                <div>
+                  <label style={{ fontSize: "0.8em", display: "block", marginBottom: "4px", color: "var(--app-text-color-secondary)" }}>
+                    Go Live Clicks:
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={activationClicks}
+                    onChange={(e) => setActivationClicks(Math.max(1, parseInt(e.target.value) || 1))}
+                    style={{
+                      width: "100%",
+                      padding: "4px 6px",
+                      fontSize: "0.85em",
+                      backgroundColor: "var(--app-input-bg-color)",
+                      color: "var(--app-input-text-color)",
+                      border: "1px solid var(--app-border-color)",
+                      borderRadius: "4px",
+                    }}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: "0.8em", display: "block", marginBottom: "4px", color: "var(--app-text-color-secondary)" }}>
+                    Clear/Off Live Clicks:
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={takeOffClicks}
+                    onChange={(e) => setTakeOffClicks(Math.max(0, parseInt(e.target.value) || 0))}
+                    style={{
+                      width: "100%",
+                      padding: "4px 6px",
+                      fontSize: "0.85em",
+                      backgroundColor: "var(--app-input-bg-color)",
+                      color: "var(--app-input-text-color)",
+                      border: "1px solid var(--app-border-color)",
+                      borderRadius: "4px",
+                    }}
+                  />
+                </div>
+              </div>
+              <div style={{ fontSize: "0.75em", color: "var(--app-text-color-secondary)", marginTop: "6px" }}>
+                Use multiple clicks to trigger ProPresenter animations. "Go Live Clicks" triggers when a verse is set live. "Clear/Off Live Clicks" triggers when clearing the live verse.
+              </div>
+              
+              {/* Clear Text File on Take Off Option */}
+              <div style={{ marginTop: "var(--spacing-3)", paddingTop: "var(--spacing-3)", borderTop: "1px solid var(--app-border-color)" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "var(--spacing-2)" }}>
+                  <input
+                    type="checkbox"
+                    id="clearTextFileOnTakeOff"
+                    checked={clearTextFileOnTakeOff}
+                    onChange={(e) => setClearTextFileOnTakeOff(e.target.checked)}
+                    style={{ width: "auto", margin: 0 }}
+                  />
+                  <label
+                    htmlFor="clearTextFileOnTakeOff"
+                    style={{ margin: 0, cursor: "pointer", fontWeight: 500, fontSize: "0.9em" }}
+                  >
+                    Clear text file when taking off live
+                  </label>
+                </div>
+                <div style={{ fontSize: "0.75em", color: "var(--app-text-color-secondary)", marginTop: "4px", marginLeft: "24px" }}>
+                  If unchecked, the text file will remain unchanged when clearing a live verse. Only the ProPresenter slide will be triggered.
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ProPresenter Connection Selector */}
+          {enabledConnections.length > 0 && (
+            <div style={{ marginBottom: "12px" }}>
+              <label
+                style={{
+                  fontSize: "0.85em",
+                  display: "block",
+                  marginBottom: "6px",
+                  color: "var(--app-text-color-secondary)",
+                  fontWeight: 600,
+                }}
+              >
+                Get slide from:
+              </label>
+              {enabledConnections.length === 1 ? (
+                <div
+                  style={{
+                    padding: "6px 8px",
+                    fontSize: "0.9em",
+                    backgroundColor: "var(--app-input-bg-color)",
+                    color: "var(--app-input-text-color)",
+                    border: "1px solid var(--app-border-color)",
+                    borderRadius: "4px",
+                  }}
+                >
+                  {enabledConnections[0].name} ({enabledConnections[0].apiUrl})
+                </div>
+              ) : (
+                <select
+                  value={selectedConnectionId}
+                  onChange={(e) => setSelectedConnectionId(e.target.value)}
+                  style={{
+                    width: "100%",
+                    padding: "6px 8px",
+                    fontSize: "0.9em",
+                    backgroundColor: "var(--app-input-bg-color)",
+                    color: "var(--app-input-text-color)",
+                    border: "1px solid var(--app-border-color)",
+                    borderRadius: "4px",
+                  }}
+                >
+                  {enabledConnections.map((conn) => (
+                    <option key={conn.id} value={conn.id}>
+                      {conn.name} ({conn.apiUrl})
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+          )}
+
+          {enabledConnections.length === 0 && (
+            <div style={{ marginBottom: "12px", padding: "10px", backgroundColor: "var(--app-header-bg)", borderRadius: "6px", fontSize: "0.85rem" }}>
               <p style={{ margin: 0, color: "var(--app-text-color-secondary)" }}>
                 No ProPresenter connections enabled. Configure in Settings → ProPresenter.
               </p>
+            </div>
+          )}
+
+          <div style={{ display: "flex", gap: "10px" }}>
+            <button
+              onClick={handleGetSlide}
+              disabled={isLoadingSlide || enabledConnections.length === 0}
+              className="secondary"
+              style={{ minWidth: "140px" }}
+            >
+              {isLoadingSlide ? (
+                <>
+                  <FaSpinner style={{ animation: "spin 1s linear infinite", marginRight: "6px" }} />
+                  Reading...
+                </>
+              ) : (
+                <>
+                  <FaDesktop style={{ marginRight: "6px" }} />
+                  Get Slide
+                </>
+              )}
+            </button>
+            {settings.proPresenterActivation && (
+              <button onClick={handleRemoveProPresenterConfig} className="secondary">
+                <FaTimes style={{ marginRight: "6px" }} />
+                Remove
+              </button>
             )}
           </div>
         </div>
@@ -595,31 +880,6 @@ const SmartVasisSettings: React.FC = () => {
             />
           </div>
         </div>
-
-        <div style={fieldStyle}>
-          <label style={checkboxLabelStyle}>
-            <input
-              type="checkbox"
-              checked={settings.clearTextAfterLive || false}
-              onChange={(e) => handleChange("clearTextAfterLive", e.target.checked)}
-            />
-            Clear Text After Going Live
-          </label>
-        </div>
-
-        {settings.clearTextAfterLive && (
-          <div style={fieldStyle}>
-            <label style={labelStyle}>Clear Delay (ms)</label>
-            <input
-              type="number"
-              min="0"
-              step="100"
-              value={settings.clearTextDelay || 0}
-              onChange={(e) => handleChange("clearTextDelay", parseInt(e.target.value) || 0)}
-              style={inputStyle}
-            />
-          </div>
-        )}
       </div>
 
       {/* Save Button */}
@@ -658,4 +918,4 @@ const SmartVasisSettings: React.FC = () => {
   );
 };
 
-export default SmartVasisSettings;
+export default SmartVersesSettings;

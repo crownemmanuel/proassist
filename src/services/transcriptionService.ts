@@ -1,51 +1,54 @@
 /**
  * Transcription Service
  * 
- * Provides live transcription capabilities using various engines.
- * Currently supports AssemblyAI with an abstraction layer for future engines.
+ * Provides live transcription capabilities using AssemblyAI Realtime API.
+ * Uses RealtimeTranscriber from AssemblyAI SDK and RecordRTC for audio capture.
  * 
  * This service handles:
- * - Audio capture from microphone
- * - Real-time transcription via WebSocket
+ * - Audio capture from microphone using RecordRTC
+ * - Real-time transcription via AssemblyAI WebSocket
  * - Interim and final transcript handling
  */
 
+import { RealtimeTranscriber } from 'assemblyai/streaming';
+import RecordRTC, { StereoAudioRecorder } from 'recordrtc';
+import { getAssemblyAITemporaryToken } from "./assemblyaiTokenService";
 import {
   TranscriptionEngine,
   TranscriptionCallbacks,
   TranscriptionSegment,
-  SmartVasisSettings,
-  SMART_VASIS_SETTINGS_KEY,
-  DEFAULT_SMART_VASIS_SETTINGS,
-} from "../types/smartVasis";
+  SmartVersesSettings,
+  SMART_VERSES_SETTINGS_KEY,
+  DEFAULT_SMART_VERSES_SETTINGS,
+} from "../types/smartVerses";
 
 // =============================================================================
 // STORAGE FUNCTIONS
 // =============================================================================
 
 /**
- * Load SmartVasis settings from localStorage
+ * Load SmartVerses settings from localStorage
  */
-export function loadSmartVasisSettings(): SmartVasisSettings {
+export function loadSmartVersesSettings(): SmartVersesSettings {
   try {
-    const stored = localStorage.getItem(SMART_VASIS_SETTINGS_KEY);
+    const stored = localStorage.getItem(SMART_VERSES_SETTINGS_KEY);
     if (stored) {
-      return { ...DEFAULT_SMART_VASIS_SETTINGS, ...JSON.parse(stored) };
+      return { ...DEFAULT_SMART_VERSES_SETTINGS, ...JSON.parse(stored) };
     }
   } catch (err) {
-    console.error("Failed to load SmartVasis settings:", err);
+    console.error("Failed to load SmartVerses settings:", err);
   }
-  return { ...DEFAULT_SMART_VASIS_SETTINGS };
+  return { ...DEFAULT_SMART_VERSES_SETTINGS };
 }
 
 /**
- * Save SmartVasis settings to localStorage
+ * Save SmartVerses settings to localStorage
  */
-export function saveSmartVasisSettings(settings: SmartVasisSettings): void {
+export function saveSmartVersesSettings(settings: SmartVersesSettings): void {
   try {
-    localStorage.setItem(SMART_VASIS_SETTINGS_KEY, JSON.stringify(settings));
+    localStorage.setItem(SMART_VERSES_SETTINGS_KEY, JSON.stringify(settings));
   } catch (err) {
-    console.error("Failed to save SmartVasis settings:", err);
+    console.error("Failed to save SmartVerses settings:", err);
   }
 }
 
@@ -72,17 +75,16 @@ export interface ITranscriptionService {
 /**
  * AssemblyAI Real-time Transcription Service
  * 
- * Uses AssemblyAI's WebSocket API for live transcription.
- * Audio is captured from the microphone, encoded, and sent to AssemblyAI.
+ * Uses AssemblyAI's RealtimeTranscriber and RecordRTC for live transcription.
+ * Audio is captured from the microphone at 16kHz sample rate and sent to AssemblyAI.
  */
 export class AssemblyAITranscriptionService implements ITranscriptionService {
   readonly engine: TranscriptionEngine = 'assemblyai';
   
   private apiKey: string = '';
-  private socket: WebSocket | null = null;
-  private mediaRecorder: MediaRecorder | null = null;
-  private audioContext: AudioContext | null = null;
-  private mediaStream: MediaStream | null = null;
+  private realtimeTranscriber: RealtimeTranscriber | null = null;
+  private recorder: RecordRTC | null = null;
+  private mediaStream: MediaStream | null = null; // Store stream reference separately
   private selectedMicId: string = '';
   private callbacks: TranscriptionCallbacks = {};
   private _isRecording: boolean = false;
@@ -136,30 +138,44 @@ export class AssemblyAITranscriptionService implements ITranscriptionService {
 
   /**
    * Get a temporary token from AssemblyAI
-   * This should ideally be done server-side, but for Tauri apps we can do it client-side
    */
   private async getTemporaryToken(): Promise<string> {
     try {
-      const response = await fetch('https://api.assemblyai.com/v2/realtime/token', {
-        method: 'POST',
-        headers: {
-          'Authorization': this.apiKey,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          expires_in: 3600, // 1 hour
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`Failed to get token: ${response.statusText}`);
-      }
-
-      const data = await response.json();
-      return data.token;
+      console.log('🔑 Requesting temporary token from AssemblyAI...');
+      const token = await getAssemblyAITemporaryToken(this.apiKey, 3600);
+      console.log('✅ Token received successfully');
+      return token;
     } catch (error) {
       console.error('Error getting AssemblyAI token:', error);
       throw error;
+    }
+  }
+
+  /**
+   * Clean up existing connections and recorder
+   */
+  private async cleanup(): Promise<void> {
+    // Clean up existing transcriber
+    if (this.realtimeTranscriber) {
+      console.log('⚠️ Existing transcriber found, cleaning up...');
+      try {
+        await this.realtimeTranscriber.close();
+      } catch (error) {
+        console.error('Error closing existing transcriber:', error);
+      }
+      this.realtimeTranscriber = null;
+    }
+
+    // Clean up existing recorder and stream
+    if (this.recorder) {
+      console.log('⚠️ Existing recorder found, cleaning up...');
+      this.recorder.destroy();
+      this.recorder = null;
+    }
+    
+    if (this.mediaStream) {
+      this.mediaStream.getTracks().forEach((track: MediaStreamTrack) => track.stop());
+      this.mediaStream = null;
     }
   }
 
@@ -179,141 +195,109 @@ export class AssemblyAITranscriptionService implements ITranscriptionService {
     this.callbacks.onStatusChange?.('connecting');
 
     try {
+      // Clean up any existing connections
+      await this.cleanup();
+
+      console.log('🎬 Creating new RealtimeTranscriber...');
+
       // Get temporary token
       const token = await this.getTemporaryToken();
 
-      // Connect to WebSocket
-      await this.connectWebSocket(token);
+      // Initialize RealtimeTranscriber with the AssemblyAI SDK
+      this.realtimeTranscriber = new RealtimeTranscriber({
+        token,
+        sampleRate: 16000, // Required: 16kHz sample rate
+      });
 
-      // Start audio capture
-      await this.startAudioCapture();
+      // Handle interim transcripts (live updates)
+      this.realtimeTranscriber.on('transcript', (data: { audio_start: number; text: string }) => {
+        this.interimTexts[data.audio_start] = data.text;
+        const keys = Object.keys(this.interimTexts)
+          .map(Number)
+          .sort((a, b) => a - b);
+        const combinedText = keys.map((key) => this.interimTexts[key]).join(' ').trim();
+        this.callbacks.onInterimTranscript?.(combinedText);
+      });
 
-      this._isRecording = true;
-      this.callbacks.onStatusChange?.('recording');
-      console.log('✅ AssemblyAI transcription started');
-    } catch (error) {
-      this.callbacks.onStatusChange?.('error');
-      this.callbacks.onError?.(error as Error);
-      throw error;
-    }
-  }
+      // Handle final transcripts (complete sentences)
+      this.realtimeTranscriber.on('transcript.final', (finalData: { text: string }) => {
+        console.log('📝 Final transcript:', finalData.text);
 
-  /**
-   * Connect to AssemblyAI WebSocket
-   */
-  private connectWebSocket(token: string): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const wsUrl = `wss://api.assemblyai.com/v2/realtime/ws?sample_rate=16000&token=${token}`;
-      this.socket = new WebSocket(wsUrl);
+        const segment: TranscriptionSegment = {
+          id: `segment-${++this.segmentCounter}`,
+          text: finalData.text,
+          timestamp: Date.now(),
+          isFinal: true,
+        };
 
-      this.socket.onopen = () => {
-        console.log('🔌 AssemblyAI WebSocket connected');
-        resolve();
-      };
+        this.callbacks.onFinalTranscript?.(finalData.text, segment);
 
-      this.socket.onmessage = (event) => {
-        try {
-          const message = JSON.parse(event.data);
-          this.handleTranscriptMessage(message);
-        } catch (error) {
-          console.error('Error parsing WebSocket message:', error);
-        }
-      };
+        // Clear interim texts
+        this.interimTexts = {};
+      });
 
-      this.socket.onerror = (error) => {
-        console.error('WebSocket error:', error);
-        this.callbacks.onError?.(new Error('WebSocket connection error'));
-        reject(error);
-      };
+      // Handle errors
+      this.realtimeTranscriber.on('error', (event: { message?: string }) => {
+        console.error('❌ Transcription error:', event);
+        this.callbacks.onError?.(new Error(event.message || 'Transcription error'));
+        this.stopTranscription();
+      });
 
-      this.socket.onclose = (event) => {
-        console.log(`🔌 WebSocket closed: ${event.code} ${event.reason}`);
+      // Handle connection close
+      this.realtimeTranscriber.on('close', (code: number, reason: string) => {
+        console.log(`🔌 Connection closed: ${code} ${reason}`);
         this._isRecording = false;
-        this.callbacks.onConnectionClose?.(event.code, event.reason);
+        this.callbacks.onConnectionClose?.(code, reason);
         this.callbacks.onStatusChange?.('idle');
-      };
+      });
 
-      // Timeout for connection
-      setTimeout(() => {
-        if (this.socket?.readyState !== WebSocket.OPEN) {
-          reject(new Error('WebSocket connection timeout'));
-        }
-      }, 10000);
-    });
-  }
+      // Connect to AssemblyAI
+      console.log('🔌 Connecting to AssemblyAI WebSocket...');
+      await this.realtimeTranscriber.connect();
+      console.log('✅ WebSocket connected');
 
-  /**
-   * Handle incoming transcript messages
-   */
-  private handleTranscriptMessage(message: { message_type: string; audio_start?: number; text?: string }): void {
-    if (message.message_type === 'PartialTranscript' && message.text) {
-      // Interim transcript
-      const audioStart = message.audio_start || 0;
-      this.interimTexts[audioStart] = message.text;
-      
-      // Combine all interim texts
-      const keys = Object.keys(this.interimTexts).map(Number).sort((a, b) => a - b);
-      const combinedText = keys.map(key => this.interimTexts[key]).join(' ').trim();
-      
-      this.callbacks.onInterimTranscript?.(combinedText);
-    } else if (message.message_type === 'FinalTranscript' && message.text) {
-      // Final transcript
-      const segment: TranscriptionSegment = {
-        id: `segment-${++this.segmentCounter}`,
-        text: message.text,
-        timestamp: Date.now(),
-        isFinal: true,
-      };
-      
-      this.callbacks.onFinalTranscript?.(message.text, segment);
-      
-      // Clear interim texts
-      this.interimTexts = {};
-    }
-  }
-
-  /**
-   * Start audio capture from microphone
-   */
-  private async startAudioCapture(): Promise<void> {
-    try {
+      // Get microphone access and start recording
       const constraints: MediaStreamConstraints = {
-        audio: this.selectedMicId 
+        audio: this.selectedMicId
           ? { deviceId: { exact: this.selectedMicId } }
           : true,
       };
 
+      console.log('🎤 Requesting microphone access...');
       this.mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
-      
-      // Create AudioContext for processing
-      this.audioContext = new AudioContext({ sampleRate: 16000 });
-      const source = this.audioContext.createMediaStreamSource(this.mediaStream);
-      
-      // Create script processor for audio data
-      const processor = this.audioContext.createScriptProcessor(4096, 1, 1);
-      
-      processor.onaudioprocess = (e) => {
-        if (!this.socket || this.socket.readyState !== WebSocket.OPEN) return;
-        
-        const inputData = e.inputBuffer.getChannelData(0);
-        
-        // Convert float32 to int16
-        const pcmData = new Int16Array(inputData.length);
-        for (let i = 0; i < inputData.length; i++) {
-          const s = Math.max(-1, Math.min(1, inputData[i]));
-          pcmData[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
-        }
-        
-        // Send audio data
-        this.socket.send(pcmData.buffer);
-      };
-      
-      source.connect(processor);
-      processor.connect(this.audioContext.destination);
-      
-      console.log('🎤 Audio capture started');
+      console.log('✅ Microphone access granted');
+
+      // Initialize RecordRTC with the correct settings
+      this.recorder = new RecordRTC(this.mediaStream, {
+        type: 'audio',
+        mimeType: 'audio/webm;codecs=pcm',
+        recorderType: StereoAudioRecorder,
+        timeSlice: 250, // Send audio chunks every 250ms
+        desiredSampRate: 16000, // 16kHz sample rate required by AssemblyAI
+        numberOfAudioChannels: 1, // Mono
+        bufferSize: 4096,
+        audioBitsPerSecond: 128000,
+        ondataavailable: async (blob: Blob) => {
+          if (!this.realtimeTranscriber) return;
+          // Convert blob to ArrayBuffer and send to AssemblyAI
+          const buffer = await blob.arrayBuffer();
+          this.realtimeTranscriber.sendAudio(buffer);
+        },
+      });
+
+      this.recorder.startRecording();
+      console.log('🎙️ Recording started');
+
+      this._isRecording = true;
+      this.callbacks.onStatusChange?.('recording');
+      console.log('✅ AssemblyAI transcription started successfully');
     } catch (error) {
-      console.error('Error starting audio capture:', error);
+      console.error('Failed to start transcription:', error);
+      this._isRecording = false;
+      this.callbacks.onStatusChange?.('error');
+      this.callbacks.onError?.(error as Error);
+      // Clean up on error
+      await this.cleanup();
       throw error;
     }
   }
@@ -325,42 +309,41 @@ export class AssemblyAITranscriptionService implements ITranscriptionService {
     console.log('🛑 Stopping transcription...');
     this._isRecording = false;
 
-    // Stop media stream
+    // Stop and clean up recorder
+    if (this.recorder) {
+      console.log('🎤 Stopping recorder...');
+      this.recorder.stopRecording(() => {
+        console.log('✅ Recorder stopped');
+      });
+      this.recorder.destroy();
+      this.recorder = null;
+    }
+
+    // Stop all media stream tracks
     if (this.mediaStream) {
-      this.mediaStream.getTracks().forEach(track => {
+      this.mediaStream.getTracks().forEach((track: MediaStreamTrack) => {
+        console.log('🛑 Stopping track:', track.kind);
         track.stop();
       });
       this.mediaStream = null;
     }
 
-    // Close audio context
-    if (this.audioContext) {
-      await this.audioContext.close();
-      this.audioContext = null;
-    }
-
-    // Stop media recorder
-    if (this.mediaRecorder) {
-      if (this.mediaRecorder.state !== 'inactive') {
-        this.mediaRecorder.stop();
+    // Close WebSocket connection
+    if (this.realtimeTranscriber) {
+      console.log('🔌 Closing WebSocket...');
+      try {
+        await this.realtimeTranscriber.close();
+        console.log('✅ WebSocket closed');
+      } catch (error) {
+        console.error('Error closing WebSocket:', error);
       }
-      this.mediaRecorder = null;
-    }
-
-    // Close WebSocket
-    if (this.socket) {
-      // Send terminate message
-      if (this.socket.readyState === WebSocket.OPEN) {
-        this.socket.send(JSON.stringify({ terminate_session: true }));
-      }
-      this.socket.close();
-      this.socket = null;
+      this.realtimeTranscriber = null;
     }
 
     // Reset state
     this.interimTexts = {};
     this.callbacks.onStatusChange?.('idle');
-    console.log('✅ Transcription stopped');
+    console.log('✅ Transcription stopped successfully');
   }
 
   /**
@@ -379,7 +362,7 @@ export class AssemblyAITranscriptionService implements ITranscriptionService {
  * Create a transcription service instance based on the configured engine
  */
 export function createTranscriptionService(
-  settings: SmartVasisSettings,
+  settings: SmartVersesSettings,
   callbacks: TranscriptionCallbacks
 ): ITranscriptionService {
   switch (settings.transcriptionEngine) {
@@ -400,5 +383,3 @@ export function createTranscriptionService(
       );
   }
 }
-
-// Note: ITranscriptionService is already exported in its interface declaration

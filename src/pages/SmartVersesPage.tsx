@@ -1,5 +1,5 @@
 /**
- * SmartVasis Page
+ * SmartVerses Page
  * 
  * AI-powered Bible lookup page with:
  * - Left column: Bible search chatbox
@@ -12,35 +12,35 @@
  * - Go Live functionality to ProPresenter
  */
 
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { FaMicrophone, FaStop, FaPaperPlane, FaRobot, FaPlay, FaSearch, FaChevronDown, FaChevronUp, FaTrash } from "react-icons/fa";
+import { FaMicrophone, FaStop, FaPaperPlane, FaRobot, FaPlay, FaSearch, FaChevronDown, FaChevronUp, FaTrash, FaStopCircle } from "react-icons/fa";
 import {
-  SmartVasisSettings,
-  SmartVasisChatMessage,
+  SmartVersesSettings,
+  SmartVersesChatMessage,
   DetectedBibleReference,
   TranscriptionStatus,
   TranscriptionSegment,
-  DEFAULT_SMART_VASIS_SETTINGS,
-  SMART_VASIS_SETTINGS_KEY,
-  SMART_VASIS_CHAT_HISTORY_KEY,
-} from "../types/smartVasis";
+  DEFAULT_SMART_VERSES_SETTINGS,
+  SMART_VERSES_SETTINGS_KEY,
+  SMART_VERSES_CHAT_HISTORY_KEY,
+} from "../types/smartVerses";
 import { AppSettings } from "../types";
 import {
   detectAndLookupReferences,
   resetParseContext,
   getVerseNavigation,
   loadVerseByComponents,
-} from "../services/smartVasisBibleService";
+} from "../services/smartVersesBibleService";
 import {
   AssemblyAITranscriptionService,
-  loadSmartVasisSettings,
+  loadSmartVersesSettings,
 } from "../services/transcriptionService";
 import {
   analyzeTranscriptChunk,
   searchBibleWithAI,
   resolveParaphrasedVerses,
-} from "../services/smartVasisAIService";
+} from "../services/smartVersesAIService";
 import { searchBibleTextAsReferences } from "../services/bibleTextSearchService";
 import { triggerPresentationOnConnections } from "../services/propresenterService";
 import "../App.css";
@@ -62,9 +62,9 @@ function loadAppSettings(): AppSettings {
   return { theme: "dark" };
 }
 
-function loadChatHistory(): SmartVasisChatMessage[] {
+function loadChatHistory(): SmartVersesChatMessage[] {
   try {
-    const stored = localStorage.getItem(SMART_VASIS_CHAT_HISTORY_KEY);
+    const stored = localStorage.getItem(SMART_VERSES_CHAT_HISTORY_KEY);
     if (stored) {
       return JSON.parse(stored);
     }
@@ -74,11 +74,11 @@ function loadChatHistory(): SmartVasisChatMessage[] {
   return [];
 }
 
-function saveChatHistory(history: SmartVasisChatMessage[]): void {
+function saveChatHistory(history: SmartVersesChatMessage[]): void {
   try {
     // Keep only last 100 messages
     const trimmed = history.slice(-100);
-    localStorage.setItem(SMART_VASIS_CHAT_HISTORY_KEY, JSON.stringify(trimmed));
+    localStorage.setItem(SMART_VERSES_CHAT_HISTORY_KEY, JSON.stringify(trimmed));
   } catch (err) {
     console.error("Failed to save chat history:", err);
   }
@@ -88,13 +88,13 @@ function saveChatHistory(history: SmartVasisChatMessage[]): void {
 // MAIN COMPONENT
 // =============================================================================
 
-const SmartVasisPage: React.FC = () => {
+const SmartVersesPage: React.FC = () => {
   // Settings
-  const [settings, setSettings] = useState<SmartVasisSettings>(DEFAULT_SMART_VASIS_SETTINGS);
+  const [settings, setSettings] = useState<SmartVersesSettings>(DEFAULT_SMART_VERSES_SETTINGS);
   const [appSettings, setAppSettings] = useState<AppSettings>({ theme: "dark" });
 
   // Chat state
-  const [chatHistory, setChatHistory] = useState<SmartVasisChatMessage[]>([]);
+  const [chatHistory, setChatHistory] = useState<SmartVersesChatMessage[]>([]);
   const [inputValue, setInputValue] = useState("");
   const [isAISearchEnabled, setIsAISearchEnabled] = useState(true);
   const [isSearching, setIsSearching] = useState(false);
@@ -105,9 +105,22 @@ const SmartVasisPage: React.FC = () => {
   const [transcriptHistory, setTranscriptHistory] = useState<TranscriptionSegment[]>([]);
   const [detectedReferences, setDetectedReferences] = useState<DetectedBibleReference[]>([]);
   const transcriptionServiceRef = useRef<AssemblyAITranscriptionService | null>(null);
+  const detectedReferencesRef = useRef<DetectedBibleReference[]>([]);
+
+  // Compact detected references UI state
+  const [detectedPanelCollapsed, setDetectedPanelCollapsed] = useState(false);
+  const [expandedDetectedIds, setExpandedDetectedIds] = useState<Set<string>>(() => new Set());
+
+  // Transcript panel UX state
+  const transcriptScrollContainerRef = useRef<HTMLDivElement>(null);
+  const [autoScrollTranscript, setAutoScrollTranscript] = useState(true);
+  const [autoScrollPaused, setAutoScrollPaused] = useState(false);
+  const [expandedInlineRefIds, setExpandedInlineRefIds] = useState<Set<string>>(() => new Set());
 
   // Live state - tracks which reference is currently live (only one at a time)
   const [liveReferenceId, setLiveReferenceId] = useState<string | null>(null);
+  // Auto-clear timer (if enabled)
+  const autoClearTimeoutRef = useRef<number | null>(null);
 
   // UI refs
   const chatEndRef = useRef<HTMLDivElement>(null);
@@ -120,23 +133,23 @@ const SmartVasisPage: React.FC = () => {
 
   // Function to reload all settings
   const reloadSettings = useCallback(() => {
-    const smartVasisSettings = loadSmartVasisSettings();
+    const smartVersesSettings = loadSmartVersesSettings();
     const appSettingsData = loadAppSettings();
     
     // Debug: Log the actual settings
-    console.log("[SmartVasis] SmartVasis Settings:", JSON.stringify({
-      provider: smartVasisSettings.bibleSearchProvider,
-      model: smartVasisSettings.bibleSearchModel,
-      enableAISearch: smartVasisSettings.enableAISearch,
+    console.log("[SmartVerses] SmartVerses Settings:", JSON.stringify({
+      provider: smartVersesSettings.bibleSearchProvider,
+      model: smartVersesSettings.bibleSearchModel,
+      enableAISearch: smartVersesSettings.enableAISearch,
     }));
-    console.log("[SmartVasis] App Settings:", JSON.stringify({
+    console.log("[SmartVerses] App Settings:", JSON.stringify({
       defaultProvider: appSettingsData.defaultAIProvider,
       hasOpenAIKey: !!appSettingsData.openAIConfig?.apiKey,
       hasGeminiKey: !!appSettingsData.geminiConfig?.apiKey,
       hasGroqKey: !!appSettingsData.groqConfig?.apiKey,
     }));
     
-    setSettings(smartVasisSettings);
+    setSettings(smartVersesSettings);
     setAppSettings(appSettingsData);
   }, []);
 
@@ -147,14 +160,14 @@ const SmartVasisPage: React.FC = () => {
 
     // Listen for settings changes from other tabs
     const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === SMART_VASIS_SETTINGS_KEY || e.key === "proassist_app_settings") {
+      if (e.key === SMART_VERSES_SETTINGS_KEY || e.key === "proassist_app_settings") {
         reloadSettings();
       }
     };
     
     // Listen for custom settings changed event (from same tab)
     const handleSettingsChanged = () => {
-      console.log("[SmartVasis] Settings changed event received");
+      console.log("[SmartVerses] Settings changed event received");
       reloadSettings();
     };
     
@@ -172,13 +185,13 @@ const SmartVasisPage: React.FC = () => {
     
     window.addEventListener("storage", handleStorageChange);
     window.addEventListener("focus", handleFocus);
-    window.addEventListener("smartvasis-settings-changed", handleSettingsChanged);
+    window.addEventListener("smartverses-settings-changed", handleSettingsChanged);
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
       window.removeEventListener("storage", handleStorageChange);
       window.removeEventListener("focus", handleFocus);
-      window.removeEventListener("smartvasis-settings-changed", handleSettingsChanged);
+      window.removeEventListener("smartverses-settings-changed", handleSettingsChanged);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       // Cleanup transcription on unmount
       if (transcriptionServiceRef.current) {
@@ -187,6 +200,11 @@ const SmartVasisPage: React.FC = () => {
     };
   }, [reloadSettings]);
 
+  // Keep a ref to the latest detected references so we can de-dupe reliably inside async callbacks
+  useEffect(() => {
+    detectedReferencesRef.current = detectedReferences;
+  }, [detectedReferences]);
+
   // Scroll to bottom of chat
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -194,8 +212,10 @@ const SmartVasisPage: React.FC = () => {
 
   // Scroll to bottom of transcript
   useEffect(() => {
-    transcriptEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [transcriptHistory, interimTranscript]);
+    if (autoScrollTranscript && !autoScrollPaused) {
+      transcriptEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [transcriptHistory, interimTranscript, autoScrollTranscript, autoScrollPaused]);
 
   // Save chat history when it changes
   useEffect(() => {
@@ -209,7 +229,7 @@ const SmartVasisPage: React.FC = () => {
   const handleSearch = useCallback(async (query: string) => {
     if (!query.trim()) return;
 
-    const queryMessage: SmartVasisChatMessage = {
+    const queryMessage: SmartVersesChatMessage = {
       id: `query-${Date.now()}`,
       type: "query",
       content: query,
@@ -297,7 +317,7 @@ const SmartVasisPage: React.FC = () => {
           if (!isAISearchEnabled) {
             errorMsg += " Try enabling AI Search below for better results.";
           } else if (searchMethod === "text") {
-            errorMsg += " AI Search is enabled but not configured. Go to Settings → SmartVasis to configure your AI provider.";
+            errorMsg += " AI Search is enabled but not configured. Go to Settings → SmartVerses to configure your AI provider.";
           } else {
             errorMsg += " Try a different query or check the spelling.";
           }
@@ -348,36 +368,57 @@ const SmartVasisPage: React.FC = () => {
 
   const handleGoLive = useCallback(async (reference: DetectedBibleReference) => {
     console.log("Going live with:", reference);
+    console.log("Verse text:", reference.verseText);
+    console.log("Display ref:", reference.displayRef);
+    console.log("Settings:", {
+      outputPath: settings.bibleOutputPath,
+      textFileName: settings.bibleTextFileName,
+      refFileName: settings.bibleReferenceFileName,
+    });
 
     // Set this reference as live (clears any previous live reference)
     setLiveReferenceId(reference.id);
 
     try {
+      // Cancel any pending auto-clear from a previous live verse
+      if (autoClearTimeoutRef.current != null) {
+        window.clearTimeout(autoClearTimeoutRef.current);
+        autoClearTimeoutRef.current = null;
+      }
+
+      const basePath = settings.bibleOutputPath?.replace(/\/?$/, "/") || "";
+      
       // Write verse text to file
-      if (settings.bibleOutputPath && settings.bibleTextFileName) {
-        const textFilePath = `${settings.bibleOutputPath.replace(/\/?$/, "/")}${settings.bibleTextFileName}`;
+      if (basePath && settings.bibleTextFileName) {
+        const textFilePath = `${basePath}${settings.bibleTextFileName}`;
+        const verseText = reference.verseText || "";
+        console.log(`Writing verse text to: ${textFilePath}, Content: "${verseText}"`);
         await invoke("write_text_to_file", {
           filePath: textFilePath,
-          content: reference.verseText,
+          content: verseText,
         });
       }
 
       // Write reference to file
-      if (settings.bibleOutputPath && settings.bibleReferenceFileName) {
-        const refFilePath = `${settings.bibleOutputPath.replace(/\/?$/, "/")}${settings.bibleReferenceFileName}`;
+      if (basePath && settings.bibleReferenceFileName) {
+        const refFilePath = `${basePath}${settings.bibleReferenceFileName}`;
+        const displayRef = reference.displayRef || "";
+        console.log(`Writing reference to: ${refFilePath}, Content: "${displayRef}"`);
         await invoke("write_text_to_file", {
           filePath: refFilePath,
-          content: reference.displayRef,
+          content: displayRef,
         });
       }
 
       // Trigger ProPresenter if configured
       if (settings.proPresenterActivation) {
-        const { presentationUuid, slideIndex } = settings.proPresenterActivation;
+        const { presentationUuid, slideIndex, activationClicks } = settings.proPresenterActivation;
+        const clicks = activationClicks ?? 1;
+        console.log(`Triggering ProPresenter: ${presentationUuid}, slide ${slideIndex}, clicks: ${clicks}`);
         await triggerPresentationOnConnections(
           { presentationUuid, slideIndex },
           settings.proPresenterConnectionIds,
-          1,
+          clicks,
           100
         );
       }
@@ -390,29 +431,94 @@ const SmartVasisPage: React.FC = () => {
         timestamp: Date.now(),
       }]);
 
-      // Clear text after delay if configured
-      if (settings.clearTextAfterLive && settings.bibleOutputPath) {
-        setTimeout(async () => {
-          if (settings.bibleTextFileName) {
-            const textFilePath = `${settings.bibleOutputPath!.replace(/\/?$/, "/")}${settings.bibleTextFileName}`;
-            await invoke("write_text_to_file", {
-              filePath: textFilePath,
-              content: "",
-            });
+      // Auto-clear text AFTER a delay (do NOT clear immediately at 0ms; that causes blank files)
+      const clearDelay = settings.clearTextDelay ?? 0;
+      if (settings.clearTextAfterLive && basePath && clearDelay > 0) {
+        autoClearTimeoutRef.current = window.setTimeout(async () => {
+          try {
+            if (settings.bibleTextFileName) {
+              const textFilePath = `${basePath}${settings.bibleTextFileName}`;
+              await invoke("write_text_to_file", { filePath: textFilePath, content: "" });
+            }
+            if (settings.bibleReferenceFileName) {
+              const refFilePath = `${basePath}${settings.bibleReferenceFileName}`;
+              await invoke("write_text_to_file", { filePath: refFilePath, content: "" });
+            }
+            setLiveReferenceId(null);
+          } catch (e) {
+            console.error("Failed to auto-clear SmartVerses files:", e);
+          } finally {
+            autoClearTimeoutRef.current = null;
           }
-          if (settings.bibleReferenceFileName) {
-            const refFilePath = `${settings.bibleOutputPath!.replace(/\/?$/, "/")}${settings.bibleReferenceFileName}`;
-            await invoke("write_text_to_file", {
-              filePath: refFilePath,
-              content: "",
-            });
-          }
-          // Clear live state when text is cleared
-          setLiveReferenceId(null);
-        }, settings.clearTextDelay || 0);
+        }, clearDelay);
       }
     } catch (error) {
       console.error("Error going live:", error);
+    }
+  }, [settings]);
+
+  // Handle taking a verse off live
+  const handleOffLive = useCallback(async () => {
+    console.log("Taking off live");
+
+    try {
+      // Cancel any pending auto-clear
+      if (autoClearTimeoutRef.current != null) {
+        window.clearTimeout(autoClearTimeoutRef.current);
+        autoClearTimeoutRef.current = null;
+      }
+
+      const basePath = settings.bibleOutputPath?.replace(/\/?$/, "/") || "";
+      
+      // Clear text files if configured
+      if (settings.proPresenterActivation?.clearTextFileOnTakeOff !== false) {
+        if (basePath && settings.bibleTextFileName) {
+          const textFilePath = `${basePath}${settings.bibleTextFileName}`;
+          console.log(`Clearing verse text file: ${textFilePath}`);
+          await invoke("write_text_to_file", {
+            filePath: textFilePath,
+            content: "",
+          });
+        }
+
+        if (basePath && settings.bibleReferenceFileName) {
+          const refFilePath = `${basePath}${settings.bibleReferenceFileName}`;
+          console.log(`Clearing reference file: ${refFilePath}`);
+          await invoke("write_text_to_file", {
+            filePath: refFilePath,
+            content: "",
+          });
+        }
+      }
+
+      // Trigger ProPresenter take off if configured
+      if (settings.proPresenterActivation) {
+        const { presentationUuid, slideIndex, takeOffClicks } = settings.proPresenterActivation;
+        const clicks = takeOffClicks ?? 0;
+        
+        if (clicks > 0) {
+          console.log(`Triggering ProPresenter take off: ${presentationUuid}, slide ${slideIndex}, clicks: ${clicks}`);
+          await triggerPresentationOnConnections(
+            { presentationUuid, slideIndex },
+            settings.proPresenterConnectionIds,
+            clicks,
+            100
+          );
+        }
+      }
+
+      // Clear live state
+      setLiveReferenceId(null);
+
+      // Add system message
+      setChatHistory(prev => [...prev, {
+        id: `offlive-${Date.now()}`,
+        type: "system",
+        content: `⬛ Cleared live verse`,
+        timestamp: Date.now(),
+      }]);
+    } catch (error) {
+      console.error("Error taking off live:", error);
     }
   }, [settings]);
 
@@ -422,7 +528,7 @@ const SmartVasisPage: React.FC = () => {
 
   const handleStartTranscription = useCallback(async () => {
     if (!settings.assemblyAIApiKey) {
-      alert("Please configure your AssemblyAI API key in Settings > SmartVasis");
+      alert("Please configure your AssemblyAI API key in Settings > SmartVerses");
       return;
     }
 
@@ -462,6 +568,7 @@ const SmartVasisPage: React.FC = () => {
               }
             } else if (settings.enableParaphraseDetection) {
               // Try AI paraphrase detection
+              console.log("[SmartVerses][Paraphrase] No direct refs found; invoking AI analysis...");
               const analysis = await analyzeTranscriptChunk(
                 text,
                 appSettings,
@@ -469,19 +576,55 @@ const SmartVasisPage: React.FC = () => {
                 settings.enableKeyPointExtraction
               );
 
+              console.log(
+                "[SmartVerses][Paraphrase] AI analysis returned:",
+                analysis.paraphrasedVerses.length,
+                "paraphrased verse(s)"
+              );
+
               if (analysis.paraphrasedVerses.length > 0) {
                 const resolvedRefs = await resolveParaphrasedVerses(analysis.paraphrasedVerses);
                 if (resolvedRefs.length > 0) {
-                  setDetectedReferences(prev => [...prev, ...resolvedRefs]);
+                  console.log("[SmartVerses][Paraphrase] Resolved refs:", resolvedRefs.map(r => r.displayRef));
+                  // Attach paraphrase-detected refs to the same transcript segment so the UI can
+                  // display them inline under that segment (same behavior as direct refs).
+                  const resolvedWithTranscript = resolvedRefs.map((r) => ({
+                    ...r,
+                    transcriptText: text,
+                  }));
+
+                  // De-dupe: if the last few detected references already include this same verse,
+                  // don't show it again as a paraphrase (common when someone says the ref, then reads it).
+                  const recent = detectedReferencesRef.current.slice(-5);
+                  const recentKeys = new Set(
+                    recent.map((r) => (r.displayRef || "").trim().toLowerCase())
+                  );
+                  const deduped = resolvedWithTranscript.filter(
+                    (r) => !recentKeys.has((r.displayRef || "").trim().toLowerCase())
+                  );
+
+                  if (deduped.length !== resolvedWithTranscript.length) {
+                    console.log(
+                      "[SmartVerses][Paraphrase] De-duped paraphrase refs:",
+                      resolvedWithTranscript.length - deduped.length,
+                      "filtered out"
+                    );
+                  }
+
+                  if (deduped.length > 0) {
+                    setDetectedReferences(prev => [...prev, ...deduped]);
+                  }
                   
                   if (settings.autoAddDetectedToHistory) {
-                    setChatHistory(prev => [...prev, {
-                      id: `paraphrase-${Date.now()}`,
-                      type: "result",
-                      content: `Paraphrase detected (${Math.round((resolvedRefs[0].confidence || 0) * 100)}% confidence)`,
-                      timestamp: Date.now(),
-                      references: resolvedRefs,
-                    }]);
+                    if (deduped.length > 0) {
+                      setChatHistory(prev => [...prev, {
+                        id: `paraphrase-${Date.now()}`,
+                        type: "result",
+                        content: `Paraphrase detected (${Math.round((deduped[0].confidence || 0) * 100)}% confidence)`,
+                        timestamp: Date.now(),
+                        references: deduped,
+                      }]);
+                    }
                   }
                 }
               }
@@ -527,6 +670,80 @@ const SmartVasisPage: React.FC = () => {
     setDetectedReferences([]);
     setInterimTranscript("");
   };
+
+  const toggleDetectedExpanded = useCallback((id: string) => {
+    setExpandedDetectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const toggleInlineExpanded = useCallback((id: string) => {
+    setExpandedInlineRefIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const handleTranscriptScroll = useCallback(() => {
+    const el = transcriptScrollContainerRef.current;
+    if (!el) return;
+
+    const { scrollTop, scrollHeight, clientHeight } = el;
+    const distanceFromBottom = scrollHeight - (scrollTop + clientHeight);
+    const atBottom = distanceFromBottom < 60;
+
+    // If the user scrolls up, pause auto-scroll (but keep the checkbox enabled).
+    if (!atBottom && autoScrollTranscript) {
+      setAutoScrollPaused(true);
+      return;
+    }
+
+    // If the user scrolls back to the bottom, resume.
+    if (atBottom && autoScrollPaused) {
+      setAutoScrollPaused(false);
+    }
+  }, [autoScrollTranscript, autoScrollPaused]);
+
+  const setAutoScrollFromCheckbox = useCallback((enabled: boolean) => {
+    setAutoScrollTranscript(enabled);
+    setAutoScrollPaused(false);
+    if (enabled) {
+      // Jump to bottom immediately when re-enabled
+      requestAnimationFrame(() => {
+        transcriptEndRef.current?.scrollIntoView({ behavior: "smooth" });
+      });
+    }
+  }, []);
+
+  // Smart resume: if auto-scroll is enabled but paused because the user scrolled up,
+  // resume when they click outside the transcript area.
+  useEffect(() => {
+    const onMouseDown = (e: MouseEvent) => {
+      if (!autoScrollTranscript || !autoScrollPaused) return;
+      const el = transcriptScrollContainerRef.current;
+      if (!el) return;
+      const target = e.target as Node | null;
+      if (target && el.contains(target)) return;
+
+      setAutoScrollPaused(false);
+      requestAnimationFrame(() => {
+        transcriptEndRef.current?.scrollIntoView({ behavior: "smooth" });
+      });
+    };
+
+    document.addEventListener("mousedown", onMouseDown);
+    return () => document.removeEventListener("mousedown", onMouseDown);
+  }, [autoScrollTranscript, autoScrollPaused]);
+
+  const recentDetectedReferences = useMemo(() => {
+    // Show most recent first
+    return detectedReferences.slice(-10).reverse();
+  }, [detectedReferences]);
 
   // =============================================================================
   // VERSE NAVIGATION STATE
@@ -685,41 +902,64 @@ const SmartVasisPage: React.FC = () => {
             )}
           </div>
           {showGoLive && (
-            <button
-              onClick={() => !isLive && handleGoLive(ref)}
-              className={isLive ? "" : "primary"}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "4px",
-                padding: "6px 12px",
-                borderRadius: "6px",
-                fontSize: "0.85rem",
-                fontWeight: 600,
-                cursor: isLive ? "default" : "pointer",
-                backgroundColor: isLive ? "#22c55e" : undefined,
-                color: isLive ? "white" : undefined,
-                border: isLive ? "none" : undefined,
-              }}
-            >
-              {isLive ? (
-                <>
-                  <span style={{
-                    width: "8px",
-                    height: "8px",
-                    borderRadius: "50%",
-                    backgroundColor: "white",
-                    animation: "pulse 1.5s ease-in-out infinite",
-                  }} />
-                  Live
-                </>
-              ) : (
-                <>
-                  <FaPlay size={10} />
-                  Go Live
-                </>
+            <div style={{ display: "flex", gap: "var(--spacing-2)" }}>
+              <button
+                onClick={() => !isLive && handleGoLive(ref)}
+                className={isLive ? "" : "primary"}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "4px",
+                  padding: "6px 12px",
+                  borderRadius: "6px",
+                  fontSize: "0.85rem",
+                  fontWeight: 600,
+                  cursor: isLive ? "default" : "pointer",
+                  backgroundColor: isLive ? "#22c55e" : undefined,
+                  color: isLive ? "white" : undefined,
+                  border: isLive ? "none" : undefined,
+                }}
+              >
+                {isLive ? (
+                  <>
+                    <span style={{
+                      width: "8px",
+                      height: "8px",
+                      borderRadius: "50%",
+                      backgroundColor: "white",
+                      animation: "pulse 1.5s ease-in-out infinite",
+                    }} />
+                    Live
+                  </>
+                ) : (
+                  <>
+                    <FaPlay size={10} />
+                    Go Live
+                  </>
+                )}
+              </button>
+              {isLive && (
+                <button
+                  onClick={handleOffLive}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "4px",
+                    padding: "6px 12px",
+                    borderRadius: "6px",
+                    fontSize: "0.85rem",
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    backgroundColor: "#ef4444",
+                    color: "white",
+                    border: "none",
+                  }}
+                >
+                  <FaStopCircle size={10} />
+                  Off Live
+                </button>
               )}
-            </button>
+            </div>
           )}
         </div>
         <p style={{
@@ -739,6 +979,154 @@ const SmartVasisPage: React.FC = () => {
           }}>
             Matched: "{ref.matchedPhrase}"
           </p>
+        )}
+      </div>
+    );
+  };
+
+  const renderDetectedReferenceRow = (ref: DetectedBibleReference) => {
+    const isExpanded = expandedDetectedIds.has(ref.id);
+    const isParaphrase = ref.source === "paraphrase";
+    const borderColor = isParaphrase ? settings.paraphraseReferenceColor : settings.directReferenceColor;
+    const isLive = liveReferenceId === ref.id;
+
+    return (
+      <div
+        key={ref.id}
+        style={{
+          border: `1px solid ${isExpanded ? borderColor : "var(--app-border-color)"}`,
+          borderRadius: "10px",
+          backgroundColor: "var(--app-header-bg)",
+          overflow: "hidden",
+          marginBottom: "var(--spacing-2)",
+        }}
+      >
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => toggleDetectedExpanded(ref.id)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") toggleDetectedExpanded(ref.id);
+          }}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: "var(--spacing-2)",
+            padding: "10px 12px",
+            cursor: "pointer",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: "10px", minWidth: 0 }}>
+            <span style={{ color: "var(--app-text-color-secondary)", flex: "0 0 auto" }}>
+              {isExpanded ? <FaChevronUp size={12} /> : <FaChevronDown size={12} />}
+            </span>
+            <span
+              style={{
+                fontWeight: 700,
+                color: isLive ? "#22c55e" : borderColor,
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+              }}
+              title={ref.displayRef}
+            >
+              {ref.displayRef}
+            </span>
+            {isParaphrase && ref.confidence != null && (
+              <span
+                style={{
+                  fontSize: "0.75rem",
+                  padding: "2px 6px",
+                  borderRadius: "999px",
+                  backgroundColor: "rgba(59, 130, 246, 0.15)",
+                  color: settings.paraphraseReferenceColor,
+                  flex: "0 0 auto",
+                }}
+              >
+                {Math.round(ref.confidence * 100)}%
+              </span>
+            )}
+          </div>
+
+          <div style={{ display: "flex", gap: "6px", flex: "0 0 auto" }}>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                if (!isLive) handleGoLive(ref);
+              }}
+              className={isLive ? "" : "primary"}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "6px",
+                padding: "6px 12px",
+                borderRadius: "8px",
+                fontSize: "0.85rem",
+                fontWeight: 700,
+                cursor: isLive ? "default" : "pointer",
+                backgroundColor: isLive ? "#22c55e" : undefined,
+                color: isLive ? "white" : undefined,
+                border: isLive ? "none" : undefined,
+              }}
+            >
+              <FaPlay size={10} />
+              Go Live
+            </button>
+            {isLive && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleOffLive();
+                }}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  padding: "6px 12px",
+                  borderRadius: "8px",
+                  fontSize: "0.85rem",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  backgroundColor: "#ef4444",
+                  color: "white",
+                  border: "none",
+                }}
+              >
+                <FaStopCircle size={10} />
+                Off
+              </button>
+            )}
+          </div>
+        </div>
+
+        {isExpanded && (
+          <div style={{ padding: "0 12px 12px 34px" }}>
+            <div
+              style={{
+                padding: "10px 12px",
+                borderRadius: "8px",
+                backgroundColor: "var(--app-bg-color)",
+                border: "1px solid var(--app-border-color)",
+              }}
+            >
+              <p style={{ margin: 0, fontSize: "0.9rem", lineHeight: 1.5 }}>
+                {ref.verseText}
+              </p>
+              {isParaphrase && ref.matchedPhrase && (
+                <p
+                  style={{
+                    margin: "8px 0 0",
+                    fontSize: "0.8rem",
+                    fontStyle: "italic",
+                    color: "var(--app-text-color-secondary)",
+                  }}
+                >
+                  Matched: "{ref.matchedPhrase}"
+                </p>
+              )}
+            </div>
+          </div>
         )}
       </div>
     );
@@ -888,14 +1276,37 @@ const SmartVasisPage: React.FC = () => {
             <FaSearch />
             Bible Search
           </h3>
-          <button
-            onClick={handleClearHistory}
-            className="icon-button"
-            title="Clear history"
-            style={{ padding: "6px" }}
-          >
-            <FaTrash size={12} />
-          </button>
+          <div style={{ display: "flex", alignItems: "center", gap: "var(--spacing-2)" }}>
+            {liveReferenceId && (
+              <button
+                onClick={handleOffLive}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "4px",
+                  padding: "6px 12px",
+                  borderRadius: "6px",
+                  fontSize: "0.8rem",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  backgroundColor: "#ef4444",
+                  color: "white",
+                  border: "none",
+                }}
+              >
+                <FaStopCircle size={10} />
+                Off Live
+              </button>
+            )}
+            <button
+              onClick={handleClearHistory}
+              className="icon-button"
+              title="Clear history"
+              style={{ padding: "6px" }}
+            >
+              <FaTrash size={12} />
+            </button>
+          </div>
         </div>
 
         {/* Chat Messages */}
@@ -1097,7 +1508,7 @@ const SmartVasisPage: React.FC = () => {
                     fontSize: "0.75rem",
                     color: "var(--warning)",
                   }}>
-                    ⚠ Select provider in Settings → SmartVasis
+                    ⚠ Select provider in Settings → SmartVerses
                   </span>
                 );
               }
@@ -1139,6 +1550,28 @@ const SmartVasisPage: React.FC = () => {
             )}
           </h3>
           <div style={{ display: "flex", alignItems: "center", gap: "var(--spacing-2)" }}>
+            <label
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "6px",
+                fontSize: "0.85rem",
+                color: "var(--app-text-color-secondary)",
+                userSelect: "none",
+                marginRight: "6px",
+              }}
+              title="When enabled, the transcript will stay scrolled to the latest line. Scrolling up pauses it."
+            >
+              <input
+                type="checkbox"
+                checked={autoScrollTranscript}
+                onChange={(e) => setAutoScrollFromCheckbox(e.target.checked)}
+              />
+              Auto-scroll
+              {autoScrollTranscript && autoScrollPaused && (
+                <span style={{ color: "var(--warning)", fontWeight: 700 }}>(paused)</span>
+              )}
+            </label>
             {transcriptionStatus === "idle" ? (
               <button
                 onClick={handleStartTranscription}
@@ -1187,11 +1620,15 @@ const SmartVasisPage: React.FC = () => {
         </div>
 
         {/* Transcript Display */}
-        <div style={{
+        <div
+          ref={transcriptScrollContainerRef}
+          onScroll={handleTranscriptScroll}
+          style={{
           flex: 1,
           overflowY: "auto",
           padding: "var(--spacing-4)",
-        }}>
+        }}
+        >
           {transcriptHistory.length === 0 && !interimTranscript ? (
             <div style={{
               textAlign: "center",
@@ -1224,7 +1661,144 @@ const SmartVasisPage: React.FC = () => {
                     </p>
                     {segmentRefs.length > 0 && (
                       <div style={{ marginTop: "var(--spacing-2)" }}>
-                        {segmentRefs.map(ref => renderVerseCard(ref))}
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+                          {segmentRefs.map((ref) => {
+                            const isParaphrase = ref.source === "paraphrase";
+                            const borderColor = isParaphrase
+                              ? settings.paraphraseReferenceColor
+                              : settings.directReferenceColor;
+                            const isLive = liveReferenceId === ref.id;
+                            const isExpanded = expandedInlineRefIds.has(ref.id);
+
+                            return (
+                              <button
+                                key={ref.id}
+                                onClick={() => !isLive && handleGoLive(ref)}
+                                title={ref.verseText}
+                                style={{
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: "8px",
+                                  padding: "6px 10px",
+                                  borderRadius: "999px",
+                                  border: `1px solid ${isLive ? "#22c55e" : borderColor}`,
+                                  backgroundColor: "transparent",
+                                  color: isLive ? "#22c55e" : borderColor,
+                                  cursor: isLive ? "default" : "pointer",
+                                  fontWeight: 700,
+                                  fontSize: "0.8rem",
+                                }}
+                              >
+                                <FaPlay size={10} />
+                                <span>{ref.displayRef}</span>
+                                {isParaphrase && ref.confidence != null && (
+                                  <span
+                                    style={{
+                                      fontSize: "0.75rem",
+                                      padding: "2px 6px",
+                                      borderRadius: "999px",
+                                      backgroundColor: "rgba(59, 130, 246, 0.15)",
+                                      color: settings.paraphraseReferenceColor,
+                                    }}
+                                  >
+                                    {Math.round(ref.confidence * 100)}%
+                                  </span>
+                                )}
+                                <span
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    toggleInlineExpanded(ref.id);
+                                  }}
+                                  title={isExpanded ? "Collapse verse text" : "Expand verse text"}
+                                  style={{
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    width: "18px",
+                                    height: "18px",
+                                    borderRadius: "999px",
+                                    border: `1px solid ${borderColor}`,
+                                    cursor: "pointer",
+                                  }}
+                                >
+                                  {isExpanded ? <FaChevronUp size={10} /> : <FaChevronDown size={10} />}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+
+                        {/* Expanded verse text blocks */}
+                        {segmentRefs.some((r) => expandedInlineRefIds.has(r.id)) && (
+                          <div style={{ marginTop: "10px", display: "grid", gap: "8px" }}>
+                            {segmentRefs
+                              .filter((r) => expandedInlineRefIds.has(r.id))
+                              .map((ref) => {
+                                const isParaphrase = ref.source === "paraphrase";
+                                const borderColor = isParaphrase
+                                  ? settings.paraphraseReferenceColor
+                                  : settings.directReferenceColor;
+                                return (
+                                  <div
+                                    key={`expanded-${ref.id}`}
+                                    style={{
+                                      padding: "10px 12px",
+                                      borderRadius: "10px",
+                                      border: `1px solid ${borderColor}`,
+                                      backgroundColor: "var(--app-header-bg)",
+                                    }}
+                                  >
+                                    <div
+                                      style={{
+                                        display: "flex",
+                                        alignItems: "center",
+                                        justifyContent: "space-between",
+                                        gap: "10px",
+                                        marginBottom: "6px",
+                                      }}
+                                    >
+                                      <div style={{ fontWeight: 800, color: borderColor }}>
+                                        {ref.displayRef}
+                                      </div>
+                                      <button
+                                        onClick={() => handleGoLive(ref)}
+                                        className="primary"
+                                        style={{
+                                          display: "flex",
+                                          alignItems: "center",
+                                          gap: "6px",
+                                          padding: "6px 10px",
+                                          borderRadius: "8px",
+                                          fontSize: "0.8rem",
+                                          fontWeight: 800,
+                                        }}
+                                      >
+                                        <FaPlay size={10} />
+                                        Go Live
+                                      </button>
+                                    </div>
+
+                                    <p style={{ margin: 0, lineHeight: 1.5 }}>
+                                      {ref.verseText}
+                                    </p>
+
+                                    {isParaphrase && ref.matchedPhrase && (
+                                      <p
+                                        style={{
+                                          margin: "8px 0 0",
+                                          fontSize: "0.8rem",
+                                          fontStyle: "italic",
+                                          color: "var(--app-text-color-secondary)",
+                                        }}
+                                      >
+                                        Matched: "{ref.matchedPhrase}"
+                                      </p>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -1247,28 +1821,47 @@ const SmartVasisPage: React.FC = () => {
           )}
         </div>
 
-        {/* Detected References Panel */}
+        {/* Detected References Panel (compact + expandable rows) */}
         {detectedReferences.length > 0 && (
-          <div style={{
-            borderTop: "1px solid var(--app-border-color)",
-            maxHeight: "300px",
-            overflowY: "auto",
-          }}>
-            <div style={{
-              padding: "var(--spacing-2) var(--spacing-4)",
-              backgroundColor: "var(--app-header-bg)",
-              fontSize: "0.85rem",
-              fontWeight: 600,
-              display: "flex",
-              alignItems: "center",
-              gap: "var(--spacing-2)",
-            }}>
-              <FaChevronDown size={12} />
-              Detected References ({detectedReferences.length})
+          <div
+            style={{
+              borderTop: "1px solid var(--app-border-color)",
+              maxHeight: detectedPanelCollapsed ? "52px" : "320px",
+              overflowY: detectedPanelCollapsed ? "hidden" : "auto",
+            }}
+          >
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => setDetectedPanelCollapsed((v) => !v)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") setDetectedPanelCollapsed((v) => !v);
+              }}
+              style={{
+                padding: "var(--spacing-2) var(--spacing-4)",
+                backgroundColor: "var(--app-header-bg)",
+                fontSize: "0.85rem",
+                fontWeight: 700,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                cursor: "pointer",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: "var(--spacing-2)" }}>
+                {detectedPanelCollapsed ? <FaChevronUp size={12} /> : <FaChevronDown size={12} />}
+                <span>Detected References ({detectedReferences.length})</span>
+              </div>
+              <span style={{ color: "var(--app-text-color-secondary)", fontWeight: 500 }}>
+                {detectedPanelCollapsed ? "Expand" : "Collapse"}
+              </span>
             </div>
-            <div style={{ padding: "var(--spacing-3) var(--spacing-4)" }}>
-              {detectedReferences.slice(-5).reverse().map((ref) => renderVerseCard(ref))}
-            </div>
+
+            {!detectedPanelCollapsed && (
+              <div style={{ padding: "var(--spacing-3) var(--spacing-4)" }}>
+                {recentDetectedReferences.map((ref) => renderDetectedReferenceRow(ref))}
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -1284,4 +1877,4 @@ const SmartVasisPage: React.FC = () => {
   );
 };
 
-export default SmartVasisPage;
+export default SmartVersesPage;

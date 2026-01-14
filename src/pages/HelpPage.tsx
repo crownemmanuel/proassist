@@ -73,7 +73,7 @@ const HelpPage: React.FC = () => {
     { id: "troubleshooting", title: "Troubleshooting", icon: <FaExclamationTriangle />, keywords: ["troubleshoot", "problem", "error", "fix", "issue", "help"] },
     { id: "liveslides", title: "Live Slides", icon: <FaGlobe />, keywords: ["live", "slides", "websocket", "collaboration", "notepad", "real-time", "browser"] },
     { id: "timer", title: "Stage Assist - Timer", icon: <FaClock />, keywords: ["timer", "schedule", "countdown", "stage", "assist", "automation"] },
-    { id: "smartvasis", title: "SmartVasis", icon: <FaBible />, keywords: ["smartvasis", "bible", "search", "transcription", "verse", "assemblyai"] },
+    { id: "smartverses", title: "SmartVerses", icon: <FaBible />, keywords: ["smartverses", "bible", "search", "transcription", "verse", "assemblyai"] },
     { id: "testimonies", title: "Live Testimonies", icon: <FaMicrophone />, keywords: ["testimonies", "firebase", "live", "testimony"] },
     { id: "network", title: "Network Sync", icon: <FaNetworkWired />, keywords: ["network", "sync", "master", "slave", "peer", "synchronize"] },
     { id: "aiassistant", title: "Global AI Assistant", icon: <FaRobot />, keywords: ["ai", "assistant", "chat", "global", "help"] },
@@ -237,7 +237,7 @@ const HelpPage: React.FC = () => {
 
       {/* Main Content */}
       <div style={{ flex: 1, overflowY: "auto", padding: "30px 40px" }}>
-        <div style={{ position: "sticky", top: 0, zIndex: 10, backgroundColor: "var(--app-header-bg)", padding: "20px", borderBottom: "1px solid var(--app-border-color)", marginBottom: "20px" }}>
+        <div style={{ backgroundColor: "var(--app-header-bg)", padding: "20px", borderBottom: "1px solid var(--app-border-color)", marginBottom: "20px" }}>
           <h1 style={{ margin: "0 0 20px 0", fontSize: "2rem", fontWeight: 700 }}>
             {highlightText("Help & Setup Guide", searchQuery)}
           </h1>
@@ -360,12 +360,13 @@ const HelpPage: React.FC = () => {
           </p>
           <ol style={{ paddingLeft: "24px" }}>
             <li>
-              Go to <strong>Settings</strong> → <strong>Live Slides</strong> (under Templates section) to configure:
+              Go to <strong>Settings</strong> → <strong>Live Slides</strong> to configure:
               <ul style={{ marginTop: "8px", paddingLeft: "24px" }}>
                 <li><strong>Output Path</strong>: Where slide files are written</li>
                 <li><strong>File Name Prefix</strong>: Base name for output files</li>
                 <li><strong>Server Port</strong>: Port for the WebSocket server (default: 9876)</li>
                 <li><strong>Auto-start Server</strong>: Automatically start server when app launches</li>
+                <li><strong>ProPresenter Activation</strong>: Trigger slides when Live Slides go live or take off</li>
               </ul>
             </li>
             <li>
@@ -440,13 +441,13 @@ const HelpPage: React.FC = () => {
           </InfoBox>
         </Section>
 
-        <Section id="smartvasis" title="SmartVasis - Bible Search & Transcription" icon={<FaBible />} searchQuery={searchQuery} ref={(el) => (sectionRefs.current["smartvasis"] = el)}>
+        <Section id="smartverses" title="SmartVerses - Bible Search & Transcription" icon={<FaBible />} searchQuery={searchQuery} ref={(el) => (sectionRefs.current["smartverses"] = el)}>
           <p>
-            SmartVasis provides AI-powered Bible search and live transcription with automatic verse detection.
+            SmartVerses provides AI-powered Bible search and live transcription with automatic verse detection.
           </p>
           <ol style={{ paddingLeft: "24px" }}>
             <li>
-              Navigate to <strong>SmartVasis</strong> in the main navigation
+              Navigate to <strong>SmartVerses</strong> in the main navigation
             </li>
             <li>
               <strong>Bible Search (Left Panel):</strong>
@@ -469,7 +470,7 @@ const HelpPage: React.FC = () => {
               </ul>
             </li>
             <li>
-              <strong>Configuration (Settings → SmartVasis):</strong>
+              <strong>Configuration (Settings → SmartVerses):</strong>
               <ul style={{ marginTop: "8px", paddingLeft: "24px" }}>
                 <li><strong>AssemblyAI API Key</strong>: Required for live transcription</li>
                 <li><strong>Bible Search Provider</strong>: Choose OpenAI, Gemini, or Groq for AI search</li>
@@ -672,7 +673,7 @@ const HelpPage: React.FC = () => {
               <ul style={{ marginTop: "8px", paddingLeft: "24px" }}>
                 <li>Bible verses can be automatically formatted</li>
                 <li>Configure custom file mapping for verse text and reference</li>
-                <li>Available in templates and SmartVasis</li>
+                <li>Available in templates and SmartVerses</li>
               </ul>
             </li>
           </ol>
