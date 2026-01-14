@@ -19,6 +19,7 @@ import {
   SmartAutomationRule,
   ProPresenterStageScreen,
   ProPresenterStageLayout,
+  ProPresenterConnection,
 } from "../types/propresenter";
 import {
   loadSmartAutomations,
@@ -76,6 +77,13 @@ const ScheduleAutomationModal: React.FC<ScheduleAutomationModalProps> = ({
     null
   );
 
+  // ProPresenter connection selection
+  const [enabledConnections, setEnabledConnections] = useState<ProPresenterConnection[]>([]);
+  const [selectedConnectionId, setSelectedConnectionId] = useState<string>("");
+
+  // Track if modal was just opened to prevent re-initialization
+  const [hasInitialized, setHasInitialized] = useState(false);
+
   // Load smart rules and check for matches
   useEffect(() => {
     const rules = loadSmartAutomations();
@@ -107,9 +115,21 @@ const ScheduleAutomationModal: React.FC<ScheduleAutomationModalProps> = ({
     }
   }, [automationType, isOpen]);
 
-  // Reset state when modal opens
+  // Load enabled connections when modal opens
   useEffect(() => {
     if (isOpen) {
+      const connections = getEnabledConnections();
+      setEnabledConnections(connections);
+      // Auto-select first connection if available
+      if (connections.length > 0 && !selectedConnectionId) {
+        setSelectedConnectionId(connections[0].id);
+      }
+    }
+  }, [isOpen]);
+
+  // Reset state when modal opens - only on initial open, not on every currentAutomations change
+  useEffect(() => {
+    if (isOpen && !hasInitialized) {
       const initialAutomations = currentAutomations || [];
       setSavedAutomations(initialAutomations);
 
@@ -144,15 +164,19 @@ const ScheduleAutomationModal: React.FC<ScheduleAutomationModalProps> = ({
       setSuccess(false);
       setError(null);
       setSaveAsSmartRule(false);
+      setHasInitialized(true);
+    } else if (!isOpen) {
+      // Reset initialization flag when modal closes
+      setHasInitialized(false);
     }
-  }, [currentAutomations, isOpen]);
+  }, [isOpen, hasInitialized, currentAutomations]);
 
   const loadStageData = async () => {
     setIsLoadingStageData(true);
     setError(null);
 
-    const enabledConnections = getEnabledConnections();
-    if (enabledConnections.length === 0) {
+    const connections = enabledConnections.length > 0 ? enabledConnections : getEnabledConnections();
+    if (connections.length === 0) {
       setError(
         "No enabled ProPresenter connections found. Please enable at least one connection in Settings."
       );
@@ -160,31 +184,27 @@ const ScheduleAutomationModal: React.FC<ScheduleAutomationModalProps> = ({
       return;
     }
 
-    // Try each enabled connection until one succeeds
-    let lastError: string | null = null;
-    for (const connection of enabledConnections) {
-      try {
-        const [screens, layouts] = await Promise.all([
-          getStageScreens(connection),
-          getStageLayouts(connection),
-        ]);
+    // Use the selected connection
+    const connection = connections.find(c => c.id === selectedConnectionId) || connections[0];
 
-        if (screens.length > 0 && layouts.length > 0) {
-          setStageScreens(screens);
-          setStageLayouts(layouts);
-          setIsLoadingStageData(false);
-          return;
-        }
-      } catch (err) {
-        lastError =
-          err instanceof Error ? err.message : "Failed to load stage data";
+    try {
+      const [screens, layouts] = await Promise.all([
+        getStageScreens(connection),
+        getStageLayouts(connection),
+      ]);
+
+      if (screens.length > 0 && layouts.length > 0) {
+        setStageScreens(screens);
+        setStageLayouts(layouts);
+        setIsLoadingStageData(false);
+        return;
+      } else {
+        setError("No stage screens or layouts found in ProPresenter.");
       }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load stage data");
     }
 
-    setError(
-      lastError ||
-        "Failed to load stage screens and layouts from any ProPresenter connection. Make sure ProPresenter is running."
-    );
     setIsLoadingStageData(false);
   };
 
@@ -193,7 +213,6 @@ const ScheduleAutomationModal: React.FC<ScheduleAutomationModalProps> = ({
     setError(null);
     setSuccess(false);
 
-    const enabledConnections = getEnabledConnections();
     if (enabledConnections.length === 0) {
       setError(
         "No enabled ProPresenter connections found. Please enable at least one connection in Settings."
@@ -202,40 +221,36 @@ const ScheduleAutomationModal: React.FC<ScheduleAutomationModalProps> = ({
       return;
     }
 
-    // Try each enabled connection until one succeeds
-    let lastError: string | null = null;
-    for (const connection of enabledConnections) {
-      try {
-        const slideIndexData = await getCurrentSlideIndex(connection);
-        if (slideIndexData?.presentation_index) {
-          const automation: ScheduleItemAutomation = {
-            type: "slide",
-            presentationUuid:
-              slideIndexData.presentation_index.presentation_id.uuid,
-            slideIndex: slideIndexData.presentation_index.index,
-            presentationName:
-              slideIndexData.presentation_index.presentation_id.name,
-            activationClicks:
-              activationClicks !== 1 ? activationClicks : undefined,
-          };
-          setSavedAutomations((prev) => {
-            const others = prev.filter((a) => a.type !== "slide");
-            return [...others, automation];
-          });
-          setSuccess(true);
-          setIsLoading(false);
-          return;
-        }
-      } catch (err) {
-        lastError =
-          err instanceof Error ? err.message : "Failed to get slide index";
+    // Find the selected connection
+    const connection = enabledConnections.find(c => c.id === selectedConnectionId) || enabledConnections[0];
+
+    try {
+      const slideIndexData = await getCurrentSlideIndex(connection);
+      if (slideIndexData?.presentation_index) {
+        const automation: ScheduleItemAutomation = {
+          type: "slide",
+          presentationUuid:
+            slideIndexData.presentation_index.presentation_id.uuid,
+          slideIndex: slideIndexData.presentation_index.index,
+          presentationName:
+            slideIndexData.presentation_index.presentation_id.name,
+          activationClicks:
+            activationClicks !== 1 ? activationClicks : undefined,
+        };
+        setSavedAutomations((prev) => {
+          const others = prev.filter((a) => a.type !== "slide");
+          return [...others, automation];
+        });
+        setSuccess(true);
+        setIsLoading(false);
+        return;
+      } else {
+        setError("No active presentation found. Make sure a slide is live in ProPresenter.");
       }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to get slide index");
     }
 
-    setError(
-      lastError ||
-        "Failed to get slide index from any ProPresenter connection. Make sure ProPresenter is running and the slide is live."
-    );
     setIsLoading(false);
   };
 
@@ -1058,6 +1073,77 @@ const ScheduleAutomationModal: React.FC<ScheduleAutomationModalProps> = ({
           </div>
         )}
 
+        {/* ProPresenter Connection Selector */}
+        {enabledConnections.length > 0 && (
+          <div
+            style={{
+              marginBottom: "12px",
+              padding: "10px",
+              backgroundColor: "var(--app-header-bg)",
+              border: "1px solid var(--app-border-color)",
+              borderRadius: "6px",
+            }}
+          >
+            <label
+              style={{
+                fontSize: "0.85em",
+                display: "block",
+                marginBottom: "6px",
+                color: "var(--app-text-color-secondary)",
+                fontWeight: 600,
+              }}
+            >
+              {automationType === "slide" ? "Get slide from:" : "Get stage data from:"}
+            </label>
+            {enabledConnections.length === 1 ? (
+              <div
+                style={{
+                  padding: "6px 8px",
+                  fontSize: "0.9em",
+                  backgroundColor: "var(--app-input-bg-color)",
+                  color: "var(--app-input-text-color)",
+                  border: "1px solid var(--app-border-color)",
+                  borderRadius: "4px",
+                }}
+              >
+                {enabledConnections[0].name} ({enabledConnections[0].apiUrl})
+              </div>
+            ) : (
+              <select
+                value={selectedConnectionId}
+                onChange={(e) => {
+                  setSelectedConnectionId(e.target.value);
+                  // Reset stage data when connection changes so user needs to reload
+                  if (automationType === "stageLayout") {
+                    setStageScreens([]);
+                    setStageLayouts([]);
+                    setSelectedScreenIndex(null);
+                    setSelectedLayoutIndex(null);
+                    setSuccess(false);
+                    // Auto-reload stage data for the new connection
+                    setTimeout(() => loadStageData(), 100);
+                  }
+                }}
+                style={{
+                  width: "100%",
+                  padding: "6px 8px",
+                  fontSize: "0.9em",
+                  backgroundColor: "var(--app-input-bg-color)",
+                  color: "var(--app-input-text-color)",
+                  border: "1px solid var(--app-border-color)",
+                  borderRadius: "4px",
+                }}
+              >
+                {enabledConnections.map((conn) => (
+                  <option key={conn.id} value={conn.id}>
+                    {conn.name} ({conn.apiUrl})
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+        )}
+
         <div
           style={{ display: "flex", gap: "10px", justifyContent: "flex-end" }}
         >
@@ -1078,7 +1164,7 @@ const ScheduleAutomationModal: React.FC<ScheduleAutomationModalProps> = ({
           {automationType === "slide" && (
             <button
               onClick={handleGetSlide}
-              disabled={isLoading}
+              disabled={isLoading || enabledConnections.length === 0}
               className="secondary"
               style={{ minWidth: "140px" }}
             >

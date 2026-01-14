@@ -16,6 +16,7 @@ import {
   getEnabledConnections,
   getCurrentSlideIndex,
 } from "../services/propresenterService";
+import { ProPresenterConnection } from "../types/propresenter";
 
 interface AISettingsFormProps {
   // Props if any, e.g., onSettingsChange callback if SettingsPage needs to react
@@ -70,6 +71,10 @@ const AISettingsForm: React.FC<AISettingsFormProps> = () => {
   const [isAddingTemplate, setIsAddingTemplate] = useState(false);
   const [fetchingFromPP, setFetchingFromPP] = useState(false);
 
+  // ProPresenter connection selection
+  const [enabledConnections, setEnabledConnections] = useState<ProPresenterConnection[]>([]);
+  const [selectedConnectionId, setSelectedConnectionId] = useState<string>("");
+
   useEffect(() => {
     // Update local state if settings are changed elsewhere (e.g. theme toggle)
     const settings = getAppSettings();
@@ -83,6 +88,13 @@ const AISettingsForm: React.FC<AISettingsFormProps> = () => {
     
     // Load ProPresenter AI Templates
     setPPAITemplates(loadProPresenterAITemplates());
+
+    // Load ProPresenter connections
+    const connections = getEnabledConnections();
+    setEnabledConnections(connections);
+    if (connections.length > 0) {
+      setSelectedConnectionId(connections[0].id);
+    }
   }, []); // Re-evaluate if a dependency on global changes is needed
 
   // Fetch models when spell check provider changes
@@ -329,15 +341,16 @@ const AISettingsForm: React.FC<AISettingsFormProps> = () => {
 
   // Get template info from ProPresenter (similar to ProPresenter Activation)
   const handleGetFromProPresenter = useCallback(async () => {
-    const connections = getEnabledConnections();
-    if (connections.length === 0) {
+    if (enabledConnections.length === 0) {
       alert("No ProPresenter connections enabled");
       return;
     }
 
+    // Find the selected connection
+    const conn = enabledConnections.find(c => c.id === selectedConnectionId) || enabledConnections[0];
+
     setFetchingFromPP(true);
     try {
-      const conn = connections[0];
       const result = await getCurrentSlideIndex(conn);
       
       if (result && result.presentation_index?.presentation_id?.uuid && typeof result.presentation_index?.index === "number") {
@@ -355,7 +368,7 @@ const AISettingsForm: React.FC<AISettingsFormProps> = () => {
     } finally {
       setFetchingFromPP(false);
     }
-  }, []);
+  }, [enabledConnections, selectedConnectionId]);
 
   return (
     <div className="settings-form-section">
@@ -830,6 +843,9 @@ const AISettingsForm: React.FC<AISettingsFormProps> = () => {
                         onCancel={() => setEditingTemplate(null)}
                         onGetFromPP={handleGetFromProPresenter}
                         fetchingFromPP={fetchingFromPP}
+                        enabledConnections={enabledConnections}
+                        selectedConnectionId={selectedConnectionId}
+                        onConnectionChange={setSelectedConnectionId}
                       />
                     ) : (
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
@@ -908,6 +924,9 @@ const AISettingsForm: React.FC<AISettingsFormProps> = () => {
                       onCancel={() => { setEditingTemplate(null); setIsAddingTemplate(false); }}
                       onGetFromPP={handleGetFromProPresenter}
                       fetchingFromPP={fetchingFromPP}
+                      enabledConnections={enabledConnections}
+                      selectedConnectionId={selectedConnectionId}
+                      onConnectionChange={setSelectedConnectionId}
                     />
                   </div>
                 )}
@@ -975,6 +994,9 @@ interface TemplateEditFormProps {
   onCancel: () => void;
   onGetFromPP: () => void;
   fetchingFromPP: boolean;
+  enabledConnections: ProPresenterConnection[];
+  selectedConnectionId: string;
+  onConnectionChange: (connectionId: string) => void;
 }
 
 const TemplateEditForm: React.FC<TemplateEditFormProps> = ({
@@ -984,6 +1006,9 @@ const TemplateEditForm: React.FC<TemplateEditFormProps> = ({
   onCancel,
   onGetFromPP,
   fetchingFromPP,
+  enabledConnections,
+  selectedConnectionId,
+  onConnectionChange,
 }) => {
   const useCases: ProPresenterAITemplateUseCase[] = [
     "lower-third",
@@ -1103,6 +1128,39 @@ const TemplateEditForm: React.FC<TemplateEditFormProps> = ({
         </p>
       </div>
 
+      {/* ProPresenter Connection Selector */}
+      {enabledConnections.length > 0 && (
+        <div style={{ marginBottom: "10px" }}>
+          <label style={{ fontSize: "0.8em", display: "block", marginBottom: "4px" }}>Get slide from:</label>
+          {enabledConnections.length === 1 ? (
+            <div
+              style={{
+                padding: "6px 8px",
+                fontSize: "0.9em",
+                backgroundColor: "var(--app-input-bg-color)",
+                color: "var(--app-input-text-color)",
+                border: "1px solid var(--app-border-color)",
+                borderRadius: "4px",
+              }}
+            >
+              {enabledConnections[0].name} ({enabledConnections[0].apiUrl})
+            </div>
+          ) : (
+            <select
+              value={selectedConnectionId}
+              onChange={(e) => onConnectionChange(e.target.value)}
+              style={{ width: "100%", padding: "6px 8px", borderRadius: "4px", border: "1px solid var(--app-border-color)", backgroundColor: "var(--app-bg-color)" }}
+            >
+              {enabledConnections.map((conn) => (
+                <option key={conn.id} value={conn.id}>
+                  {conn.name} ({conn.apiUrl})
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
+      )}
+
       <div style={{ marginBottom: "10px" }}>
         <label style={{ fontSize: "0.8em", display: "block", marginBottom: "4px" }}>Presentation UUID *</label>
         <div style={{ display: "flex", gap: "8px" }}>
@@ -1115,7 +1173,7 @@ const TemplateEditForm: React.FC<TemplateEditFormProps> = ({
           />
           <button
             onClick={onGetFromPP}
-            disabled={fetchingFromPP}
+            disabled={fetchingFromPP || enabledConnections.length === 0}
             style={{
               display: "flex",
               alignItems: "center",

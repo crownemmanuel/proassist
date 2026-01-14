@@ -4,7 +4,7 @@ import {
   getEnabledConnections,
   getCurrentSlideIndex,
 } from "../services/propresenterService";
-import { ProPresenterActivationConfig } from "../types/propresenter";
+import { ProPresenterActivationConfig, ProPresenterConnection } from "../types/propresenter";
 import "../App.css";
 
 interface ActivatePresentationModalProps {
@@ -35,6 +35,22 @@ const ActivatePresentationModal: React.FC<ActivatePresentationModalProps> = ({
     currentConfig?.takeOffClicks ?? 0
   );
 
+  // ProPresenter connection selection
+  const [enabledConnections, setEnabledConnections] = useState<ProPresenterConnection[]>([]);
+  const [selectedConnectionId, setSelectedConnectionId] = useState<string>("");
+
+  // Load enabled connections when modal opens
+  useEffect(() => {
+    if (isOpen) {
+      const connections = getEnabledConnections();
+      setEnabledConnections(connections);
+      // Auto-select first connection if available
+      if (connections.length > 0 && !selectedConnectionId) {
+        setSelectedConnectionId(connections[0].id);
+      }
+    }
+  }, [isOpen]);
+
   // Reset savedConfig when currentConfig changes
   useEffect(() => {
     setSavedConfig(currentConfig || null);
@@ -49,40 +65,36 @@ const ActivatePresentationModal: React.FC<ActivatePresentationModalProps> = ({
     setError(null);
     setSuccess(false);
 
-    const enabledConnections = getEnabledConnections();
     if (enabledConnections.length === 0) {
       setError("No enabled ProPresenter connections found. Please enable at least one connection in Settings.");
       setIsLoading(false);
       return;
     }
 
-    // Try each enabled connection until one succeeds
-    let lastError: string | null = null;
-    for (const connection of enabledConnections) {
-      try {
-        const slideIndexData = await getCurrentSlideIndex(connection);
-        if (slideIndexData?.presentation_index) {
-          const config: ProPresenterActivationConfig = {
-            presentationUuid: slideIndexData.presentation_index.presentation_id.uuid,
-            slideIndex: slideIndexData.presentation_index.index,
-            presentationName: slideIndexData.presentation_index.presentation_id.name,
-            activationClicks: activationClicks !== 1 ? activationClicks : undefined,
-            takeOffClicks: takeOffClicks !== 0 ? takeOffClicks : undefined,
-          };
-          setSavedConfig(config);
-          setSuccess(true);
-          setIsLoading(false);
-          return;
-        }
-      } catch (err) {
-        lastError = err instanceof Error ? err.message : "Failed to get slide index";
+    // Find the selected connection
+    const connection = enabledConnections.find(c => c.id === selectedConnectionId) || enabledConnections[0];
+
+    try {
+      const slideIndexData = await getCurrentSlideIndex(connection);
+      if (slideIndexData?.presentation_index) {
+        const config: ProPresenterActivationConfig = {
+          presentationUuid: slideIndexData.presentation_index.presentation_id.uuid,
+          slideIndex: slideIndexData.presentation_index.index,
+          presentationName: slideIndexData.presentation_index.presentation_id.name,
+          activationClicks: activationClicks !== 1 ? activationClicks : undefined,
+          takeOffClicks: takeOffClicks !== 0 ? takeOffClicks : undefined,
+        };
+        setSavedConfig(config);
+        setSuccess(true);
+        setIsLoading(false);
+        return;
+      } else {
+        setError("No active presentation found. Make sure a slide is live in ProPresenter.");
       }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to get slide index");
     }
 
-    setError(
-      lastError ||
-        "Failed to get slide index from any ProPresenter connection. Make sure ProPresenter is running and the slide is live."
-    );
     setIsLoading(false);
   };
 
@@ -274,6 +286,65 @@ const ActivatePresentationModal: React.FC<ActivatePresentationModalProps> = ({
           </div>
         )}
 
+        {/* ProPresenter Connection Selector */}
+        {enabledConnections.length > 0 && (
+          <div
+            style={{
+              marginBottom: "12px",
+              padding: "10px",
+              backgroundColor: "var(--app-header-bg)",
+              border: "1px solid var(--app-border-color)",
+              borderRadius: "6px",
+            }}
+          >
+            <label
+              style={{
+                fontSize: "0.85em",
+                display: "block",
+                marginBottom: "6px",
+                color: "var(--app-text-color-secondary)",
+                fontWeight: 600,
+              }}
+            >
+              Get slide from:
+            </label>
+            {enabledConnections.length === 1 ? (
+              <div
+                style={{
+                  padding: "6px 8px",
+                  fontSize: "0.9em",
+                  backgroundColor: "var(--app-input-bg-color)",
+                  color: "var(--app-input-text-color)",
+                  border: "1px solid var(--app-border-color)",
+                  borderRadius: "4px",
+                }}
+              >
+                {enabledConnections[0].name} ({enabledConnections[0].apiUrl})
+              </div>
+            ) : (
+              <select
+                value={selectedConnectionId}
+                onChange={(e) => setSelectedConnectionId(e.target.value)}
+                style={{
+                  width: "100%",
+                  padding: "6px 8px",
+                  fontSize: "0.9em",
+                  backgroundColor: "var(--app-input-bg-color)",
+                  color: "var(--app-input-text-color)",
+                  border: "1px solid var(--app-border-color)",
+                  borderRadius: "4px",
+                }}
+              >
+                {enabledConnections.map((conn) => (
+                  <option key={conn.id} value={conn.id}>
+                    {conn.name} ({conn.apiUrl})
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+        )}
+
         <div style={{ display: "flex", gap: "10px", justifyContent: "flex-end" }}>
           {currentConfig && (
             <button onClick={handleRemove} className="secondary" style={{ marginRight: "auto" }}>
@@ -287,7 +358,7 @@ const ActivatePresentationModal: React.FC<ActivatePresentationModalProps> = ({
           </button>
           <button
             onClick={handleGetSlide}
-            disabled={isLoading}
+            disabled={isLoading || enabledConnections.length === 0}
             className="secondary"
             style={{ minWidth: "140px" }}
           >

@@ -12,6 +12,7 @@ import {
   getEnabledConnections,
   getCurrentSlideIndex,
 } from "../services/propresenterService";
+import { ProPresenterConnection } from "../types/propresenter";
 import "../App.css";
 
 const LiveTestimoniesSettings: React.FC = () => {
@@ -40,6 +41,10 @@ const LiveTestimoniesSettings: React.FC = () => {
   const [takeOffClicks, setTakeOffClicks] = useState<number>(0);
   const [clearTextFileOnTakeOff, setClearTextFileOnTakeOff] = useState<boolean>(true);
 
+  // ProPresenter connection selection
+  const [enabledConnections, setEnabledConnections] = useState<ProPresenterConnection[]>([]);
+  const [selectedConnectionId, setSelectedConnectionId] = useState<string>("");
+
   useEffect(() => {
     const settings = loadLiveTestimoniesSettings();
     setFirebaseConfig(settings.firebaseConfig);
@@ -53,6 +58,13 @@ const LiveTestimoniesSettings: React.FC = () => {
       setTakeOffClicks(settings.proPresenterActivation.takeOffClicks ?? 0);
       setClearTextFileOnTakeOff(settings.proPresenterActivation.clearTextFileOnTakeOff !== false); // Default to true
     }
+
+    // Load ProPresenter connections
+    const connections = getEnabledConnections();
+    setEnabledConnections(connections);
+    if (connections.length > 0) {
+      setSelectedConnectionId(connections[0].id);
+    }
   }, []);
   
   const handleGetSlide = async () => {
@@ -60,41 +72,37 @@ const LiveTestimoniesSettings: React.FC = () => {
     setSlideLoadError(null);
     setSlideLoadSuccess(false);
 
-    const enabledConnections = getEnabledConnections();
     if (enabledConnections.length === 0) {
       setSlideLoadError("No enabled ProPresenter connections found. Please enable at least one connection in Settings > ProPresenter.");
       setIsLoadingSlide(false);
       return;
     }
 
-    // Try each enabled connection until one succeeds
-    let lastError: string | null = null;
-    for (const connection of enabledConnections) {
-      try {
-        const slideIndexData = await getCurrentSlideIndex(connection);
-        if (slideIndexData?.presentation_index) {
-          const config: LiveTestimonyProPresenterConfig = {
-            presentationUuid: slideIndexData.presentation_index.presentation_id.uuid,
-            slideIndex: slideIndexData.presentation_index.index,
-            presentationName: slideIndexData.presentation_index.presentation_id.name,
-            activationClicks: activationClicks,
-            takeOffClicks: takeOffClicks,
-            clearTextFileOnTakeOff: clearTextFileOnTakeOff,
-          };
-          setProPresenterConfig(config);
-          setSlideLoadSuccess(true);
-          setIsLoadingSlide(false);
-          return;
-        }
-      } catch (err) {
-        lastError = err instanceof Error ? err.message : "Failed to get slide index";
+    // Find the selected connection
+    const connection = enabledConnections.find(c => c.id === selectedConnectionId) || enabledConnections[0];
+
+    try {
+      const slideIndexData = await getCurrentSlideIndex(connection);
+      if (slideIndexData?.presentation_index) {
+        const config: LiveTestimonyProPresenterConfig = {
+          presentationUuid: slideIndexData.presentation_index.presentation_id.uuid,
+          slideIndex: slideIndexData.presentation_index.index,
+          presentationName: slideIndexData.presentation_index.presentation_id.name,
+          activationClicks: activationClicks,
+          takeOffClicks: takeOffClicks,
+          clearTextFileOnTakeOff: clearTextFileOnTakeOff,
+        };
+        setProPresenterConfig(config);
+        setSlideLoadSuccess(true);
+        setIsLoadingSlide(false);
+        return;
+      } else {
+        setSlideLoadError("No active presentation found. Make sure a slide is live in ProPresenter.");
       }
+    } catch (err) {
+      setSlideLoadError(err instanceof Error ? err.message : "Failed to get slide index");
     }
 
-    setSlideLoadError(
-      lastError ||
-        "Failed to get slide index from any ProPresenter connection. Make sure ProPresenter is running and the slide is live."
-    );
     setIsLoadingSlide(false);
   };
 
@@ -737,10 +745,61 @@ const LiveTestimoniesSettings: React.FC = () => {
             </div>
           )}
 
+          {/* ProPresenter Connection Selector */}
+          {enabledConnections.length > 0 && (
+            <div style={{ marginBottom: "12px" }}>
+              <label
+                style={{
+                  fontSize: "0.85em",
+                  display: "block",
+                  marginBottom: "6px",
+                  color: "var(--app-text-color-secondary)",
+                  fontWeight: 600,
+                }}
+              >
+                Get slide from:
+              </label>
+              {enabledConnections.length === 1 ? (
+                <div
+                  style={{
+                    padding: "6px 8px",
+                    fontSize: "0.9em",
+                    backgroundColor: "var(--app-input-bg-color)",
+                    color: "var(--app-input-text-color)",
+                    border: "1px solid var(--app-border-color)",
+                    borderRadius: "4px",
+                  }}
+                >
+                  {enabledConnections[0].name} ({enabledConnections[0].apiUrl})
+                </div>
+              ) : (
+                <select
+                  value={selectedConnectionId}
+                  onChange={(e) => setSelectedConnectionId(e.target.value)}
+                  style={{
+                    width: "100%",
+                    padding: "6px 8px",
+                    fontSize: "0.9em",
+                    backgroundColor: "var(--app-input-bg-color)",
+                    color: "var(--app-input-text-color)",
+                    border: "1px solid var(--app-border-color)",
+                    borderRadius: "4px",
+                  }}
+                >
+                  {enabledConnections.map((conn) => (
+                    <option key={conn.id} value={conn.id}>
+                      {conn.name} ({conn.apiUrl})
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+          )}
+
           <div style={{ display: "flex", gap: "10px" }}>
             <button
               onClick={handleGetSlide}
-              disabled={isLoadingSlide}
+              disabled={isLoadingSlide || enabledConnections.length === 0}
               className="secondary"
               style={{ minWidth: "140px" }}
             >
