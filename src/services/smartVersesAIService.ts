@@ -119,7 +119,10 @@ export async function analyzeTranscriptChunk(
   transcriptChunk: string,
   appSettings: AppSettings,
   detectParaphrases: boolean = true,
-  extractKeyPoints: boolean = false
+  extractKeyPoints: boolean = false,
+  options?: {
+    keyPointInstructions?: string;
+  }
 ): Promise<TranscriptAnalysisResult> {
   const debugAI =
     typeof window !== "undefined" &&
@@ -166,30 +169,56 @@ export async function analyzeTranscriptChunk(
     return { paraphrasedVerses: [], keyPoints: [] };
   }
 
-  const systemPrompt = `You are an expert Bible scholar and sermon analyst. Your task is to analyze sermon transcripts to:
+  const keyPointInstructions =
+    (options?.keyPointInstructions ?? "").trim();
 
-1. DETECT PARAPHRASED BIBLE VERSES: Identify when the speaker is paraphrasing or alluding to specific Bible verses without directly quoting them. Be conservative - only identify clear paraphrases, not vague thematic connections.
+  const tasks: string[] = [];
+  if (detectParaphrases) {
+    tasks.push(
+      `DETECT PARAPHRASED BIBLE VERSES: Identify when the speaker is paraphrasing or alluding to specific Bible verses without directly quoting them. Be conservative - only identify clear paraphrases, not vague thematic connections.`
+    );
+  }
+  if (extractKeyPoints) {
+    tasks.push(
+      `EXTRACT KEY POINTS: Identify quotable, actionable, or memorable statements that would make good lower-thirds or slides. Be selective - only extract truly quotable content, not generic statements.`
+    );
+  }
 
-2. EXTRACT KEY POINTS: Identify quotable, actionable, or memorable statements that would make good lower-thirds or social media quotes. Focus on:
-   - Powerful declarative statements
-   - Actionable life principles
-   - Encouraging or uplifting phrases
-   - Memorable one-liners
-   
-Categories for key points:
+  const keyPointGuidelines = extractKeyPoints
+    ? `
+Key point categories:
 - "quote": A memorable, shareable statement
-- "action": An actionable step or call to action  
+- "action": An actionable step or call to action
 - "principle": A life principle or teaching point
 - "encouragement": An encouraging or uplifting statement
+`
+    : "";
 
-Be selective - only extract truly quotable content, not generic statements.
+  const keyPointCustom = extractKeyPoints && keyPointInstructions
+    ? `
+FOLLOW THESE KEY POINT INSTRUCTIONS:
+${keyPointInstructions}
+`
+    : "";
 
+  const rules: string[] = [];
+  if (detectParaphrases) {
+    rules.push(`- For paraphrased verses, only return up to 3 most confident matches`);
+    rules.push(`- Only include paraphrased verses with confidence >= 0.6`);
+  }
+  if (extractKeyPoints) {
+    rules.push(`- For key points, only extract genuinely quotable content (max 2 per chunk)`);
+  }
+  rules.push(`- If nothing is found, return empty arrays`);
+  rules.push(`- Always use proper Bible reference format (e.g., "John 3:16", "Romans 8:28-30")`);
+
+  const systemPrompt = `You are an expert Bible scholar and sermon analyst. Your task is to analyze sermon transcripts to:
+
+${tasks.map((t, i) => `${i + 1}. ${t}`).join("\n\n")}
+${keyPointGuidelines}
+${keyPointCustom}
 IMPORTANT RULES:
-- For paraphrased verses, only return up to 3 most confident matches
-- Only include paraphrased verses with confidence >= 0.6
-- For key points, only extract genuinely quotable content (max 2 per chunk)
-- If nothing is found, return empty arrays
-- Always use proper Bible reference format (e.g., "John 3:16", "Romans 8:28-30")
+${rules.join("\n")}
 
 Return your response as valid JSON with this exact structure:
 {
@@ -255,6 +284,10 @@ Return ONLY valid JSON, no other text.`;
       };
 
       console.log("📤 Analysis result:", result);
+      if (debugAI) {
+        console.log("[SmartVerses][AI] keyPoints count:", result.keyPoints.length);
+        console.log("[SmartVerses][AI] keyPoints:", result.keyPoints);
+      }
       return result;
     }
 

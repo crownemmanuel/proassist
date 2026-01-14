@@ -569,21 +569,6 @@ const SmartVersesPage: React.FC = () => {
               scriptureReferences = Array.from(
                 new Set(directRefs.map((r) => (r.displayRef || "").trim()).filter(Boolean))
               );
-
-              // If key point extraction is enabled, run that even when direct refs exist.
-              if (settings.enableKeyPointExtraction) {
-                try {
-                  const analysis = await analyzeTranscriptChunk(
-                    text,
-                    appSettings,
-                    false, // don't paraphrase-detect if we already have direct refs
-                    true   // extract key points
-                  );
-                  keyPoints = analysis.keyPoints || [];
-                } catch (e) {
-                  console.warn("[SmartVerses] Key point extraction failed:", e);
-                }
-              }
               
               // Add to chat history if enabled
               if (settings.autoAddDetectedToHistory) {
@@ -600,14 +585,17 @@ const SmartVersesPage: React.FC = () => {
               if (settings.autoTriggerOnDetection && directRefs.length > 0) {
                 handleGoLive(directRefs[0]);
               }
-            } else if (settings.enableParaphraseDetection) {
-              // Try AI paraphrase detection
-              console.log("[SmartVerses][Paraphrase] No direct refs found; invoking AI analysis...");
+            } else if (settings.enableParaphraseDetection || settings.enableKeyPointExtraction) {
+              // Try AI analysis (paraphrase detection and/or key point extraction)
+              console.log("[SmartVerses][AI] No direct refs found; invoking AI analysis...");
               const analysis = await analyzeTranscriptChunk(
                 text,
                 appSettings,
-                true,
-                settings.enableKeyPointExtraction
+                settings.enableParaphraseDetection,
+                settings.enableKeyPointExtraction,
+                {
+                  keyPointInstructions: settings.keyPointExtractionInstructions,
+                }
               );
               keyPoints = analysis.keyPoints || [];
 
@@ -617,7 +605,7 @@ const SmartVersesPage: React.FC = () => {
                 "paraphrased verse(s)"
               );
 
-              if (analysis.paraphrasedVerses.length > 0) {
+              if (settings.enableParaphraseDetection && analysis.paraphrasedVerses.length > 0) {
                 const resolvedRefs = await resolveParaphrasedVerses(analysis.paraphrasedVerses);
                 if (resolvedRefs.length > 0) {
                   console.log("[SmartVerses][Paraphrase] Resolved refs:", resolvedRefs.map(r => r.displayRef));

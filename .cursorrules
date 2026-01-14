@@ -2,6 +2,13 @@
 
 ## Release Process
 
+**CRITICAL: NEVER CREATE RELEASES MANUALLY**
+
+- **NEVER** use `gh release create` or create releases through GitHub UI
+- **ONLY** create tags using `git tag` and push them
+- The CI/CD workflow will automatically create the release when a tag is pushed
+- If you accidentally create a release manually, delete it and recreate only the tag
+
 **BEFORE creating any release tag, you MUST:**
 
 1. **Update CHANGELOG.md** - Always document what changed in this release
@@ -50,10 +57,12 @@ git push origin main
 # 3. Run build locally (REQUIRED)
 npm run build
 
-# 4. If build passes, create and push tag
+# 4. If build passes, create and push tag (CI/CD will create the release automatically)
 git tag -a vX.Y.Z -m "Release version X.Y.Z - Description"
 git push origin vX.Y.Z
 ```
+
+**IMPORTANT**: After pushing the tag, the GitHub Actions workflow will automatically create the release. Do NOT create the release manually.
 
 ## If Build Fails After Tagging
 
@@ -67,10 +76,21 @@ If you already pushed a tag with build errors:
 
 ## Important Reminders
 
+- **NEVER create releases manually** - Only create tags, let CI/CD handle releases
 - **Never skip the changelog** - Users need to know what changed
 - **Never skip the local build** - CI will fail if build has errors
 - **Always update all version files** - Keep them in sync
 - **Test before release** - Verify the build works locally first
+
+## If You Accidentally Created a Release Manually
+
+If a release was created manually (via `gh release create` or GitHub UI):
+
+1. Delete the release: `gh release delete vX.Y.Z --yes`
+2. Delete the remote tag: `git push origin --delete vX.Y.Z`
+3. Create a new tag: `git tag -a vX.Y.Z -m "Release version X.Y.Z - Description"`
+4. Push the tag: `git push origin vX.Y.Z`
+5. Let CI/CD create the release automatically
 
 ## See Also
 

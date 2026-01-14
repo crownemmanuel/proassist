@@ -498,6 +498,27 @@ const SmartVersesSettings: React.FC = () => {
           </p>
         </div>
 
+        {settings.enableKeyPointExtraction && (
+          <div style={fieldStyle}>
+            <label style={labelStyle}>Key Point Extraction Instructions</label>
+            <textarea
+              value={settings.keyPointExtractionInstructions || ""}
+              onChange={(e) => handleChange("keyPointExtractionInstructions", e.target.value)}
+              placeholder="Optional: Customize how key points should be extracted for your church/pastor..."
+              style={{
+                ...inputStyle,
+                minHeight: "110px",
+                fontFamily: "inherit",
+                resize: "vertical",
+              }}
+            />
+            <p style={helpTextStyle}>
+              These instructions are added to the AI prompt when key point extraction is enabled.
+              Leave blank to use the default behavior.
+            </p>
+          </div>
+        )}
+
         <div style={fieldStyle}>
           <label style={labelStyle}>Paraphrase Confidence Threshold</label>
           <div style={{ display: "flex", alignItems: "center", gap: "var(--spacing-3)" }}>
