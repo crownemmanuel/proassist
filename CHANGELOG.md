@@ -2,6 +2,26 @@
 
 All notable changes to ProAssist will be documented in this file.
 
+## [0.4.0] - 2025-01-XX
+
+### Added
+- Network import for live slides from master server - backup sync method when WebSocket auto-sync doesn't work well
+- `/api/live-slides` JSON endpoint in backend to expose all live slide sessions
+- Import dropdown with "From Text" and "From Network" options (matches Load Schedule pattern)
+- ImportFromNetworkModal component that uses existing network sync settings (no manual IP/port input needed)
+- Auto-fetch sessions when network import modal opens
+- Session selection with checkboxes, marking already imported sessions
+- "Select All New" and "Clear" buttons for bulk selection
+
+### Changed
+- Import button now shows as dropdown menu with multiple import options
+- "From Network" option is disabled when not configured as slave/peer (shows "Not configured" badge)
+
+### Technical
+- Added `fetchSlidesFromMaster()` function in liveSlideService
+- Network import uses same connection settings as schedule sync (Settings → Network)
+- Follows same pattern as "Get Latest from Master" for schedules
+
 ## [0.3.4] - 2025-01-13
 
 ### Fixed
