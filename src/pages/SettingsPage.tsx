@@ -6,7 +6,8 @@ import LiveTestimoniesSettings from "../components/LiveTestimoniesSettings";
 import NetworkSettings from "../components/NetworkSettings";
 import ProPresenterSettings from "../components/ProPresenterSettings";
 import VersionSettings from "../components/VersionSettings";
-import { FaList, FaRobot, FaMicrophone, FaNetworkWired, FaClock, FaInfoCircle } from "react-icons/fa";
+import SmartVasisSettings from "../components/SmartVasisSettings";
+import { FaList, FaRobot, FaMicrophone, FaNetworkWired, FaClock, FaInfoCircle, FaBible } from "react-icons/fa";
 import "../App.css"; // Ensure global styles are applied
 import {
   exportAllTemplatesToFile,
@@ -16,7 +17,7 @@ import {
 import TemplateListView from "../components/TemplateListView";
 import ConfirmDialog from "../components/ConfirmDialog";
 
-type SettingsView = "templates" | "aiConfiguration" | "liveTestimonies" | "network" | "proPresenter" | "version";
+type SettingsView = "templates" | "aiConfiguration" | "liveTestimonies" | "smartVasis" | "network" | "proPresenter" | "version";
 
 const SettingsPage: React.FC = () => {
   const [templates, setTemplates] = useState<Template[]>(() => {
@@ -38,7 +39,7 @@ const SettingsPage: React.FC = () => {
   const [currentView, setCurrentView] = useState<SettingsView>(() => {
     try {
       const saved = localStorage.getItem("proassist-settings-current-view");
-      if (saved && ["templates", "aiConfiguration", "liveTestimonies", "network", "proPresenter", "version"].includes(saved)) {
+      if (saved && ["templates", "aiConfiguration", "liveTestimonies", "smartVasis", "network", "proPresenter", "version"].includes(saved)) {
         return saved as SettingsView;
       }
     } catch {
@@ -242,6 +243,13 @@ const SettingsPage: React.FC = () => {
             Live Testimonies
           </button>
           <button
+            onClick={() => setCurrentView("smartVasis")}
+            className={currentView === "smartVasis" ? "active" : ""}
+          >
+            <FaBible />
+            SmartVasis
+          </button>
+          <button
             onClick={() => setCurrentView("network")}
             className={currentView === "network" ? "active" : ""}
           >
@@ -321,6 +329,7 @@ const SettingsPage: React.FC = () => {
         )}
         {currentView === "aiConfiguration" && <AISettingsForm />}
         {currentView === "liveTestimonies" && <LiveTestimoniesSettings />}
+        {currentView === "smartVasis" && <SmartVasisSettings />}
         {currentView === "network" && <NetworkSettings />}
         {currentView === "proPresenter" && <ProPresenterSettings />}
         {currentView === "version" && <VersionSettings />}

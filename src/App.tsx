@@ -15,6 +15,7 @@ import {
   FaMoon,
   FaMicrophone,
   FaClock,
+  FaBible,
 } from "react-icons/fa";
 import "./App.css";
 // import { invoke } from "@tauri-apps/api/tauri"; // We will use this later
@@ -28,6 +29,7 @@ import HelpPage from "./pages/HelpPage";
 import MediaView from "./pages/MediaView";
 import LiveSlidesNotepad from "./pages/LiveSlidesNotepad";
 import StageAssistPage from "./pages/StageAssistPage";
+import SmartVasisPage from "./pages/SmartVasisPage";
 import {
   StageAssistProvider,
   useStageAssist,
@@ -97,6 +99,15 @@ function Navigation({
       >
         <FaMicrophone />
         <span>Live Testimonies</span>
+      </Link>
+      <Link
+        to="/smartvasis"
+        className={`nav-action-button ${
+          isActive("/smartvasis") ? "active" : ""
+        }`}
+      >
+        <FaBible />
+        <span>SmartVasis</span>
       </Link>
       <Link
         to="/settings"
@@ -254,12 +265,14 @@ function AppContent({
     | "stageAssist"
     | "liveSlides"
     | "media"
+    | "smartVasis"
     | "settings"
     | "help" => {
     if (location.pathname === "/") return "main";
     if (location.pathname === "/stage-assist") return "stageAssist";
     if (location.pathname.includes("/live-slides")) return "liveSlides";
     if (location.pathname === "/live-testimonies") return "media";
+    if (location.pathname === "/smartvasis") return "smartVasis";
     if (location.pathname === "/settings") return "settings";
     if (location.pathname === "/help") return "help";
     return "main";
@@ -340,6 +353,7 @@ function AppContent({
   const isMainPage = location.pathname === "/";
   const isSettingsPage = location.pathname === "/settings";
   const isLiveTestimoniesPage = location.pathname === "/live-testimonies";
+  const isSmartVasisPage = location.pathname === "/smartvasis";
   const isStageAssistPage = location.pathname === "/stage-assist";
   const isHelpPage = location.pathname === "/help";
 
@@ -356,6 +370,9 @@ function AppContent({
         </div>
         <div style={{ display: isLiveTestimoniesPage ? "block" : "none" }}>
           <MediaView />
+        </div>
+        <div style={{ display: isSmartVasisPage ? "block" : "none" }}>
+          <SmartVasisPage />
         </div>
         <div style={{ display: isStageAssistPage ? "block" : "none" }}>
           <StageAssistPage />
