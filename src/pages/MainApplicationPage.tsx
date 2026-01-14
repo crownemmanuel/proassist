@@ -9,6 +9,7 @@ import PlaylistPane from "../components/PlaylistPane";
 import SlideDisplayArea from "../components/SlideDisplayArea";
 import ImportModal from "../components/ImportModal";
 import ImportFromLiveSlidesModal from "../components/ImportFromLiveSlidesModal";
+import ImportFromNetworkModal from "../components/ImportFromNetworkModal";
 import RenameModal from "../components/RenameModal";
 import ConfirmDialog from "../components/ConfirmDialog";
 import TypingUrlModal from "../components/TypingUrlModal";
@@ -21,6 +22,9 @@ import {
   FaCopy,
   FaDesktop,
   FaLink,
+  FaCaretDown,
+  FaCloud,
+  FaFile,
 } from "react-icons/fa";
 import "../App.css"; // Ensure global styles are applied
 import { invoke } from "@tauri-apps/api/core"; // Tauri v2 core invoke
@@ -73,6 +77,9 @@ const MainApplicationPage: React.FC = () => {
     }
   });
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [isImportFromNetworkOpen, setIsImportFromNetworkOpen] = useState(false);
+  const [showImportDropdown, setShowImportDropdown] = useState(false);
+  const importDropdownRef = React.useRef<HTMLDivElement>(null);
   const [isLiveSlidesImportOpen, setIsLiveSlidesImportOpen] = useState(false);
   const [isActivatePresentationModalOpen, setIsActivatePresentationModalOpen] =
     useState(false);
@@ -1636,6 +1643,45 @@ const MainApplicationPage: React.FC = () => {
     };
   }, [templates]);
 
+  // Compute all existing live slides session IDs for import modal (to avoid duplicates)
+  const existingLiveSlidesSessionIds = useMemo(() => {
+    const sessionIds: string[] = [];
+    for (const p of playlists) {
+      for (const it of p.items) {
+        if (it.liveSlidesSessionId) {
+          sessionIds.push(it.liveSlidesSessionId);
+        }
+      }
+    }
+    return sessionIds;
+  }, [playlists]);
+
+  // Check if we can load from master (network sync configured as slave/peer with remote host)
+  const networkSyncSettingsForImport = loadNetworkSyncSettings();
+  const canLoadFromMaster =
+    (networkSyncSettingsForImport.mode === "slave" ||
+      networkSyncSettingsForImport.mode === "peer") &&
+    networkSyncSettingsForImport.remoteHost.trim() !== "";
+
+  // Close import dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        importDropdownRef.current &&
+        !importDropdownRef.current.contains(event.target as Node)
+      ) {
+        setShowImportDropdown(false);
+      }
+    };
+
+    if (showImportDropdown) {
+      document.addEventListener("mousedown", handleClickOutside);
+      return () => {
+        document.removeEventListener("mousedown", handleClickOutside);
+      };
+    }
+  }, [showImportDropdown]);
+
   // Live update any live-linked playlist items while the server is running.
   useEffect(() => {
     const linkedSessionIds = new Set<string>();
@@ -1792,21 +1838,129 @@ const MainApplicationPage: React.FC = () => {
             </h3>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-            <button
-              onClick={() => {
-                if (currentPlaylist) {
-                  setIsImportModalOpen(true);
-                } else {
-                  alert("Please select a playlist first.");
-                }
-              }}
-              disabled={!currentPlaylist}
-              className="primary"
-              title={`Import to "${currentPlaylist?.name || "Playlist"}"`}
-            >
-              <FaFileImport />
-              Import
-            </button>
+            {/* Import Dropdown */}
+            <div ref={importDropdownRef} style={{ position: "relative" }}>
+              <button
+                onClick={() => {
+                  if (currentPlaylist) {
+                    setShowImportDropdown(!showImportDropdown);
+                  } else {
+                    alert("Please select a playlist first.");
+                  }
+                }}
+                disabled={!currentPlaylist}
+                className="primary"
+                title={`Import to "${currentPlaylist?.name || "Playlist"}"`}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "6px",
+                }}
+              >
+                <FaFileImport />
+                Import
+                <FaCaretDown style={{ marginLeft: "4px" }} />
+              </button>
+
+              {showImportDropdown && (
+                <div
+                  style={{
+                    position: "absolute",
+                    top: "100%",
+                    right: 0,
+                    marginTop: "4px",
+                    backgroundColor: "var(--app-bg-color)",
+                    border: "1px solid var(--app-border-color)",
+                    borderRadius: "8px",
+                    boxShadow: "0 4px 12px rgba(0,0,0,0.2)",
+                    zIndex: 100,
+                    minWidth: "200px",
+                    overflow: "hidden",
+                  }}
+                >
+                  <button
+                    onClick={() => {
+                      setShowImportDropdown(false);
+                      setIsImportModalOpen(true);
+                    }}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
+                      width: "100%",
+                      padding: "10px 14px",
+                      backgroundColor: "transparent",
+                      color: "var(--app-text-color)",
+                      border: "none",
+                      borderBottom: "1px solid var(--app-border-color)",
+                      cursor: "pointer",
+                      fontSize: "0.875rem",
+                      textAlign: "left",
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.backgroundColor =
+                        "var(--app-hover-bg-color)";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.backgroundColor = "transparent";
+                    }}
+                  >
+                    <FaFile style={{ opacity: 0.7 }} /> From Text
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowImportDropdown(false);
+                      setIsImportFromNetworkOpen(true);
+                    }}
+                    disabled={!canLoadFromMaster}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
+                      width: "100%",
+                      padding: "10px 14px",
+                      backgroundColor: "transparent",
+                      color: canLoadFromMaster
+                        ? "var(--app-text-color)"
+                        : "var(--app-text-color-secondary)",
+                      border: "none",
+                      cursor: canLoadFromMaster ? "pointer" : "not-allowed",
+                      fontSize: "0.875rem",
+                      textAlign: "left",
+                      opacity: canLoadFromMaster ? 1 : 0.5,
+                    }}
+                    onMouseEnter={(e) => {
+                      if (canLoadFromMaster) {
+                        e.currentTarget.style.backgroundColor =
+                          "var(--app-hover-bg-color)";
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.backgroundColor = "transparent";
+                    }}
+                    title={
+                      !canLoadFromMaster
+                        ? "Configure network sync as slave/peer with a remote host in Settings → Network"
+                        : ""
+                    }
+                  >
+                    <FaCloud style={{ opacity: 0.7 }} />
+                    From Network
+                    {!canLoadFromMaster && (
+                      <span
+                        style={{
+                          fontSize: "0.7rem",
+                          marginLeft: "auto",
+                          color: "var(--app-text-color-secondary)",
+                        }}
+                      >
+                        (Not configured)
+                      </span>
+                    )}
+                  </button>
+                </div>
+              )}
+            </div>
             <button
               onClick={() => {
                 if (currentPlaylist) {
@@ -2013,6 +2167,12 @@ const MainApplicationPage: React.FC = () => {
         onClose={() => setIsImportModalOpen(false)}
         templates={templates}
         onImport={handleImportFromModal}
+      />
+      <ImportFromNetworkModal
+        isOpen={isImportFromNetworkOpen}
+        onClose={() => setIsImportFromNetworkOpen(false)}
+        onImport={handleImportFromModal}
+        existingSessionIds={existingLiveSlidesSessionIds}
       />
       <ImportFromLiveSlidesModal
         isOpen={isLiveSlidesImportOpen}

@@ -235,6 +235,45 @@ export class LiveSlidesWebSocket {
 }
 
 // ============================================================================
+// Fetch from Master (for slave sync backup)
+// ============================================================================
+
+export interface MasterSlidesResponse {
+  sessions: LiveSlideSession[];
+  server_running: boolean;
+}
+
+/**
+ * Fetch all live slide sessions from a master server via HTTP JSON API.
+ * This is a backup sync method when WebSocket sync doesn't work well.
+ */
+export async function fetchSlidesFromMaster(
+  masterHost: string,
+  masterPort: number
+): Promise<MasterSlidesResponse> {
+  const url = `http://${masterHost}:${masterPort}/api/live-slides`;
+  
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      headers: {
+        "Accept": "application/json",
+      },
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Failed to fetch from master: ${response.status} ${response.statusText}`);
+    }
+    
+    const data = await response.json();
+    return data as MasterSlidesResponse;
+  } catch (error) {
+    console.error("[LiveSlides] Failed to fetch from master:", error);
+    throw error;
+  }
+}
+
+// ============================================================================
 // URL Generation
 // ============================================================================
 

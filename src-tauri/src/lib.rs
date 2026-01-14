@@ -555,6 +555,24 @@ async fn run_combined_server(port: u16) -> Result<(), String> {
             }
         });
     
+    // Live Slides API route - exposes all sessions as JSON for master/slave sync
+    let live_slides_api_state = state.clone();
+    let live_slides_api_route = warp::path("api")
+        .and(warp::path("live-slides"))
+        .and(warp::path::end())
+        .and_then(move || {
+            let state_clone = live_slides_api_state.clone();
+            async move {
+                let sessions = state_clone.sessions.read().await;
+                let session_list: Vec<&LiveSlideSession> = sessions.values().collect();
+                let response = serde_json::json!({
+                    "sessions": session_list,
+                    "server_running": true,
+                });
+                Ok::<_, warp::Rejection>(warp::reply::json(&response))
+            }
+        });
+    
     // Schedule view route - serve schedule-view.html
     let schedule_view_route = warp::path("schedule")
         .and(warp::path("view"))
@@ -635,9 +653,10 @@ async fn run_combined_server(port: u16) -> Result<(), String> {
         .allow_methods(vec!["GET", "POST", "OPTIONS"])
         .allow_headers(vec!["Content-Type"]);
     
-    // Combine routes: WebSocket first, then API, then schedule view, then static files
+    // Combine routes: WebSocket first, then APIs, then schedule view, then static files
     let routes = ws_route
         .or(schedule_api_route)
+        .or(live_slides_api_route)
         .or(schedule_view_route)
         .or(root_route)
         .or(static_route)
