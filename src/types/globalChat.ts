@@ -79,6 +79,15 @@ export interface AIAssistantContext {
     itemCount: number;
   };
 
+  // Current slides context (the slides of the currently selected playlist item)
+  currentSlides?: Array<{
+    id: string;
+    text: string;
+    layout: string;
+    order: number;
+    isAutoScripture?: boolean;
+  }>;
+
   // Timer/Schedule context
   currentSchedule?: ScheduleItem[];
   smartAutomations?: SmartAutomationRule[];
@@ -110,6 +119,7 @@ export type AIActionType =
   | "setTimer"
   | "stopTimer"
   | "updateSchedule"
+  | "updateCurrentSlides"
   | "triggerSlide"
   | "triggerNextSlide"
   | "triggerPreviousSlide"
@@ -174,6 +184,16 @@ export interface ClearLayerParams {
   layer: "audio" | "props" | "messages" | "announcements" | "slide" | "media" | "video_input";
 }
 
+export interface UpdateCurrentSlidesParams {
+  slides: Array<{
+    id: string;
+    text: string;
+    layout?: string;
+    order: number;
+    isAutoScripture?: boolean;
+  }>;
+}
+
 export interface SlideNavigationParams {
   count?: number; // Number of times to trigger (default: 1)
 }
@@ -183,8 +203,8 @@ export interface SlideNavigationParams {
 // ============================================
 
 export interface InternalAction {
-  type: "createSlides" | "createPlaylist" | "addToPlaylist" | "setTimer" | "stopTimer" | "updateSchedule";
-  params?: CreateSlidesParams | CreatePlaylistParams | SetTimerParams | ScheduleItem[];
+  type: "createSlides" | "createPlaylist" | "addToPlaylist" | "setTimer" | "stopTimer" | "updateSchedule" | "updateCurrentSlides";
+  params?: CreateSlidesParams | CreatePlaylistParams | SetTimerParams | ScheduleItem[] | UpdateCurrentSlidesParams;
 }
 
 export interface ProPresenterAction {

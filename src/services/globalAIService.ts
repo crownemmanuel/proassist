@@ -24,6 +24,7 @@ import {
   DisplayWithAITemplateParams,
   SetProPresenterTimerParams,
   ClearLayerParams,
+  UpdateCurrentSlidesParams,
 } from "../types/globalChat";
 import { Template, Playlist, Slide, AIProvider } from "../types";
 import { ScheduleItem } from "../types/propresenter";
@@ -40,7 +41,7 @@ import * as ppActions from "./propresenterAIService";
 const GLOBAL_CHAT_SETTINGS_KEY = "proassist-global-chat-settings";
 
 // Context modes for the AI assistant
-export type AIContextMode = "auto" | "timer" | "slides" | "all";
+export type AIContextMode = "auto" | "timer" | "slides" | "currentSlide" | "all";
 
 // ============================================
 // ProPresenter Detection
@@ -194,6 +195,59 @@ ${templatesList || "No templates configured"}
 `;
   };
 
+  // Current slides focused context (for editing the currently open slides)
+  const currentSlidesContext = () => {
+    if (!context.currentSlides || context.currentSlides.length === 0) {
+      return `## CURRENT SLIDES
+No slides currently selected. The user needs to select a playlist item to edit slides.
+`;
+    }
+
+    // Check if any slides are auto-scripture
+    const hasAutoScripture = context.currentSlides.some((s: any) => s.isAutoScripture);
+    const autoScriptureNote = hasAutoScripture ? `
+### IMPORTANT: Auto-Scripture Slides
+Some slides are marked as "isAutoScripture": true. These are Bible verse slides auto-generated from KJV.
+- The format is: "Verse text\\nReference" (e.g., "For God so loved the world...\\nJohn 3:16")
+- For these slides, you can ONLY change the REFERENCE (the last line, e.g., "John 3:16" → "John 3:17")
+- DO NOT modify the verse text - only update the reference line
+- The system will automatically re-fetch the correct verse text from the KJV Bible
+- If user asks to change a scripture, update the reference to the new verse/chapter they want
+- Example: To change from John 3:16 to John 3:17, set text to: "placeholder\\nJohn 3:17" (the verse text will be auto-replaced)
+` : "";
+
+    return `## CURRENT SLIDES ACTIONS
+- **updateCurrentSlides**: Modify the currently open slides
+  - IMPORTANT: params must be an object with "slides" array containing ALL slides (modified + unchanged)
+  - Copy the current slides, apply the requested changes, and return the full array
+  - Preserve slide IDs exactly as they are
+  - Example: { "type": "updateCurrentSlides", "params": { "slides": [full slides array here] } }
+
+### Slide Format:
+{
+  "id": "slide-id",  // PRESERVE the original ID exactly
+  "text": "Slide text content\\nSecond line\\nThird line",  // Newline-separated content
+  "layout": "three-line",  // one-line, two-line, three-line, four-line, five-line, six-line
+  "order": 1,  // Position in the list (1-based)
+  "isAutoScripture": false  // true if this is an auto-generated Bible verse slide
+}
+${autoScriptureNote}
+### Current Slides (you MUST include all these slides in your response when updating):
+${JSON.stringify(context.currentSlides, null, 2)}
+
+### Current Slides Rules:
+- When updating, ALWAYS return the COMPLETE slides array with all slides
+- If user asks to change one slide, copy the entire array and modify only that slide
+- Preserve all unchanged slides exactly as they are (same id, order, layout, etc.)
+- NEVER change slide IDs - they are used to track updates
+- The "text" field uses \\n for line breaks within a slide
+- The "layout" determines how many lines are displayed (one-line = 1, two-line = 2, etc.)
+- Match the layout to the number of lines in the text when adding/modifying slides
+- If editing text, try to keep the same layout unless the user specifically asks to change it
+- For isAutoScripture slides, ONLY modify the reference (last line) - verse text is auto-fetched
+`;
+  };
+
   // ProPresenter context
   const proPresenterContext = () => {
     const hasAITemplates = context.proPresenter.aiTemplates.length > 0;
@@ -288,9 +342,15 @@ ${templatesSection}
     if (includeProPresenterContext) {
       contextSpecificPrompt += "\n" + proPresenterContext();
     }
+  } else if (contextMode === "currentSlide") {
+    // Current slide context - focused on editing the currently selected slides
+    contextSpecificPrompt = currentSlidesContext();
+    if (includeProPresenterContext) {
+      contextSpecificPrompt += "\n" + proPresenterContext();
+    }
   } else if (contextMode === "all") {
     // Include everything when mode is "all"
-    contextSpecificPrompt = timerContext() + "\n" + slidesContext() + "\n" + proPresenterContext();
+    contextSpecificPrompt = timerContext() + "\n" + slidesContext() + "\n" + currentSlidesContext() + "\n" + proPresenterContext();
   } else if (contextMode === "auto") {
     // For auto mode, include timer and slides by default
     // Only add ProPresenter if user message indicates they need it
@@ -416,7 +476,8 @@ export function buildContext(
   currentPage: AIAssistantContext["currentPage"],
   templates: Template[],
   currentPlaylist?: { id: string; name: string; items: any[] },
-  currentSchedule?: ScheduleItem[]
+  currentSchedule?: ScheduleItem[],
+  currentSlides?: Slide[]
 ): AIAssistantContext {
   const connections = loadProPresenterConnections();
   const enabledConnections = getEnabledConnections();
@@ -441,6 +502,13 @@ export function buildContext(
           itemCount: currentPlaylist.items?.length || 0,
         }
       : undefined,
+    currentSlides: currentSlides?.map((s) => ({
+      id: s.id,
+      text: s.text,
+      layout: s.layout,
+      order: s.order,
+      isAutoScripture: s.isAutoScripture || false,
+    })),
     currentSchedule,
     smartAutomations,
     proPresenter: {
@@ -467,6 +535,7 @@ export function buildContext(
       "createPlaylist",
       "setTimer",
       "updateSchedule",
+      "updateCurrentSlides",
       "triggerSlide",
       "triggerNextSlide",
       "triggerPreviousSlide",
@@ -603,6 +672,7 @@ export interface ActionCallbacks {
   onPlaylistCreated?: (playlist: Playlist) => void;
   onTimerSet?: (params: SetTimerParams) => void;
   onScheduleUpdated?: (schedule: ScheduleItem[]) => void;
+  onCurrentSlidesUpdated?: (slides: Slide[]) => void;
 }
 
 export async function executeActions(
@@ -657,6 +727,14 @@ export async function executeActions(
           callbacks.onScheduleUpdated
         );
         results.push(scheduleResult);
+        break;
+
+      case "updateCurrentSlides":
+        const currentSlidesResult = await appActions.updateCurrentSlides(
+          action.params as UpdateCurrentSlidesParams,
+          callbacks.onCurrentSlidesUpdated
+        );
+        results.push(currentSlidesResult);
         break;
     }
   }

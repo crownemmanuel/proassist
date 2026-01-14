@@ -45,10 +45,12 @@ interface GlobalChatDrawerProps {
   templates: Template[];
   currentPlaylist?: { id: string; name: string; items: any[] };
   currentSchedule?: ScheduleItem[];
+  currentSlides?: Slide[]; // The slides of the currently selected playlist item
   onSlidesCreated?: (slides: Slide[], templateId: string) => void;
   onPlaylistCreated?: (playlist: Playlist) => void;
   onTimerSet?: (params: SetTimerParams) => void;
   onScheduleUpdated?: (schedule: ScheduleItem[]) => void;
+  onCurrentSlidesUpdated?: (slides: Slide[]) => void; // Callback when AI updates current slides
 }
 
 const drawerStyles: Record<string, React.CSSProperties> = {
@@ -231,7 +233,8 @@ const drawerStyles: Record<string, React.CSSProperties> = {
 const CONTEXT_MODE_LABELS: Record<AIContextMode, { label: string; icon: string; color: string }> = {
   auto: { label: "Auto", icon: "🤖", color: "#a855f7" },
   timer: { label: "Timer", icon: "⏱", color: "#3b82f6" },
-  slides: { label: "Slides", icon: "📊", color: "#22c55e" },
+  slides: { label: "All Slides", icon: "📊", color: "#22c55e" },
+  currentSlide: { label: "Current Slide", icon: "📝", color: "#06b6d4" },
   all: { label: "All", icon: "🌐", color: "#f59e0b" },
 };
 
@@ -242,10 +245,12 @@ export const GlobalChatDrawer: React.FC<GlobalChatDrawerProps> = ({
   templates,
   currentPlaylist,
   currentSchedule,
+  currentSlides,
   onSlidesCreated,
   onPlaylistCreated,
   onTimerSet,
   onScheduleUpdated,
+  onCurrentSlidesUpdated,
 }) => {
   const [messages, setMessages] = useState<ChatMessageType[]>([]);
   const [inputValue, setInputValue] = useState("");
@@ -334,7 +339,8 @@ export const GlobalChatDrawer: React.FC<GlobalChatDrawerProps> = ({
         currentPage,
         templates,
         currentPlaylist,
-        currentSchedule
+        currentSchedule,
+        currentSlides
       );
 
       const response = await processGlobalChatMessage(
@@ -349,6 +355,7 @@ export const GlobalChatDrawer: React.FC<GlobalChatDrawerProps> = ({
         onPlaylistCreated,
         onTimerSet,
         onScheduleUpdated,
+        onCurrentSlidesUpdated,
       };
 
       let executedActions: ExecutedAction[] = [];
@@ -393,10 +400,13 @@ export const GlobalChatDrawer: React.FC<GlobalChatDrawerProps> = ({
     templates,
     currentPlaylist,
     currentSchedule,
+    currentSlides,
+    contextMode,
     onSlidesCreated,
     onPlaylistCreated,
     onTimerSet,
     onScheduleUpdated,
+    onCurrentSlidesUpdated,
   ]);
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -674,6 +684,8 @@ export const GlobalChatDrawer: React.FC<GlobalChatDrawerProps> = ({
                 ? "Schedule loaded"
                 : contextMode === "slides"
                 ? "Templates loaded"
+                : contextMode === "currentSlide"
+                ? currentSlides?.length ? `${currentSlides.length} slides` : "No slides selected"
                 : "Full context"}
             </span>
           </div>

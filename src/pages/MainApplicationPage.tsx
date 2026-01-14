@@ -558,6 +558,70 @@ const MainApplicationPage: React.FC = () => {
     (item) => item.id === selectedItemId
   );
 
+  // Emit current slides changes to App.tsx for Global AI Assistant
+  useEffect(() => {
+    const slides = currentPlaylistItem?.slides || [];
+    window.dispatchEvent(
+      new CustomEvent("current-slides-changed", {
+        detail: { slides },
+      })
+    );
+  }, [currentPlaylistItem?.slides]);
+
+  // Listen for AI-updated current slides event (from Global AI Chat Assistant)
+  useEffect(() => {
+    const handleAICurrentSlidesUpdated = (event: CustomEvent<{ slides: Slide[] }>) => {
+      if (!selectedPlaylistId || !currentPlaylistItem) {
+        console.warn("Cannot update slides: no playlist item selected");
+        return;
+      }
+
+      const { slides: updatedSlides } = event.detail;
+
+      setPlaylists((prevPlaylists) =>
+        prevPlaylists.map((p) => {
+          if (p.id === selectedPlaylistId) {
+            return {
+              ...p,
+              items: p.items.map((item) => {
+                if (item.id === currentPlaylistItem.id) {
+                  // Merge updated slides with existing slides (to preserve extra properties)
+                  const mergedSlides = updatedSlides.map((updatedSlide) => {
+                    const existingSlide = item.slides.find(s => s.id === updatedSlide.id);
+                    if (existingSlide) {
+                      // Preserve existing properties (like proPresenterActivation, timerSessionIndex, isAutoScripture)
+                      return {
+                        ...existingSlide,
+                        text: updatedSlide.text,
+                        layout: updatedSlide.layout,
+                        order: updatedSlide.order,
+                      };
+                    }
+                    // New slide from AI
+                    return updatedSlide;
+                  });
+                  return {
+                    ...item,
+                    slides: mergedSlides,
+                  };
+                }
+                return item;
+              }),
+            };
+          }
+          return p;
+        })
+      );
+
+      console.log("AI updated current slides:", updatedSlides.length);
+    };
+
+    window.addEventListener("ai-current-slides-updated", handleAICurrentSlidesUpdated as EventListener);
+    return () => {
+      window.removeEventListener("ai-current-slides-updated", handleAICurrentSlidesUpdated as EventListener);
+    };
+  }, [selectedPlaylistId, currentPlaylistItem]);
+
   // Function to add a new playlist (basic example)
   const handleAddPlaylist = (name: string) => {
     const newPlaylist: Playlist = {

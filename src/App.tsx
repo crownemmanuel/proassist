@@ -207,6 +207,7 @@ function AppContent({
   // Global Chat State
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [templates, setTemplates] = useState<Template[]>([]);
+  const [currentSlides, setCurrentSlides] = useState<Slide[]>([]);
 
   // Load templates from localStorage
   const loadTemplates = useCallback(() => {
@@ -234,6 +235,18 @@ function AppContent({
       window.removeEventListener("templates-updated", handleTemplatesUpdated);
     };
   }, [loadTemplates]);
+
+  // Listen for current slides changes from MainApplicationPage
+  useEffect(() => {
+    const handleCurrentSlidesChanged = (event: CustomEvent<{ slides: Slide[] }>) => {
+      setCurrentSlides(event.detail.slides || []);
+    };
+
+    window.addEventListener("current-slides-changed", handleCurrentSlidesChanged as EventListener);
+    return () => {
+      window.removeEventListener("current-slides-changed", handleCurrentSlidesChanged as EventListener);
+    };
+  }, []);
 
   // Determine current page for chat context
   const getCurrentPage = ():
@@ -301,6 +314,16 @@ function AppContent({
     );
   }, []);
 
+  const handleCurrentSlidesUpdated = useCallback((slides: Slide[]) => {
+    // Dispatch event for MainApplicationPage to handle
+    setCurrentSlides(slides);
+    window.dispatchEvent(
+      new CustomEvent("ai-current-slides-updated", {
+        detail: { slides },
+      })
+    );
+  }, []);
+
   if (isNotepadPage) {
     // Notepad page gets full viewport without navigation
     return (
@@ -353,10 +376,12 @@ function AppContent({
         currentPage={getCurrentPage()}
         templates={templates}
         currentSchedule={schedule}
+        currentSlides={currentSlides}
         onSlidesCreated={handleSlidesCreated}
         onPlaylistCreated={handlePlaylistCreated}
         onTimerSet={handleTimerSet}
         onScheduleUpdated={handleScheduleUpdated}
+        onCurrentSlidesUpdated={handleCurrentSlidesUpdated}
       />
     </>
   );

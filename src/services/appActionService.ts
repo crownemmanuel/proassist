@@ -11,6 +11,7 @@ import {
   CreatePlaylistParams,
   SetTimerParams,
   ExecutedAction,
+  UpdateCurrentSlidesParams,
 } from "../types/globalChat";
 import { Template, Playlist, PlaylistItem, Slide, LayoutType } from "../types";
 import { ScheduleItem } from "../types/propresenter";
@@ -20,6 +21,10 @@ import {
   startTimerOnAllEnabled,
   stopTimerOnAllEnabled,
 } from "./propresenterService";
+import {
+  detectBibleReferences,
+  getVersesForReference,
+} from "./bibleService";
 
 // ============================================
 // Slide Creation Actions
@@ -477,6 +482,159 @@ export async function updateSchedule(
       action: "updateSchedule",
       success: false,
       message: error instanceof Error ? error.message : "Failed to update schedule",
+    };
+  }
+}
+
+// ============================================
+// Current Slides Actions
+// ============================================
+
+/**
+ * Extract the scripture reference from a slide's text
+ * Auto-scripture slides have format: "Verse text\nReference"
+ * Returns the last line as the reference
+ */
+function extractScriptureReference(text: string): string | null {
+  const lines = text.split("\n").filter(l => l.trim());
+  if (lines.length >= 1) {
+    // The reference is the last line
+    return lines[lines.length - 1].trim();
+  }
+  return null;
+}
+
+/**
+ * Re-fetch verse text from KJV Bible for an auto-scripture slide
+ * @param referenceText - The scripture reference (e.g., "John 3:16")
+ * @returns The full slide text with verse content and reference
+ */
+async function refetchVerseText(referenceText: string): Promise<{ text: string; success: boolean }> {
+  try {
+    // Detect the reference using the Bible parser
+    const detected = detectBibleReferences(referenceText);
+    
+    if (detected.length === 0) {
+      console.warn(`Could not parse Bible reference: ${referenceText}`);
+      return { text: referenceText, success: false };
+    }
+
+    // Get the verse(s) from KJV
+    const verses = await getVersesForReference(detected[0].reference);
+    
+    if (verses.length === 0) {
+      console.warn(`No verses found for reference: ${referenceText}`);
+      return { text: referenceText, success: false };
+    }
+
+    // Combine verses if multiple (for ranges like John 3:16-17)
+    if (verses.length === 1) {
+      return {
+        text: `${verses[0].text}\n${verses[0].displayRef}`,
+        success: true,
+      };
+    } else {
+      // Multiple verses - combine them
+      const combinedText = verses.map(v => v.text).join(" ");
+      const displayRef = `${verses[0].book} ${verses[0].chapter}:${verses[0].verse}-${verses[verses.length - 1].verse}`;
+      return {
+        text: `${combinedText}\n${displayRef}`,
+        success: true,
+      };
+    }
+  } catch (error) {
+    console.error("Error fetching verse text:", error);
+    return { text: referenceText, success: false };
+  }
+}
+
+/**
+ * Update the currently open slides in the playlist item
+ * For auto-scripture slides, only the reference is updated and the verse text is re-fetched from KJV
+ */
+export async function updateCurrentSlides(
+  params: UpdateCurrentSlidesParams,
+  onCurrentSlidesUpdated?: (slides: Slide[]) => void
+): Promise<ExecutedAction> {
+  try {
+    if (!params.slides || params.slides.length === 0) {
+      return {
+        type: "internal",
+        action: "updateCurrentSlides",
+        success: false,
+        message: "No slides provided for update",
+      };
+    }
+
+    let scriptureUpdatesCount = 0;
+
+    // Process each slide, handling auto-scripture slides specially
+    const updatedSlides: Slide[] = await Promise.all(
+      params.slides.map(async (s) => {
+        // Check if this is an auto-scripture slide
+        if (s.isAutoScripture) {
+          // Extract the reference from the slide text (last line)
+          const reference = extractScriptureReference(s.text);
+          
+          if (reference) {
+            // Re-fetch the verse text from KJV to prevent hallucination
+            const result = await refetchVerseText(reference);
+            
+            if (result.success) {
+              scriptureUpdatesCount++;
+              console.log(`Re-fetched scripture for: ${reference}`);
+              return {
+                id: s.id,
+                text: result.text,
+                layout: (s.layout || "two-line") as LayoutType,
+                order: s.order,
+                isAutoScripture: true,
+              };
+            }
+          }
+          
+          // If reference extraction or fetch failed, keep the original format
+          return {
+            id: s.id,
+            text: s.text,
+            layout: (s.layout || "two-line") as LayoutType,
+            order: s.order,
+            isAutoScripture: true,
+          };
+        }
+
+        // Regular slide - just update normally
+        return {
+          id: s.id,
+          text: s.text,
+          layout: (s.layout || "one-line") as LayoutType,
+          order: s.order,
+          isAutoScripture: false,
+        };
+      })
+    );
+
+    if (onCurrentSlidesUpdated) {
+      onCurrentSlidesUpdated(updatedSlides);
+    }
+
+    const message = scriptureUpdatesCount > 0
+      ? `Updated ${updatedSlides.length} slide(s), re-fetched ${scriptureUpdatesCount} scripture(s) from KJV`
+      : `Updated ${updatedSlides.length} slide(s)`;
+
+    return {
+      type: "internal",
+      action: "updateCurrentSlides",
+      success: true,
+      message,
+    };
+  } catch (error) {
+    console.error("Error updating current slides:", error);
+    return {
+      type: "internal",
+      action: "updateCurrentSlides",
+      success: false,
+      message: error instanceof Error ? error.message : "Failed to update slides",
     };
   }
 }
