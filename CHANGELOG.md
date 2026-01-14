@@ -2,6 +2,25 @@
 
 All notable changes to ProAssist will be documented in this file.
 
+## [0.4.1] - 2025-01-27
+
+### Added
+- ProPresenter connection selector for all "Get Slide" buttons
+- Connection selector dropdown appears when 2+ ProPresenter connections are enabled
+- Connection label display when only 1 connection is enabled (shows which connection is being used)
+
+### Fixed
+- Fixed tab switching bug in Timer Schedule Automation modal - no longer switches back to "Trigger Slide" tab when clicking "Get Slide" after switching to "Change Layout" tab
+- Fixed issue where automation modal would re-initialize when currentAutomations prop changed, causing unwanted tab resets
+
+### Changed
+- All "Get Slide" functionality now uses the selected ProPresenter connection instead of trying all connections sequentially
+- Improved UX: users can now explicitly choose which ProPresenter instance to get slides from when multiple instances are configured
+
+### Technical
+- Updated ActivatePresentationModal, ScheduleAutomationModal, LiveTestimoniesSettings, and AISettingsForm to include connection selection
+- Added hasInitialized flag to ScheduleAutomationModal to prevent unwanted re-initialization
+
 ## [0.4.0] - 2025-01-XX
 
 ### Added
