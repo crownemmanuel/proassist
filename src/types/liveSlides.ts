@@ -32,6 +32,7 @@ export type WsMessageType =
   | "slides_update"
   | "session_created"
   | "session_deleted"
+  | "transcription_stream"
   | "error";
 
 export interface WsTextUpdate {
@@ -68,12 +69,34 @@ export interface WsError {
   message: string;
 }
 
+export type TranscriptionStreamKind = "interim" | "final";
+
+export interface WsTranscriptionStream {
+  type: "transcription_stream";
+  kind: TranscriptionStreamKind;
+  timestamp: number;
+  engine: string;
+  text: string;
+  segment?: {
+    id: string;
+    text: string;
+    timestamp: number;
+    isFinal: boolean;
+  };
+  scripture_references?: string[];
+  key_points?: Array<{
+    text: string;
+    category: string;
+  }>;
+}
+
 export type WsMessage =
   | WsTextUpdate
   | WsJoinSession
   | WsSlidesUpdate
   | WsSessionCreated
   | WsSessionDeleted
+  | WsTranscriptionStream
   | WsError;
 
 // Settings types

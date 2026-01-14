@@ -374,6 +374,23 @@ const SmartVersesSettings: React.FC = () => {
             Refresh Devices
           </button>
         </div>
+
+        <div style={fieldStyle}>
+          <label style={checkboxLabelStyle}>
+            <input
+              type="checkbox"
+              checked={settings.streamTranscriptionsToWebSocket}
+              onChange={(e) =>
+                handleChange("streamTranscriptionsToWebSocket", e.target.checked)
+              }
+            />
+            Stream transcription output to WebSocket
+          </label>
+          <p style={helpTextStyle}>
+            Rebroadcast transcript chunks (and any extracted key points / scripture refs) to the
+            Live Slides WebSocket so other pages (like the Notepad) can consume them in real-time.
+          </p>
+        </div>
       </div>
 
       {/* AI Settings */}

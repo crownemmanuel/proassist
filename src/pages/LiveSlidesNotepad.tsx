@@ -6,13 +6,13 @@ import React, {
   useMemo,
 } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
-import { FaSun, FaMoon, FaQuestionCircle } from "react-icons/fa";
+import { FaSun, FaMoon, FaQuestionCircle, FaMicrophone, FaPlus } from "react-icons/fa";
 import { LiveSlidesWebSocket } from "../services/liveSlideService";
 import {
   calculateSlideBoundaries,
   SlideBoundary,
 } from "../utils/liveSlideParser";
-import { LiveSlide } from "../types/liveSlides";
+import { LiveSlide, WsTranscriptionStream } from "../types/liveSlides";
 import "../App.css";
 
 // Theme-aware styles factory
@@ -104,6 +104,20 @@ const getNotepadStyles = (isDark: boolean) => {
       justifyContent: "center",
       transition: "all 0.2s ease",
       minWidth: "40px",
+    },
+    transcriptionToggleButton: {
+      backgroundColor: buttonBg,
+      color: text,
+      border: `1px solid ${buttonBorder}`,
+      padding: "8px 12px",
+      borderRadius: "6px",
+      cursor: "pointer",
+      fontSize: "0.85rem",
+      display: "flex",
+      alignItems: "center",
+      gap: "8px",
+      transition: "all 0.2s ease",
+      whiteSpace: "nowrap" as const,
     },
     themeToggle: {
       backgroundColor: buttonBg,
@@ -210,6 +224,117 @@ const getNotepadStyles = (isDark: boolean) => {
       lineHeight: "1.6",
       caretColor: "#3B82F6",
     },
+    transcriptionPanel: {
+      width: "30%",
+      minWidth: "280px",
+      maxWidth: "520px",
+      borderLeft: `1px solid ${border}`,
+      backgroundColor: bgSecondary,
+      display: "flex",
+      flexDirection: "column" as const,
+      overflow: "hidden",
+    },
+    transcriptionPanelHeader: {
+      padding: "12px",
+      borderBottom: `1px solid ${border}`,
+      display: "flex",
+      flexDirection: "column" as const,
+      gap: "10px",
+    },
+    transcriptionHeaderTopRow: {
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: "10px",
+    },
+    transcriptionTitle: {
+      display: "flex",
+      alignItems: "center",
+      gap: "8px",
+      fontSize: "0.9rem",
+      fontWeight: 600,
+      color: text,
+    },
+    transcriptionFilters: {
+      display: "flex",
+      gap: "10px",
+      flexWrap: "wrap" as const,
+      fontSize: "0.8rem",
+      color: textSecondary,
+    },
+    transcriptionFilterLabel: {
+      display: "flex",
+      alignItems: "center",
+      gap: "6px",
+      cursor: "pointer",
+      userSelect: "none" as const,
+    },
+    transcriptionScroll: {
+      flex: 1,
+      overflowY: "auto" as const,
+      padding: "12px",
+      display: "flex",
+      flexDirection: "column" as const,
+      gap: "10px",
+    },
+    transcriptionInterim: {
+      padding: "10px",
+      borderRadius: "8px",
+      border: `1px dashed ${border}`,
+      backgroundColor: bg,
+      color: textSecondary,
+      fontSize: "0.85rem",
+      lineHeight: "1.4",
+    },
+    transcriptionChunkCard: {
+      padding: "10px",
+      borderRadius: "10px",
+      border: `1px solid ${border}`,
+      backgroundColor: bg,
+      display: "flex",
+      flexDirection: "column" as const,
+      gap: "8px",
+    },
+    transcriptionChunkTopRow: {
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: "10px",
+    },
+    transcriptionChunkMeta: {
+      fontSize: "0.75rem",
+      color: textMuted,
+    },
+    transcriptionAddButton: {
+      backgroundColor: buttonBg,
+      color: text,
+      border: `1px solid ${buttonBorder}`,
+      padding: "6px 10px",
+      borderRadius: "6px",
+      cursor: "pointer",
+      fontSize: "0.8rem",
+      display: "flex",
+      alignItems: "center",
+      gap: "6px",
+      whiteSpace: "nowrap" as const,
+    },
+    transcriptionChunkText: {
+      fontSize: "0.9rem",
+      color: text,
+      lineHeight: "1.45",
+      whiteSpace: "pre-wrap" as const,
+      wordBreak: "break-word" as const,
+    },
+    transcriptionSubsection: {
+      borderTop: `1px solid ${border}`,
+      paddingTop: "8px",
+      fontSize: "0.82rem",
+      color: textSecondary,
+      lineHeight: "1.35",
+      display: "flex",
+      flexDirection: "column" as const,
+      gap: "6px",
+    },
     footer: {
       padding: "8px 20px",
       backgroundColor: bgSecondary,
@@ -251,6 +376,12 @@ const LiveSlidesNotepad: React.FC = () => {
   const [isConnected, setIsConnected] = useState(false);
   const [copyFeedback, setCopyFeedback] = useState("");
   const [showHelpPopup, setShowHelpPopup] = useState(false);
+  const [showLiveTranscription, setShowLiveTranscription] = useState(false);
+  const [liveInterimTranscript, setLiveInterimTranscript] = useState("");
+  const [liveTranscriptChunks, setLiveTranscriptChunks] = useState<WsTranscriptionStream[]>([]);
+  const [filterTranscript, setFilterTranscript] = useState(true);
+  const [filterReferences, setFilterReferences] = useState(false);
+  const [filterKeyPoints, setFilterKeyPoints] = useState(false);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const lineNumbersRef = useRef<HTMLDivElement>(null);
@@ -309,8 +440,27 @@ const LiveSlidesNotepad: React.FC = () => {
       }
     });
 
+    const unsubscribeTranscription = ws.onMessage((message) => {
+      if (message.type !== "transcription_stream") return;
+
+      const m = message as WsTranscriptionStream;
+      if (m.kind === "interim") {
+        setLiveInterimTranscript(m.text || "");
+        return;
+      }
+
+      if (m.kind === "final") {
+        setLiveInterimTranscript("");
+        setLiveTranscriptChunks((prev) => {
+          const next = [...prev, m].slice(-150);
+          return next;
+        });
+      }
+    });
+
     return () => {
       unsubscribe();
+      unsubscribeTranscription();
       ws.disconnect();
     };
   }, [sessionId, wsUrl]);
@@ -354,6 +504,32 @@ const LiveSlidesNotepad: React.FC = () => {
       }
     },
     []
+  );
+
+  const insertTranscriptChunkIntoNotepad = useCallback(
+    (chunkText: string) => {
+      const cleaned = (chunkText || "").trim();
+      if (!cleaned) return;
+
+      const el = textareaRef.current;
+      const current = text;
+
+      const safeStart = el?.selectionStart ?? current.length;
+      const safeEnd = el?.selectionEnd ?? current.length;
+
+      const before = current.slice(0, safeStart);
+      const after = current.slice(safeEnd);
+
+      const prefix = before.length > 0 && !before.endsWith("\n\n") ? "\n\n" : "";
+      const suffix = after.length > 0 && !after.startsWith("\n") ? "\n\n" : "";
+
+      const nextValue = before + prefix + cleaned + suffix + after;
+      const nextPos = (before + prefix + cleaned).length;
+
+      applyTextUpdate(nextValue, nextPos, nextPos);
+      el?.focus();
+    },
+    [applyTextUpdate, text]
   );
 
   const handleKeyDown = useCallback(
@@ -487,6 +663,39 @@ const LiveSlidesNotepad: React.FC = () => {
             }}
           >
             <FaQuestionCircle />
+          </button>
+          <button
+            onClick={() => setShowLiveTranscription((v) => !v)}
+            style={{
+              ...notepadStyles.transcriptionToggleButton,
+              backgroundColor: showLiveTranscription
+                ? "#3B82F6"
+                : notepadStyles.transcriptionToggleButton.backgroundColor,
+              color: showLiveTranscription
+                ? "white"
+                : notepadStyles.transcriptionToggleButton.color,
+              border: showLiveTranscription
+                ? "1px solid #3B82F6"
+                : notepadStyles.transcriptionToggleButton.border,
+            }}
+            title="Toggle live transcription panel"
+            onMouseEnter={(e) => {
+              if (!showLiveTranscription) {
+                e.currentTarget.style.backgroundColor = isDarkMode
+                  ? "#3a3a3a"
+                  : "#d8d8d8";
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (!showLiveTranscription) {
+                e.currentTarget.style.backgroundColor = isDarkMode
+                  ? "#2a2a2a"
+                  : "#e8e8e8";
+              }
+            }}
+          >
+            <FaMicrophone />
+            Live Transcription
           </button>
           {showHelpPopup && (
             <div style={notepadStyles.helpPopup}>
@@ -670,6 +879,152 @@ Result: Slide 1 = Title, Slide 2 = Title + Sub-item 1, Slide 3 = Title + Sub-ite
             autoFocus
           />
         </div>
+
+        {/* Live transcription panel */}
+        {showLiveTranscription && (
+          <div style={notepadStyles.transcriptionPanel}>
+            <div style={notepadStyles.transcriptionPanelHeader}>
+              <div style={notepadStyles.transcriptionHeaderTopRow}>
+                <div style={notepadStyles.transcriptionTitle}>
+                  <FaMicrophone />
+                  Live Transcriptions
+                </div>
+                <div style={{ fontSize: "0.75rem", color: notepadStyles.footer.color }}>
+                  {isConnected ? "WS connected" : "WS disconnected"}
+                </div>
+              </div>
+
+              <div style={notepadStyles.transcriptionFilters}>
+                <label style={notepadStyles.transcriptionFilterLabel}>
+                  <input
+                    type="checkbox"
+                    checked={filterTranscript}
+                    onChange={(e) => setFilterTranscript(e.target.checked)}
+                  />
+                  Transcript
+                </label>
+                <label style={notepadStyles.transcriptionFilterLabel}>
+                  <input
+                    type="checkbox"
+                    checked={filterReferences}
+                    onChange={(e) => setFilterReferences(e.target.checked)}
+                  />
+                  Scripture refs
+                </label>
+                <label style={notepadStyles.transcriptionFilterLabel}>
+                  <input
+                    type="checkbox"
+                    checked={filterKeyPoints}
+                    onChange={(e) => setFilterKeyPoints(e.target.checked)}
+                  />
+                  Key points
+                </label>
+              </div>
+            </div>
+
+            <div style={notepadStyles.transcriptionScroll}>
+              {filterTranscript && liveInterimTranscript.trim().length > 0 && (
+                <div style={notepadStyles.transcriptionInterim}>
+                  {liveInterimTranscript}
+                </div>
+              )}
+
+              {liveTranscriptChunks.length === 0 ? (
+                <div style={{ color: notepadStyles.footer.color, fontSize: "0.85rem" }}>
+                  Waiting for transcription stream…
+                  <div style={{ marginTop: "6px", fontSize: "0.78rem", opacity: 0.9 }}>
+                    Enable streaming in SmartVerses Settings → Transcription Settings.
+                  </div>
+                </div>
+              ) : (
+                liveTranscriptChunks
+                  .slice()
+                  .reverse()
+                  .map((m) => {
+                    const showAny =
+                      filterTranscript ||
+                      (filterReferences && (m.scripture_references?.length || 0) > 0) ||
+                      (filterKeyPoints && (m.key_points?.length || 0) > 0);
+
+                    if (!showAny) return null;
+
+                    const ts = new Date(m.timestamp).toLocaleTimeString();
+                    const chunkText = m.segment?.text || m.text;
+
+                    return (
+                      <div
+                        key={(m.segment?.id || `${m.timestamp}`) + m.kind}
+                        style={notepadStyles.transcriptionChunkCard}
+                      >
+                        <div style={notepadStyles.transcriptionChunkTopRow}>
+                          <div style={notepadStyles.transcriptionChunkMeta}>
+                            {ts} · {m.engine}
+                          </div>
+                          {filterTranscript && (
+                            <button
+                              style={notepadStyles.transcriptionAddButton}
+                              onClick={() => insertTranscriptChunkIntoNotepad(chunkText)}
+                              title="Add this chunk to the notepad as a new slide"
+                            >
+                              <FaPlus /> Add
+                            </button>
+                          )}
+                        </div>
+
+                        {filterTranscript && (
+                          <div style={notepadStyles.transcriptionChunkText}>{chunkText}</div>
+                        )}
+
+                        {filterReferences &&
+                          (m.scripture_references?.length || 0) > 0 && (
+                            <div style={notepadStyles.transcriptionSubsection}>
+                              <div
+                                style={{
+                                  fontWeight: 600,
+                                  color: notepadStyles.footer.color,
+                                }}
+                              >
+                                Scripture refs
+                              </div>
+                              <div>{m.scripture_references?.join(", ")}</div>
+                            </div>
+                          )}
+
+                        {filterKeyPoints && (m.key_points?.length || 0) > 0 && (
+                          <div style={notepadStyles.transcriptionSubsection}>
+                            <div
+                              style={{
+                                fontWeight: 600,
+                                color: notepadStyles.footer.color,
+                              }}
+                            >
+                              Key points
+                            </div>
+                            <div
+                              style={{
+                                display: "flex",
+                                flexDirection: "column",
+                                gap: "6px",
+                              }}
+                            >
+                              {m.key_points?.map((kp, i) => (
+                                <div key={`${m.timestamp}-kp-${i}`}>
+                                  <span style={{ opacity: 0.9 }}>
+                                    [{kp.category}]
+                                  </span>{" "}
+                                  {kp.text}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Footer */}

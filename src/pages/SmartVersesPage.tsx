@@ -19,6 +19,7 @@ import {
   SmartVersesSettings,
   SmartVersesChatMessage,
   DetectedBibleReference,
+  KeyPoint,
   TranscriptionStatus,
   TranscriptionSegment,
   DEFAULT_SMART_VERSES_SETTINGS,
@@ -43,6 +44,7 @@ import {
 } from "../services/smartVersesAIService";
 import { searchBibleTextAsReferences } from "../services/bibleTextSearchService";
 import { triggerPresentationOnConnections } from "../services/propresenterService";
+import { broadcastTranscriptionStreamMessage } from "../services/transcriptionBroadcastService";
 import "../App.css";
 
 // =============================================================================
@@ -540,6 +542,18 @@ const SmartVersesPage: React.FC = () => {
         {
           onInterimTranscript: (text) => {
             setInterimTranscript(text);
+
+            if (settings.streamTranscriptionsToWebSocket) {
+              broadcastTranscriptionStreamMessage({
+                type: "transcription_stream",
+                kind: "interim",
+                timestamp: Date.now(),
+                engine: settings.transcriptionEngine,
+                text,
+              }).catch(() => {
+                // If Live Slides server isn't running, silently ignore.
+              });
+            }
           },
           onFinalTranscript: async (text, segment) => {
             setTranscriptHistory(prev => [...prev, segment]);
@@ -547,9 +561,29 @@ const SmartVersesPage: React.FC = () => {
 
             // Detect Bible references in the transcript
             const directRefs = await detectAndLookupReferences(text);
+            let keyPoints: KeyPoint[] = [];
+            let scriptureReferences: string[] = [];
             
             if (directRefs.length > 0) {
               setDetectedReferences(prev => [...prev, ...directRefs]);
+              scriptureReferences = Array.from(
+                new Set(directRefs.map((r) => (r.displayRef || "").trim()).filter(Boolean))
+              );
+
+              // If key point extraction is enabled, run that even when direct refs exist.
+              if (settings.enableKeyPointExtraction) {
+                try {
+                  const analysis = await analyzeTranscriptChunk(
+                    text,
+                    appSettings,
+                    false, // don't paraphrase-detect if we already have direct refs
+                    true   // extract key points
+                  );
+                  keyPoints = analysis.keyPoints || [];
+                } catch (e) {
+                  console.warn("[SmartVerses] Key point extraction failed:", e);
+                }
+              }
               
               // Add to chat history if enabled
               if (settings.autoAddDetectedToHistory) {
@@ -575,6 +609,7 @@ const SmartVersesPage: React.FC = () => {
                 true,
                 settings.enableKeyPointExtraction
               );
+              keyPoints = analysis.keyPoints || [];
 
               console.log(
                 "[SmartVerses][Paraphrase] AI analysis returned:",
@@ -613,6 +648,9 @@ const SmartVersesPage: React.FC = () => {
 
                   if (deduped.length > 0) {
                     setDetectedReferences(prev => [...prev, ...deduped]);
+                    scriptureReferences = Array.from(
+                      new Set(deduped.map((r) => (r.displayRef || "").trim()).filter(Boolean))
+                    );
                   }
                   
                   if (settings.autoAddDetectedToHistory) {
@@ -628,6 +666,21 @@ const SmartVersesPage: React.FC = () => {
                   }
                 }
               }
+            }
+
+            if (settings.streamTranscriptionsToWebSocket) {
+              broadcastTranscriptionStreamMessage({
+                type: "transcription_stream",
+                kind: "final",
+                timestamp: Date.now(),
+                engine: settings.transcriptionEngine,
+                text,
+                segment,
+                scripture_references: scriptureReferences.length ? scriptureReferences : undefined,
+                key_points: keyPoints.length ? keyPoints : undefined,
+              }).catch(() => {
+                // If Live Slides server isn't running, silently ignore.
+              });
             }
           },
           onError: (error) => {

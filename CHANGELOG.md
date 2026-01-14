@@ -2,6 +2,27 @@
 
 All notable changes to ProAssist will be documented in this file.
 
+## [0.5.0] - 2025-01-28
+
+### Added
+- **Live Transcription Streaming via WebSocket**: SmartVerses transcriptions can now be streamed in real-time to Live Slides Notepad and other WebSocket clients
+- **Transcription Settings**: Added "Stream transcription output to WebSocket" checkbox in SmartVerses Settings (enabled by default)
+- **Live Transcription Panel in Notepad**: New "Live Transcription" button in Live Slides Notepad that enables a 70/30 split view
+- **Transcription Chunk Cards**: Final transcript chunks appear as bordered cards with click-to-add functionality
+- **Client-Side Filters**: Filter transcription display by Transcript, Scripture References, and Key Points
+- **Real-time Transcription Display**: See interim and final transcripts as they arrive, including detected scripture references and extracted key points
+- **WebSocket Broadcast Service**: New Tauri command to broadcast transcription events to all connected Live Slides clients
+
+### Changed
+- Live Slides Notepad now supports split-view mode for viewing live transcriptions alongside slide editing
+- Transcription chunks can be directly added to slides via click-to-insert functionality
+
+### Technical
+- Added `broadcast_live_slides_message` Tauri command for flexible WebSocket broadcasting
+- Extended Live Slides WebSocket message types to include `transcription_stream` payload
+- Transcription broadcast service integrates with existing Live Slides `/ws` server infrastructure
+- Key points and scripture references are included in transcription stream when enabled in settings
+
 ## [0.4.1] - 2025-01-27
 
 ### Added

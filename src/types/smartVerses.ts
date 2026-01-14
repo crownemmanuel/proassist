@@ -140,6 +140,7 @@ export interface SmartVersesSettings {
   transcriptionEngine: TranscriptionEngine;
   assemblyAIApiKey?: string;
   selectedMicrophoneId?: string;
+  streamTranscriptionsToWebSocket: boolean;
   
   // AI Search settings
   enableAISearch: boolean;
@@ -181,6 +182,7 @@ export interface SmartVersesSettings {
 
 export const DEFAULT_SMART_VERSES_SETTINGS: SmartVersesSettings = {
   transcriptionEngine: 'assemblyai',
+  streamTranscriptionsToWebSocket: true,
   enableAISearch: false, // Off by default - uses text search instead
   bibleSearchProvider: 'groq',
   bibleSearchModel: 'llama-3.3-70b-versatile',

@@ -1213,6 +1213,28 @@ async fn broadcast_sync_message(message: String) -> Result<(), String> {
     Ok(())
 }
 
+// ============================================================================
+// Live Slides Broadcast (generic)
+// ============================================================================
+
+#[tauri::command]
+async fn broadcast_live_slides_message(message: String) -> Result<(), String> {
+    let state = SERVER_STATE.clone();
+
+    // If the server isn't running, there's nowhere to broadcast to.
+    // We return an error so callers can decide whether to surface it or ignore it.
+    if !*state.running.read().await {
+        return Err("Live Slides server is not running".to_string());
+    }
+
+    state
+        .broadcast_tx
+        .send(message)
+        .map_err(|e| format!("Failed to broadcast: {}", e))?;
+
+    Ok(())
+}
+
 #[tauri::command]
 async fn update_sync_playlists(playlists: serde_json::Value) -> Result<(), String> {
     let state = SYNC_SERVER_STATE.clone();
@@ -1250,7 +1272,9 @@ pub fn run() {
             stop_sync_server,
             get_sync_server_info,
             broadcast_sync_message,
-            update_sync_playlists
+            update_sync_playlists,
+            // Live Slides generic broadcast
+            broadcast_live_slides_message
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

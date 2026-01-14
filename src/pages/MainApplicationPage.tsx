@@ -744,14 +744,13 @@ const MainApplicationPage: React.FC = () => {
     }
 
     const lines = slide.text.split("\n");
-    const basePath = (
-      playlistItem.liveSlidesSessionId
-        ? liveSlidesSettings?.outputPath
-        : template?.outputPath || ""
-    ).replace(/\/?$/, "/");
-    const prefix = playlistItem.liveSlidesSessionId
+    const rawBasePath = playlistItem.liveSlidesSessionId
+      ? liveSlidesSettings?.outputPath
+      : template?.outputPath;
+    const basePath = (rawBasePath || "").replace(/\/?$/, "/");
+    const prefix = (playlistItem.liveSlidesSessionId
       ? liveSlidesSettings?.outputFilePrefix
-      : template?.outputFileNamePrefix || "";
+      : template?.outputFileNamePrefix) || "";
 
     // Check if this is an auto-scripture slide with custom mapping configured
     const isScriptureWithMapping =
@@ -902,7 +901,7 @@ const MainApplicationPage: React.FC = () => {
       }
 
       // Clear text files after going live if configured
-      if (template?.clearTextAfterLive) {
+      if (template?.clearTextAfterLive && basePath && prefix) {
         const clearDelay = template.clearTextDelay ?? 0;
         if (clearDelay > 0) {
           setTimeout(async () => {
