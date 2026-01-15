@@ -455,67 +455,6 @@ const SmartVersesSettings: React.FC = () => {
         </div>
 
         <div style={fieldStyle}>
-          <label style={labelStyle}>Audio Capture</label>
-          <select
-            value={(settings.audioCaptureMode || "webrtc") as AudioCaptureMode}
-            onChange={(e) => {
-              const mode = e.target.value as AudioCaptureMode;
-              handleChange("audioCaptureMode", mode);
-              if (mode === "native") {
-                loadNativeDevices();
-              }
-            }}
-            style={inputStyle}
-          >
-            <option value="webrtc">WebView (WebRTC) — simplest</option>
-            <option value="native">
-              Native (CoreAudio/WASAPI) — more devices
-            </option>
-          </select>
-          <p style={helpTextStyle}>
-            Native capture helps when macOS WKWebView doesn’t expose some
-            virtual devices (Teams/Zoom/etc).
-          </p>
-        </div>
-
-        {(settings.audioCaptureMode || "webrtc") === "native" && (
-          <div style={fieldStyle}>
-            <label style={labelStyle}>Native Microphone</label>
-            <select
-              value={settings.selectedNativeMicrophoneId || ""}
-              onChange={(e) =>
-                handleChange(
-                  "selectedNativeMicrophoneId",
-                  e.target.value || undefined
-                )
-              }
-              style={inputStyle}
-            >
-              <option value="">System Default</option>
-              {nativeDevices.map((d) => (
-                <option key={d.id} value={String(d.id)}>
-                  {d.name}
-                  {d.is_default ? " (Default)" : ""}
-                </option>
-              ))}
-            </select>
-            <button
-              onClick={loadNativeDevices}
-              className="secondary btn-sm"
-              style={{ marginTop: "var(--spacing-2)" }}
-              type="button"
-            >
-              Refresh Native Devices
-            </button>
-            {nativeDevicesError && (
-              <p style={{ ...helpTextStyle, color: "var(--error)" }}>
-                Failed to load native devices: {nativeDevicesError}
-              </p>
-            )}
-          </div>
-        )}
-
-        <div style={fieldStyle}>
           <label style={labelStyle}>AssemblyAI API Key</label>
           <div style={{ display: "flex", gap: "var(--spacing-2)" }}>
             <input
@@ -548,31 +487,95 @@ const SmartVersesSettings: React.FC = () => {
         </div>
 
         <div style={fieldStyle}>
-          <label style={labelStyle}>Microphone</label>
+          <label style={labelStyle}>Audio Capture</label>
           <select
-            value={settings.selectedMicrophoneId || ""}
-            onChange={(e) =>
-              handleChange("selectedMicrophoneId", e.target.value)
-            }
+            value={(settings.audioCaptureMode || "webrtc") as AudioCaptureMode}
+            onChange={(e) => {
+              const mode = e.target.value as AudioCaptureMode;
+              handleChange("audioCaptureMode", mode);
+              if (mode === "native") {
+                loadNativeDevices();
+              }
+            }}
             style={inputStyle}
-            disabled={settings.runTranscriptionInBrowser}
           >
-            <option value="">Default Microphone</option>
-            {availableMics.map((mic) => (
-              <option key={mic.deviceId} value={mic.deviceId}>
-                {mic.label || `Microphone ${mic.deviceId.slice(0, 8)}`}
-              </option>
-            ))}
+            <option value="webrtc">WebView (WebRTC) — simplest</option>
+            <option value="native">
+              Native (CoreAudio/WASAPI) — more devices
+            </option>
           </select>
-          <button
-            onClick={loadMicrophones}
-            className="secondary btn-sm"
-            style={{ marginTop: "var(--spacing-2)" }}
-            type="button"
-            disabled={settings.runTranscriptionInBrowser}
-          >
-            Refresh Devices
-          </button>
+          <p style={helpTextStyle}>
+            Native capture helps when macOS WKWebView doesn't expose some
+            virtual devices (Teams/Zoom/etc).
+          </p>
+        </div>
+
+        <div style={fieldStyle}>
+          <label style={labelStyle}>Microphone</label>
+          {(settings.audioCaptureMode || "webrtc") === "native" ? (
+            <>
+              <select
+                value={settings.selectedNativeMicrophoneId || ""}
+                onChange={(e) =>
+                  handleChange(
+                    "selectedNativeMicrophoneId",
+                    e.target.value || undefined
+                  )
+                }
+                style={inputStyle}
+                disabled={settings.runTranscriptionInBrowser}
+              >
+                <option value="">System Default</option>
+                {nativeDevices.map((d) => (
+                  <option key={d.id} value={String(d.id)}>
+                    {d.name}
+                    {d.is_default ? " (Default)" : ""}
+                  </option>
+                ))}
+              </select>
+              <button
+                onClick={loadNativeDevices}
+                className="secondary btn-sm"
+                style={{ marginTop: "var(--spacing-2)" }}
+                type="button"
+                disabled={settings.runTranscriptionInBrowser}
+              >
+                Refresh Native Devices
+              </button>
+              {nativeDevicesError && (
+                <p style={{ ...helpTextStyle, color: "var(--error)" }}>
+                  Failed to load native devices: {nativeDevicesError}
+                </p>
+              )}
+            </>
+          ) : (
+            <>
+              <select
+                value={settings.selectedMicrophoneId || ""}
+                onChange={(e) =>
+                  handleChange("selectedMicrophoneId", e.target.value)
+                }
+                style={inputStyle}
+                disabled={settings.runTranscriptionInBrowser}
+              >
+                <option value="">Default Microphone</option>
+                {availableMics.map((mic) => (
+                  <option key={mic.deviceId} value={mic.deviceId}>
+                    {mic.label || `Microphone ${mic.deviceId.slice(0, 8)}`}
+                  </option>
+                ))}
+              </select>
+              <button
+                onClick={loadMicrophones}
+                className="secondary btn-sm"
+                style={{ marginTop: "var(--spacing-2)" }}
+                type="button"
+                disabled={settings.runTranscriptionInBrowser}
+              >
+                Refresh Devices
+              </button>
+            </>
+          )}
         </div>
 
         <div style={fieldStyle}>
