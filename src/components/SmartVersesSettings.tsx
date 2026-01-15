@@ -26,12 +26,12 @@ import {
   SmartVersesSettings as SmartVersesSettingsType,
   DEFAULT_SMART_VERSES_SETTINGS,
   TranscriptionEngine,
+  AudioCaptureMode,
 } from "../types/smartVerses";
 import {
   loadSmartVersesSettings,
   saveSmartVersesSettings,
 } from "../services/transcriptionService";
-import { getAssemblyAITemporaryToken } from "../services/assemblyaiTokenService";
 import {
   getEnabledConnections,
   getCurrentSlideIndex,
@@ -56,6 +56,12 @@ const SmartVersesSettings: React.FC = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [availableMics, setAvailableMics] = useState<MediaDeviceInfo[]>([]);
+  const [nativeDevices, setNativeDevices] = useState<
+    { id: number; name: string; is_default: boolean }[]
+  >([]);
+  const [nativeDevicesError, setNativeDevicesError] = useState<string | null>(
+    null
+  );
 
   // Bible Search AI model state
   const [bibleSearchModels, setBibleSearchModels] = useState<string[]>([]);
@@ -80,6 +86,9 @@ const SmartVersesSettings: React.FC = () => {
     const savedSettings = loadSmartVersesSettings();
     setSettings(savedSettings);
     loadMicrophones();
+    if ((savedSettings.audioCaptureMode || "webrtc") === "native") {
+      loadNativeDevices();
+    }
 
     // Load ProPresenter connections
     const connections = getEnabledConnections();
@@ -190,6 +199,26 @@ const SmartVersesSettings: React.FC = () => {
       } catch {
         // Ignore secondary error
       }
+    }
+  };
+
+  const loadNativeDevices = async () => {
+    try {
+      setNativeDevicesError(null);
+      const mod = await import("@tauri-apps/api/core");
+      const devices = await mod.invoke<
+        { id: number; name: string; is_default: boolean }[]
+      >("list_native_audio_input_devices");
+      setNativeDevices(devices || []);
+    } catch (err) {
+      setNativeDevices([]);
+      setNativeDevicesError(
+        err instanceof Error
+          ? err.message
+          : typeof err === "string"
+          ? err
+          : JSON.stringify(err)
+      );
     }
   };
 
@@ -425,6 +454,67 @@ const SmartVersesSettings: React.FC = () => {
         </div>
 
         <div style={fieldStyle}>
+          <label style={labelStyle}>Audio Capture</label>
+          <select
+            value={(settings.audioCaptureMode || "webrtc") as AudioCaptureMode}
+            onChange={(e) => {
+              const mode = e.target.value as AudioCaptureMode;
+              handleChange("audioCaptureMode", mode);
+              if (mode === "native") {
+                loadNativeDevices();
+              }
+            }}
+            style={inputStyle}
+          >
+            <option value="webrtc">WebView (WebRTC) — simplest</option>
+            <option value="native">
+              Native (CoreAudio/WASAPI) — more devices
+            </option>
+          </select>
+          <p style={helpTextStyle}>
+            Native capture helps when macOS WKWebView doesn’t expose some
+            virtual devices (Teams/Zoom/etc).
+          </p>
+        </div>
+
+        {(settings.audioCaptureMode || "webrtc") === "native" && (
+          <div style={fieldStyle}>
+            <label style={labelStyle}>Native Microphone</label>
+            <select
+              value={settings.selectedNativeMicrophoneId || ""}
+              onChange={(e) =>
+                handleChange(
+                  "selectedNativeMicrophoneId",
+                  e.target.value || undefined
+                )
+              }
+              style={inputStyle}
+            >
+              <option value="">System Default</option>
+              {nativeDevices.map((d) => (
+                <option key={d.id} value={String(d.id)}>
+                  {d.name}
+                  {d.is_default ? " (Default)" : ""}
+                </option>
+              ))}
+            </select>
+            <button
+              onClick={loadNativeDevices}
+              className="secondary btn-sm"
+              style={{ marginTop: "var(--spacing-2)" }}
+              type="button"
+            >
+              Refresh Native Devices
+            </button>
+            {nativeDevicesError && (
+              <p style={{ ...helpTextStyle, color: "var(--error)" }}>
+                Failed to load native devices: {nativeDevicesError}
+              </p>
+            )}
+          </div>
+        )}
+
+        <div style={fieldStyle}>
           <label style={labelStyle}>AssemblyAI API Key</label>
           <div style={{ display: "flex", gap: "var(--spacing-2)" }}>
             <input
@@ -464,6 +554,7 @@ const SmartVersesSettings: React.FC = () => {
               handleChange("selectedMicrophoneId", e.target.value)
             }
             style={inputStyle}
+            disabled={settings.runTranscriptionInBrowser}
           >
             <option value="">Default Microphone</option>
             {availableMics.map((mic) => (
@@ -476,9 +567,30 @@ const SmartVersesSettings: React.FC = () => {
             onClick={loadMicrophones}
             className="secondary btn-sm"
             style={{ marginTop: "var(--spacing-2)" }}
+            type="button"
+            disabled={settings.runTranscriptionInBrowser}
           >
             Refresh Devices
           </button>
+        </div>
+
+        <div style={fieldStyle}>
+          <label style={checkboxLabelStyle}>
+            <input
+              type="checkbox"
+              checked={settings.runTranscriptionInBrowser || false}
+              onChange={(e) =>
+                handleChange("runTranscriptionInBrowser", e.target.checked)
+              }
+            />
+            Run transcription in browser
+          </label>
+          <p style={helpTextStyle}>
+            If your microphone isn't showing up in the list above, enable this
+            option. When you start transcription, it will open in your default
+            browser (Chrome/Firefox) which has full access to all audio devices.
+            Transcriptions will stream back to the app automatically.
+          </p>
         </div>
 
         <div style={fieldStyle}>

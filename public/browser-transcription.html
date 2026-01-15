@@ -1,0 +1,766 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ProAssist Browser Transcription</title>
+  <style>
+    :root {
+      --bg-primary: #0f0f0f;
+      --bg-secondary: #1a1a1a;
+      --bg-tertiary: #252525;
+      --text-primary: #e8e8e8;
+      --text-secondary: #a0a0a0;
+      --accent: #00c853;
+      --accent-dim: #00a844;
+      --error: #ff5252;
+      --warning: #ffc107;
+      --border: #333;
+    }
+    
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    
+    header {
+      background: var(--bg-secondary);
+      padding: 16px 24px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    
+    .logo h1 {
+      font-size: 1.25rem;
+      font-weight: 600;
+    }
+    
+    .status-badge {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 12px;
+      border-radius: 20px;
+      font-size: 0.875rem;
+      font-weight: 500;
+    }
+    
+    .status-badge.idle { background: var(--bg-tertiary); }
+    .status-badge.connecting { background: var(--warning); color: #000; }
+    .status-badge.recording { background: var(--accent); color: #000; }
+    .status-badge.error { background: var(--error); }
+    
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+    
+    .status-badge.recording .status-dot {
+      animation: pulse 1.5s ease-in-out infinite;
+    }
+    
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+    
+    main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      padding: 24px;
+      gap: 24px;
+      max-width: 1200px;
+      margin: 0 auto;
+      width: 100%;
+    }
+    
+    .setup-panel {
+      background: var(--bg-secondary);
+      border-radius: 12px;
+      padding: 24px;
+      border: 1px solid var(--border);
+    }
+    
+    .setup-panel h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-bottom: 16px;
+      color: var(--text-secondary);
+    }
+    
+    .form-group {
+      margin-bottom: 16px;
+    }
+    
+    .form-group label {
+      display: block;
+      font-size: 0.875rem;
+      color: var(--text-secondary);
+      margin-bottom: 6px;
+    }
+    
+    .form-group select,
+    .form-group input {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--bg-tertiary);
+      color: var(--text-primary);
+      font-size: 0.875rem;
+    }
+    
+    .form-group select:focus,
+    .form-group input:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+    
+    .controls {
+      display: flex;
+      gap: 12px;
+      margin-top: 20px;
+    }
+    
+    button {
+      padding: 10px 20px;
+      border-radius: 6px;
+      font-size: 0.875rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+      border: none;
+    }
+    
+    .btn-primary {
+      background: var(--accent);
+      color: #000;
+    }
+    
+    .btn-primary:hover {
+      background: var(--accent-dim);
+    }
+    
+    .btn-primary:disabled {
+      background: var(--bg-tertiary);
+      color: var(--text-secondary);
+      cursor: not-allowed;
+    }
+    
+    .btn-secondary {
+      background: var(--bg-tertiary);
+      color: var(--text-primary);
+      border: 1px solid var(--border);
+    }
+    
+    .btn-secondary:hover {
+      background: var(--bg-secondary);
+    }
+    
+    .btn-danger {
+      background: var(--error);
+      color: white;
+    }
+    
+    .transcript-panel {
+      flex: 1;
+      background: var(--bg-secondary);
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      min-height: 300px;
+    }
+    
+    .transcript-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    
+    .transcript-header h2 {
+      font-size: 1rem;
+      font-weight: 600;
+    }
+    
+    .transcript-content {
+      flex: 1;
+      padding: 20px;
+      overflow-y: auto;
+      font-size: 1rem;
+      line-height: 1.6;
+    }
+    
+    .transcript-segment {
+      margin-bottom: 12px;
+      padding: 12px;
+      background: var(--bg-tertiary);
+      border-radius: 8px;
+    }
+    
+    .interim-text {
+      color: var(--text-secondary);
+      font-style: italic;
+    }
+    
+    .connection-info {
+      display: flex;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    
+    .connection-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+    }
+    
+    .connection-item .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+    }
+    
+    .connection-item .dot.connected { background: var(--accent); }
+    .connection-item .dot.disconnected { background: var(--error); }
+    
+    .error-message {
+      background: rgba(255, 82, 82, 0.1);
+      border: 1px solid var(--error);
+      border-radius: 8px;
+      padding: 12px 16px;
+      color: var(--error);
+      font-size: 0.875rem;
+      margin-bottom: 16px;
+    }
+    
+    .info-message {
+      background: rgba(0, 200, 83, 0.1);
+      border: 1px solid var(--accent);
+      border-radius: 8px;
+      padding: 12px 16px;
+      color: var(--accent);
+      font-size: 0.875rem;
+      margin-bottom: 16px;
+    }
+    
+    .device-count {
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+      margin-top: 4px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="logo">
+      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/>
+        <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+        <line x1="12" y1="19" x2="12" y2="22"/>
+      </svg>
+      <h1>ProAssist Browser Transcription</h1>
+    </div>
+    <div id="statusBadge" class="status-badge idle">
+      <span class="status-dot"></span>
+      <span id="statusText">Idle</span>
+    </div>
+  </header>
+  
+  <main>
+    <div class="setup-panel">
+      <h2>Transcription Setup</h2>
+      
+      <div id="errorContainer"></div>
+      <div id="infoContainer"></div>
+      
+      <div class="form-group">
+        <label for="micSelect">Microphone</label>
+        <select id="micSelect">
+          <option value="">Loading microphones...</option>
+        </select>
+        <div id="deviceCount" class="device-count"></div>
+      </div>
+      
+      <div id="apiKeyGroup" class="form-group">
+        <label for="apiKeyInput">AssemblyAI API Key</label>
+        <input type="password" id="apiKeyInput" placeholder="Enter your AssemblyAI API key">
+      </div>
+      
+      <div id="apiKeyFromApp" class="info-message" style="display: none;">
+        ✓ Using API key from ProAssist app
+      </div>
+      
+      <div class="controls">
+        <button id="startBtn" class="btn-primary" disabled>Start Transcription</button>
+        <button id="stopBtn" class="btn-danger" style="display: none;">Stop</button>
+        <button id="refreshBtn" class="btn-secondary">Refresh Devices</button>
+      </div>
+      
+      <div class="connection-info" style="margin-top: 16px;">
+        <div class="connection-item">
+          <span id="assemblyDot" class="dot disconnected"></span>
+          <span>AssemblyAI</span>
+        </div>
+        <div class="connection-item">
+          <span id="proassistDot" class="dot disconnected"></span>
+          <span>ProAssist</span>
+        </div>
+      </div>
+    </div>
+    
+    <div class="transcript-panel">
+      <div class="transcript-header">
+        <h2>Live Transcript</h2>
+        <button id="clearBtn" class="btn-secondary">Clear</button>
+      </div>
+      <div id="transcriptContent" class="transcript-content">
+        <div style="color: var(--text-secondary); text-align: center; padding: 40px;">
+          Select a microphone and start transcription to see live text here.
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    // =============================================================================
+    // STATE
+    // =============================================================================
+    let mediaStream = null;
+    let recorder = null;
+    let assemblySocket = null;
+    let proassistSocket = null;
+    let isRecording = false;
+    let transcriptSegments = [];
+    let interimText = '';
+    
+    // Get URL parameters
+    const urlParams = new URLSearchParams(window.location.search);
+    const wsHost = urlParams.get('wsHost') || 'localhost';
+    const wsPort = urlParams.get('wsPort') || '9876';
+    const prefillApiKey = urlParams.get('apiKey') || '';
+    const prefillToken = urlParams.get('token') || ''; // Temporary token from ProAssist app
+    
+    // DOM elements
+    const micSelect = document.getElementById('micSelect');
+    const apiKeyInput = document.getElementById('apiKeyInput');
+    const startBtn = document.getElementById('startBtn');
+    const stopBtn = document.getElementById('stopBtn');
+    const refreshBtn = document.getElementById('refreshBtn');
+    const clearBtn = document.getElementById('clearBtn');
+    const statusBadge = document.getElementById('statusBadge');
+    const statusText = document.getElementById('statusText');
+    const transcriptContent = document.getElementById('transcriptContent');
+    const errorContainer = document.getElementById('errorContainer');
+    const infoContainer = document.getElementById('infoContainer');
+    const deviceCount = document.getElementById('deviceCount');
+    const assemblyDot = document.getElementById('assemblyDot');
+    const proassistDot = document.getElementById('proassistDot');
+    
+    // =============================================================================
+    // INITIALIZATION
+    // =============================================================================
+    
+    async function init() {
+      const apiKeyGroup = document.getElementById('apiKeyGroup');
+      const apiKeyFromApp = document.getElementById('apiKeyFromApp');
+      
+      if (prefillToken || prefillApiKey) {
+        // Token or API key provided from ProAssist app - hide the input field
+        // We prefer token (no CORS issues) over API key
+        if (prefillToken) {
+          // Store token in a hidden way (we'll use it directly)
+          apiKeyInput.dataset.token = prefillToken;
+        }
+        if (prefillApiKey) {
+          apiKeyInput.value = prefillApiKey;
+        }
+        apiKeyGroup.style.display = 'none';
+        apiKeyFromApp.style.display = 'block';
+      }
+      
+      await loadMicrophones();
+      connectToProAssist();
+      
+      // Enable start button when we have both mic and API key/token
+      apiKeyInput.addEventListener('input', updateStartButton);
+      micSelect.addEventListener('change', updateStartButton);
+    }
+    
+    async function loadMicrophones() {
+      try {
+        // Request permission first to get full device labels
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream.getTracks().forEach(track => track.stop());
+        
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const audioInputs = devices.filter(d => d.kind === 'audioinput');
+        
+        micSelect.innerHTML = '';
+        
+        if (audioInputs.length === 0) {
+          micSelect.innerHTML = '<option value="">No microphones found</option>';
+          deviceCount.textContent = '0 devices available';
+        } else {
+          audioInputs.forEach((device, index) => {
+            const option = document.createElement('option');
+            option.value = device.deviceId;
+            option.textContent = device.label || `Microphone ${index + 1}`;
+            micSelect.appendChild(option);
+          });
+          deviceCount.textContent = `${audioInputs.length} device(s) available`;
+          showInfo(`Found ${audioInputs.length} microphone(s). Browser has full access to all audio devices.`);
+        }
+        
+        updateStartButton();
+      } catch (error) {
+        console.error('Failed to load microphones:', error);
+        showError(`Failed to access microphones: ${error.message}. Please allow microphone access.`);
+        micSelect.innerHTML = '<option value="">Microphone access denied</option>';
+      }
+    }
+    
+    function updateStartButton() {
+      const hasToken = apiKeyInput.dataset.token && apiKeyInput.dataset.token.length > 0;
+      const hasApiKey = apiKeyInput.value.trim().length > 0;
+      const hasMic = micSelect.value !== '';
+      startBtn.disabled = (!hasApiKey && !hasToken) || !hasMic || isRecording;
+    }
+    
+    // =============================================================================
+    // PROASSIST WEBSOCKET
+    // =============================================================================
+    
+    function connectToProAssist() {
+      const wsUrl = `ws://${wsHost}:${wsPort}/ws`;
+      console.log('Connecting to ProAssist:', wsUrl);
+      
+      try {
+        proassistSocket = new WebSocket(wsUrl);
+        
+        proassistSocket.onopen = () => {
+          console.log('Connected to ProAssist');
+          proassistDot.classList.remove('disconnected');
+          proassistDot.classList.add('connected');
+        };
+        
+        proassistSocket.onclose = () => {
+          console.log('Disconnected from ProAssist');
+          proassistDot.classList.remove('connected');
+          proassistDot.classList.add('disconnected');
+          // Try to reconnect after 3 seconds
+          setTimeout(connectToProAssist, 3000);
+        };
+        
+        proassistSocket.onerror = (error) => {
+          console.error('ProAssist WebSocket error:', error);
+        };
+      } catch (error) {
+        console.error('Failed to connect to ProAssist:', error);
+      }
+    }
+    
+    function sendToProAssist(message) {
+      if (proassistSocket && proassistSocket.readyState === WebSocket.OPEN) {
+        proassistSocket.send(JSON.stringify(message));
+      }
+    }
+    
+    // =============================================================================
+    // TRANSCRIPTION
+    // =============================================================================
+    
+    async function startTranscription() {
+      const prefilledToken = apiKeyInput.dataset.token;
+      const apiKey = apiKeyInput.value.trim();
+      const deviceId = micSelect.value;
+      
+      if ((!apiKey && !prefilledToken) || !deviceId) return;
+      
+      clearError();
+      setStatus('connecting');
+      
+      try {
+        let token;
+        
+        if (prefilledToken) {
+          // Use the pre-generated token from ProAssist app (no CORS issues!)
+          token = prefilledToken;
+          console.log('Using pre-generated token from ProAssist app');
+        } else {
+          // Fall back to getting token via API (may have CORS issues)
+          const tokenResponse = await fetch('https://api.assemblyai.com/v2/realtime/token', {
+            method: 'POST',
+            headers: {
+              'Authorization': apiKey,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ expires_in: 3600 })
+          });
+          
+          if (!tokenResponse.ok) {
+            const errorText = await tokenResponse.text();
+            throw new Error(`Failed to get token: ${tokenResponse.status} ${errorText}`);
+          }
+          
+          const tokenData = await tokenResponse.json();
+          token = tokenData.token;
+        }
+        
+        // Connect to AssemblyAI WebSocket
+        assemblySocket = new WebSocket(`wss://api.assemblyai.com/v2/realtime/ws?sample_rate=16000&token=${token}`);
+        
+        assemblySocket.onopen = async () => {
+          console.log('Connected to AssemblyAI');
+          assemblyDot.classList.remove('disconnected');
+          assemblyDot.classList.add('connected');
+          
+          // Start capturing audio
+          await startAudioCapture(deviceId);
+        };
+        
+        assemblySocket.onmessage = (event) => {
+          const data = JSON.parse(event.data);
+          handleTranscript(data);
+        };
+        
+        assemblySocket.onclose = (event) => {
+          console.log('AssemblyAI connection closed:', event.code, event.reason);
+          assemblyDot.classList.remove('connected');
+          assemblyDot.classList.add('disconnected');
+          if (isRecording) {
+            stopTranscription();
+          }
+        };
+        
+        assemblySocket.onerror = (error) => {
+          console.error('AssemblyAI WebSocket error:', error);
+          showError('AssemblyAI connection error. Check your API key.');
+        };
+        
+      } catch (error) {
+        console.error('Failed to start transcription:', error);
+        showError(`Failed to start: ${error.message}`);
+        setStatus('idle');
+      }
+    }
+    
+    async function startAudioCapture(deviceId) {
+      try {
+        mediaStream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            deviceId: { exact: deviceId },
+            sampleRate: 16000,
+            channelCount: 1
+          }
+        });
+        
+        // Use AudioContext to process audio
+        const audioContext = new AudioContext({ sampleRate: 16000 });
+        const source = audioContext.createMediaStreamSource(mediaStream);
+        const processor = audioContext.createScriptProcessor(4096, 1, 1);
+        
+        processor.onaudioprocess = (e) => {
+          if (!isRecording || !assemblySocket || assemblySocket.readyState !== WebSocket.OPEN) return;
+          
+          const inputData = e.inputBuffer.getChannelData(0);
+          const pcm16 = float32ToPCM16(inputData);
+          
+          // Send as base64
+          const base64 = arrayBufferToBase64(pcm16.buffer);
+          assemblySocket.send(JSON.stringify({ audio_data: base64 }));
+        };
+        
+        source.connect(processor);
+        processor.connect(audioContext.destination);
+        
+        isRecording = true;
+        setStatus('recording');
+        startBtn.style.display = 'none';
+        stopBtn.style.display = 'inline-block';
+        
+      } catch (error) {
+        console.error('Failed to capture audio:', error);
+        showError(`Failed to access microphone: ${error.message}`);
+        stopTranscription();
+      }
+    }
+    
+    function stopTranscription() {
+      isRecording = false;
+      
+      if (mediaStream) {
+        mediaStream.getTracks().forEach(track => track.stop());
+        mediaStream = null;
+      }
+      
+      if (assemblySocket) {
+        assemblySocket.close();
+        assemblySocket = null;
+      }
+      
+      setStatus('idle');
+      startBtn.style.display = 'inline-block';
+      stopBtn.style.display = 'none';
+      updateStartButton();
+    }
+    
+    function handleTranscript(data) {
+      if (data.message_type === 'PartialTranscript' && data.text) {
+        interimText = data.text;
+        updateTranscriptDisplay();
+        
+        // Send interim to ProAssist
+        sendToProAssist({
+          type: 'transcription_stream',
+          kind: 'interim',
+          timestamp: Date.now(),
+          engine: 'assemblyai',
+          text: data.text
+        });
+        
+      } else if (data.message_type === 'FinalTranscript' && data.text) {
+        const segment = {
+          id: `segment-${Date.now()}`,
+          text: data.text,
+          timestamp: Date.now(),
+          isFinal: true
+        };
+        
+        transcriptSegments.push(segment);
+        interimText = '';
+        updateTranscriptDisplay();
+        
+        // Send final to ProAssist
+        sendToProAssist({
+          type: 'transcription_stream',
+          kind: 'final',
+          timestamp: Date.now(),
+          engine: 'assemblyai',
+          text: data.text,
+          segment: segment
+        });
+      }
+    }
+    
+    // =============================================================================
+    // UI HELPERS
+    // =============================================================================
+    
+    function setStatus(status) {
+      statusBadge.className = `status-badge ${status}`;
+      const statusMap = {
+        'idle': 'Idle',
+        'connecting': 'Connecting...',
+        'recording': 'Recording',
+        'error': 'Error'
+      };
+      statusText.textContent = statusMap[status] || status;
+    }
+    
+    function updateTranscriptDisplay() {
+      if (transcriptSegments.length === 0 && !interimText) {
+        transcriptContent.innerHTML = `
+          <div style="color: var(--text-secondary); text-align: center; padding: 40px;">
+            Select a microphone and start transcription to see live text here.
+          </div>
+        `;
+        return;
+      }
+      
+      let html = '';
+      
+      transcriptSegments.forEach(segment => {
+        html += `<div class="transcript-segment">${escapeHtml(segment.text)}</div>`;
+      });
+      
+      if (interimText) {
+        html += `<div class="transcript-segment interim-text">${escapeHtml(interimText)}</div>`;
+      }
+      
+      transcriptContent.innerHTML = html;
+      transcriptContent.scrollTop = transcriptContent.scrollHeight;
+    }
+    
+    function showError(message) {
+      errorContainer.innerHTML = `<div class="error-message">${escapeHtml(message)}</div>`;
+    }
+    
+    function clearError() {
+      errorContainer.innerHTML = '';
+    }
+    
+    function showInfo(message) {
+      infoContainer.innerHTML = `<div class="info-message">${escapeHtml(message)}</div>`;
+    }
+    
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+    
+    function float32ToPCM16(float32Array) {
+      const pcm16 = new Int16Array(float32Array.length);
+      for (let i = 0; i < float32Array.length; i++) {
+        const s = Math.max(-1, Math.min(1, float32Array[i]));
+        pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+      }
+      return pcm16;
+    }
+    
+    function arrayBufferToBase64(buffer) {
+      const bytes = new Uint8Array(buffer);
+      let binary = '';
+      for (let i = 0; i < bytes.byteLength; i++) {
+        binary += String.fromCharCode(bytes[i]);
+      }
+      return btoa(binary);
+    }
+    
+    // =============================================================================
+    // EVENT LISTENERS
+    // =============================================================================
+    
+    startBtn.addEventListener('click', startTranscription);
+    stopBtn.addEventListener('click', stopTranscription);
+    refreshBtn.addEventListener('click', loadMicrophones);
+    clearBtn.addEventListener('click', () => {
+      transcriptSegments = [];
+      interimText = '';
+      updateTranscriptDisplay();
+    });
+    
+    // Listen for device changes
+    navigator.mediaDevices.addEventListener('devicechange', loadMicrophones);
+    
+    // Initialize
+    init();
+  </script>
+</body>
+</html>

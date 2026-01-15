@@ -10,6 +10,8 @@
 
 export type TranscriptionEngine = 'assemblyai' | 'elevenlabs' | 'whisper';
 
+export type AudioCaptureMode = 'webrtc' | 'native';
+
 export interface TranscriptionConfig {
   engine: TranscriptionEngine;
   apiKey: string;
@@ -32,7 +34,7 @@ export interface TranscriptionCallbacks {
   onStatusChange?: (status: TranscriptionStatus) => void;
 }
 
-export type TranscriptionStatus = 'idle' | 'connecting' | 'recording' | 'error';
+export type TranscriptionStatus = 'idle' | 'connecting' | 'recording' | 'error' | 'waiting_for_browser';
 
 // =============================================================================
 // BIBLE REFERENCE TYPES
@@ -140,7 +142,10 @@ export interface SmartVersesSettings {
   transcriptionEngine: TranscriptionEngine;
   assemblyAIApiKey?: string;
   selectedMicrophoneId?: string;
+  audioCaptureMode?: AudioCaptureMode;
+  selectedNativeMicrophoneId?: string;
   streamTranscriptionsToWebSocket: boolean;
+  runTranscriptionInBrowser?: boolean; // When true, opens external browser for transcription
   
   // AI Search settings
   enableAISearch: boolean;
@@ -183,6 +188,7 @@ export interface SmartVersesSettings {
 
 export const DEFAULT_SMART_VERSES_SETTINGS: SmartVersesSettings = {
   transcriptionEngine: 'assemblyai',
+  audioCaptureMode: 'webrtc',
   streamTranscriptionsToWebSocket: true,
   enableAISearch: false, // Off by default - uses text search instead
   bibleSearchProvider: 'groq',

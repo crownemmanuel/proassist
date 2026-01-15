@@ -9,6 +9,11 @@ use warp::Filter;
 use warp::ws::{Message as WarpWsMessage, WebSocket};
 use rust_embed::RustEmbed;
 use cpal::traits::{DeviceTrait, HostTrait};
+use cpal::traits::StreamTrait;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
+use base64::Engine;
+use tauri::Emitter;
 
 // ============================================================================
 // Embedded Frontend Assets
@@ -165,6 +170,20 @@ pub enum WsMessage {
     JoinSession { session_id: String, client_type: String },
     #[serde(rename = "join_schedule")]
     JoinSchedule,
+    
+    // From external clients (e.g., browser transcription) to server
+    // We keep this flexible because the payload can evolve without requiring
+    // strict Rust-side schema updates.
+    #[serde(rename = "transcription_stream")]
+    TranscriptionStream {
+        kind: String,
+        timestamp: u64,
+        engine: String,
+        text: String,
+        segment: Option<serde_json::Value>,
+        scripture_references: Option<Vec<String>>,
+        key_points: Option<serde_json::Value>,
+    },
     
     // From server to clients
     #[serde(rename = "slides_update")]
@@ -487,6 +506,11 @@ async fn handle_ws_connection(ws: WebSocket, state: Arc<ServerState>) {
                             if let Ok(json) = serde_json::to_string(&update) {
                                 let _ = state.broadcast_tx.send(json);
                             }
+                        }
+                        WsMessage::TranscriptionStream { .. } => {
+                            // Re-broadcast browser transcription stream messages to all clients.
+                            // We forward the original JSON string so fields remain intact.
+                            let _ = state.broadcast_tx.send(text.to_string());
                         }
                         _ => {}
                     }
@@ -851,6 +875,7 @@ fn greet(name: &str) -> String {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct NativeAudioInputDevice {
+    pub id: usize,
     pub name: String,
     pub is_default: bool,
 }
@@ -865,10 +890,11 @@ fn list_native_audio_input_devices() -> Result<Vec<NativeAudioInputDevice>, Stri
     let mut devices: Vec<NativeAudioInputDevice> = host
         .input_devices()
         .map_err(|e| format!("input_devices_failed:{}", e))?
-        .filter_map(|d| {
+        .enumerate()
+        .filter_map(|(idx, d)| {
             let name = d.name().ok()?;
             let is_default = default_name.as_ref().map(|n| n == &name).unwrap_or(false);
-            Some(NativeAudioInputDevice { name, is_default })
+            Some(NativeAudioInputDevice { id: idx, name, is_default })
         })
         .collect();
 
@@ -882,6 +908,292 @@ fn list_native_audio_input_devices() -> Result<Vec<NativeAudioInputDevice>, Stri
     });
 
     Ok(devices)
+}
+
+// ============================================================================
+// Native Audio Capture -> Frontend Streaming (base64 PCM16LE @ 16kHz mono)
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize)]
+pub struct NativeAudioChunk {
+    pub data_b64: String,
+}
+
+lazy_static::lazy_static! {
+    static ref NATIVE_AUDIO_RUNNING: AtomicBool = AtomicBool::new(false);
+    static ref NATIVE_AUDIO_STOP_FLAG: Mutex<Option<std::sync::Arc<AtomicBool>>> = Mutex::new(None);
+}
+
+fn f32_to_i16_sample(x: f32) -> i16 {
+    let clamped = x.max(-1.0).min(1.0);
+    (clamped * i16::MAX as f32) as i16
+}
+
+struct LinearResampler {
+    step: f64,
+    pos: f64,
+    buf: Vec<f32>,
+}
+
+impl LinearResampler {
+    fn new(in_rate: u32, out_rate: u32) -> Self {
+        let step = (in_rate as f64) / (out_rate as f64);
+        Self {
+            step,
+            pos: 0.0,
+            buf: Vec::new(),
+        }
+    }
+
+    fn push_and_resample(&mut self, input: &[f32], output: &mut Vec<f32>) {
+        self.buf.extend_from_slice(input);
+        // Need at least 2 samples for interpolation
+        while (self.pos + 1.0) < (self.buf.len() as f64) {
+            let i0 = self.pos.floor() as usize;
+            let i1 = i0 + 1;
+            let frac = (self.pos - i0 as f64) as f32;
+            let s0 = self.buf[i0];
+            let s1 = self.buf[i1];
+            output.push(s0 + (s1 - s0) * frac);
+            self.pos += self.step;
+        }
+
+        // Drop consumed samples to keep buffer bounded, preserving fractional position
+        let consumed = self.pos.floor() as usize;
+        if consumed > 0 {
+            if consumed < self.buf.len() {
+                self.buf.drain(0..consumed);
+            } else {
+                // Clear buffer but preserve fractional position for continuity
+                self.buf.clear();
+            }
+            // Always subtract consumed to preserve fractional position
+            self.pos -= consumed as f64;
+        }
+    }
+}
+
+#[tauri::command]
+fn stop_native_audio_stream() -> Result<(), String> {
+    if !NATIVE_AUDIO_RUNNING.load(Ordering::SeqCst) {
+        return Ok(());
+    }
+
+    if let Ok(mut guard) = NATIVE_AUDIO_STOP_FLAG.lock() {
+        if let Some(flag) = guard.take() {
+            flag.store(true, Ordering::SeqCst);
+        }
+    }
+
+    NATIVE_AUDIO_RUNNING.store(false, Ordering::SeqCst);
+    Ok(())
+}
+
+#[tauri::command]
+fn start_native_audio_stream(app: tauri::AppHandle, device_id: Option<usize>) -> Result<(), String> {
+    // Stop any existing stream first
+    let _ = stop_native_audio_stream();
+
+    let host = cpal::default_host();
+    let default_device = host
+        .default_input_device()
+        .ok_or_else(|| "no_default_input_device".to_string())?;
+
+    let mut selected: cpal::Device = default_device;
+    if let Some(id) = device_id {
+        if let Ok(mut iter) = host.input_devices() {
+            if let Some(dev) = iter.nth(id) {
+                selected = dev;
+            }
+        }
+    }
+
+    let config = selected
+        .default_input_config()
+        .map_err(|e| format!("default_input_config_failed:{}", e))?;
+
+    let sample_format = config.sample_format();
+    let stream_config: cpal::StreamConfig = config.into();
+    let in_rate = stream_config.sample_rate.0;
+    let channels = stream_config.channels as usize;
+    let out_rate: u32 = 16_000;
+    let chunk_ms: usize = 250;
+    let chunk_samples: usize = (out_rate as usize * chunk_ms) / 1000; // 4000 @ 16kHz
+
+    let stop_flag = std::sync::Arc::new(AtomicBool::new(false));
+    if let Ok(mut guard) = NATIVE_AUDIO_STOP_FLAG.lock() {
+        *guard = Some(stop_flag.clone());
+    }
+    NATIVE_AUDIO_RUNNING.store(true, Ordering::SeqCst);
+
+    std::thread::spawn(move || {
+        let emit_chunk: std::sync::Arc<dyn Fn(&[i16]) + Send + Sync> = {
+            let app_handle = app.clone();
+            std::sync::Arc::new(move |samples: &[i16]| {
+                let mut bytes: Vec<u8> = Vec::with_capacity(samples.len() * 2);
+                for s in samples {
+                    bytes.extend_from_slice(&s.to_le_bytes());
+                }
+                let data_b64 = base64::engine::general_purpose::STANDARD.encode(bytes);
+                let _ = app_handle.emit("native_audio_chunk", NativeAudioChunk { data_b64 });
+            })
+        };
+
+        let stop_flag_loop = stop_flag.clone();
+
+        let build_stream_result = match sample_format {
+            cpal::SampleFormat::F32 => {
+                let stop_flag = stop_flag.clone();
+                let emit_chunk = emit_chunk.clone();
+                let mut resampler = LinearResampler::new(in_rate, out_rate);
+                let mut out_f32: Vec<f32> = Vec::with_capacity(chunk_samples * 2);
+                let mut chunk_i16: Vec<i16> = Vec::with_capacity(chunk_samples * 2);
+
+                selected.build_input_stream(
+                    &stream_config,
+                    move |data: &[f32], _| {
+                        if stop_flag.load(Ordering::SeqCst) {
+                            return;
+                        }
+
+                        // Downmix to mono f32
+                        let mut mono: Vec<f32> = Vec::with_capacity(data.len() / channels.max(1));
+                        if channels <= 1 {
+                            mono.extend_from_slice(data);
+                        } else {
+                            for frame in data.chunks(channels) {
+                                let sum: f32 = frame.iter().copied().sum();
+                                mono.push(sum / channels as f32);
+                            }
+                        }
+
+                        out_f32.clear();
+                        resampler.push_and_resample(&mono, &mut out_f32);
+                        for s in &out_f32 {
+                            chunk_i16.push(f32_to_i16_sample(*s));
+                            if chunk_i16.len() >= chunk_samples {
+                                (emit_chunk)(&chunk_i16[..chunk_samples]);
+                                chunk_i16.drain(0..chunk_samples);
+                            }
+                        }
+                    },
+                    |err| eprintln!("[native_audio] stream error: {}", err),
+                    None,
+                )
+            }
+            cpal::SampleFormat::I16 => {
+                let stop_flag = stop_flag.clone();
+                let emit_chunk = emit_chunk.clone();
+                let mut resampler = LinearResampler::new(in_rate, out_rate);
+                let mut out_f32: Vec<f32> = Vec::with_capacity(chunk_samples * 2);
+                let mut chunk_i16: Vec<i16> = Vec::with_capacity(chunk_samples * 2);
+
+                selected.build_input_stream(
+                    &stream_config,
+                    move |data: &[i16], _| {
+                        if stop_flag.load(Ordering::SeqCst) {
+                            return;
+                        }
+
+                        let mut mono: Vec<f32> = Vec::with_capacity(data.len() / channels.max(1));
+                        if channels <= 1 {
+                            mono.extend(data.iter().map(|s| *s as f32 / i16::MAX as f32));
+                        } else {
+                            for frame in data.chunks(channels) {
+                                let sum: f32 = frame
+                                    .iter()
+                                    .map(|s| *s as f32 / i16::MAX as f32)
+                                    .sum();
+                                mono.push(sum / channels as f32);
+                            }
+                        }
+
+                        out_f32.clear();
+                        resampler.push_and_resample(&mono, &mut out_f32);
+                        for s in &out_f32 {
+                            chunk_i16.push(f32_to_i16_sample(*s));
+                            if chunk_i16.len() >= chunk_samples {
+                                (emit_chunk)(&chunk_i16[..chunk_samples]);
+                                chunk_i16.drain(0..chunk_samples);
+                            }
+                        }
+                    },
+                    |err| eprintln!("[native_audio] stream error: {}", err),
+                    None,
+                )
+            }
+            cpal::SampleFormat::U16 => {
+                let stop_flag = stop_flag.clone();
+                let emit_chunk = emit_chunk.clone();
+                let mut resampler = LinearResampler::new(in_rate, out_rate);
+                let mut out_f32: Vec<f32> = Vec::with_capacity(chunk_samples * 2);
+                let mut chunk_i16: Vec<i16> = Vec::with_capacity(chunk_samples * 2);
+
+                selected.build_input_stream(
+                    &stream_config,
+                    move |data: &[u16], _| {
+                        if stop_flag.load(Ordering::SeqCst) {
+                            return;
+                        }
+
+                        let mut mono: Vec<f32> = Vec::with_capacity(data.len() / channels.max(1));
+                        if channels <= 1 {
+                            mono.extend(
+                                data.iter()
+                                    .map(|s| (*s as f32 / u16::MAX as f32) * 2.0 - 1.0),
+                            );
+                        } else {
+                            for frame in data.chunks(channels) {
+                                let sum: f32 = frame
+                                    .iter()
+                                    .map(|s| (*s as f32 / u16::MAX as f32) * 2.0 - 1.0)
+                                    .sum();
+                                mono.push(sum / channels as f32);
+                            }
+                        }
+
+                        out_f32.clear();
+                        resampler.push_and_resample(&mono, &mut out_f32);
+                        for s in &out_f32 {
+                            chunk_i16.push(f32_to_i16_sample(*s));
+                            if chunk_i16.len() >= chunk_samples {
+                                (emit_chunk)(&chunk_i16[..chunk_samples]);
+                                chunk_i16.drain(0..chunk_samples);
+                            }
+                        }
+                    },
+                    |err| eprintln!("[native_audio] stream error: {}", err),
+                    None,
+                )
+            }
+            _ => Err(cpal::BuildStreamError::StreamConfigNotSupported),
+        };
+
+        let stream = match build_stream_result {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("[native_audio] failed to build stream: {}", e);
+                NATIVE_AUDIO_RUNNING.store(false, Ordering::SeqCst);
+                return;
+            }
+        };
+
+        if let Err(e) = stream.play() {
+            eprintln!("[native_audio] failed to play stream: {}", e);
+            NATIVE_AUDIO_RUNNING.store(false, Ordering::SeqCst);
+            return;
+        }
+
+        while !stop_flag_loop.load(Ordering::SeqCst) {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+
+        // dropping stream stops capture
+        drop(stream);
+        NATIVE_AUDIO_RUNNING.store(false, Ordering::SeqCst);
+    });
+
+    Ok(())
 }
 
 // ============================================================================
@@ -1297,6 +1609,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             greet,
             list_native_audio_input_devices,
+            start_native_audio_stream,
+            stop_native_audio_stream,
             assemblyai_create_realtime_token,
             write_text_to_file,
             start_live_slides_server,

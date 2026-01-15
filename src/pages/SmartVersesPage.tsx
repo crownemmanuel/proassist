@@ -14,7 +14,7 @@
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { FaMicrophone, FaStop, FaPaperPlane, FaRobot, FaPlay, FaSearch, FaChevronDown, FaChevronUp, FaTrash, FaStopCircle } from "react-icons/fa";
+import { FaMicrophone, FaStop, FaPaperPlane, FaRobot, FaPlay, FaSearch, FaChevronDown, FaChevronUp, FaTrash, FaStopCircle, FaExternalLinkAlt } from "react-icons/fa";
 import {
   SmartVersesSettings,
   SmartVersesChatMessage,
@@ -45,6 +45,8 @@ import {
 import { searchBibleTextAsReferences } from "../services/bibleTextSearchService";
 import { triggerPresentationOnConnections } from "../services/propresenterService";
 import { broadcastTranscriptionStreamMessage } from "../services/transcriptionBroadcastService";
+import { LiveSlidesWebSocket, getLiveSlidesServerInfo } from "../services/liveSlideService";
+import { getAssemblyAITemporaryToken } from "../services/assemblyaiTokenService";
 import "../App.css";
 
 // =============================================================================
@@ -108,6 +110,9 @@ const SmartVersesPage: React.FC = () => {
   const [detectedReferences, setDetectedReferences] = useState<DetectedBibleReference[]>([]);
   const transcriptionServiceRef = useRef<AssemblyAITranscriptionService | null>(null);
   const detectedReferencesRef = useRef<DetectedBibleReference[]>([]);
+  
+  // Browser transcription WebSocket
+  const browserTranscriptionWsRef = useRef<LiveSlidesWebSocket | null>(null);
 
   // Compact detected references UI state
   const [detectedPanelCollapsed, setDetectedPanelCollapsed] = useState(false);
@@ -198,6 +203,10 @@ const SmartVersesPage: React.FC = () => {
       // Cleanup transcription on unmount
       if (transcriptionServiceRef.current) {
         transcriptionServiceRef.current.stopTranscription();
+      }
+      // Cleanup browser transcription WebSocket on unmount
+      if (browserTranscriptionWsRef.current) {
+        browserTranscriptionWsRef.current.disconnect();
       }
     };
   }, [reloadSettings]);
@@ -525,12 +534,162 @@ const SmartVersesPage: React.FC = () => {
   }, [settings]);
 
   // =============================================================================
+  // BROWSER TRANSCRIPTION
+  // =============================================================================
+
+  // Open browser-based transcription page
+  const openBrowserTranscription = useCallback(async () => {
+    try {
+      const opener = await import("@tauri-apps/plugin-opener");
+
+      // Try to get server info
+      let wsHost = "localhost";
+      let wsPort = 9876;
+
+      try {
+        const serverInfo = await getLiveSlidesServerInfo();
+        if (serverInfo) {
+          wsHost = serverInfo.local_ip;
+          wsPort = serverInfo.server_port;
+        }
+      } catch {
+        // Use defaults if server info not available
+      }
+
+      // Generate a temporary token using the Tauri backend (avoids CORS issues in browser)
+      let tempToken = "";
+      if (settings.assemblyAIApiKey) {
+        try {
+          tempToken = await getAssemblyAITemporaryToken(settings.assemblyAIApiKey, 3600);
+          console.log("[SmartVerses] Generated temporary AssemblyAI token for browser");
+        } catch (tokenErr) {
+          console.error("[SmartVerses] Failed to generate token:", tokenErr);
+          // Continue without token - user will see an error in browser
+        }
+      }
+
+      // Construct the URL with parameters
+      // Pass the temporary token (not the API key) to avoid CORS issues
+      const params = new URLSearchParams({
+        wsHost,
+        wsPort: String(wsPort),
+        ...(tempToken ? { token: tempToken } : {}),
+      });
+
+      // The browser transcription page URL
+      // When running dev, use localhost:1420 (Vite dev server port)
+      // In production, use the Tauri server which embeds the static files
+      const baseUrl = import.meta.env.DEV
+        ? `http://localhost:1420/browser-transcription.html`
+        : `http://${wsHost}:${wsPort}/browser-transcription.html`;
+
+      const url = `${baseUrl}?${params.toString()}`;
+
+      // Open in default browser
+      await opener.openUrl(url);
+    } catch (error) {
+      console.error("Failed to open browser transcription:", error);
+      // Fallback: try window.open
+      const params = new URLSearchParams({
+        wsHost: "localhost",
+        wsPort: "9876",
+      });
+      window.open(`/browser-transcription.html?${params.toString()}`, "_blank");
+    }
+  }, [settings.assemblyAIApiKey]);
+
+  // Connect to WebSocket to receive transcriptions from browser
+  const connectToBrowserTranscriptionWs = useCallback(async () => {
+    try {
+      const serverInfo = await getLiveSlidesServerInfo();
+      if (!serverInfo.server_running) {
+        console.warn("[SmartVerses] Live Slides server not running, cannot receive browser transcriptions");
+        return;
+      }
+
+      const wsUrl = `ws://${serverInfo.local_ip}:${serverInfo.server_port}/ws`;
+      const ws = new LiveSlidesWebSocket(wsUrl, "browser-transcription", "viewer");
+      browserTranscriptionWsRef.current = ws;
+
+      await ws.connect();
+      console.log("[SmartVerses] Connected to WebSocket for browser transcriptions");
+
+      // Listen for transcription messages from the browser
+      ws.onMessage((message) => {
+        if (message.type !== "transcription_stream") return;
+
+        const m = message as { type: string; kind: string; text: string; segment?: TranscriptionSegment };
+        
+        if (m.kind === "interim") {
+          setInterimTranscript(m.text || "");
+          // Update status to recording when we receive first transcription
+          setTranscriptionStatus((prev) => prev === "waiting_for_browser" ? "recording" : prev);
+        } else if (m.kind === "final" && m.text) {
+          setInterimTranscript("");
+          // Update status to recording when we receive first transcription
+          setTranscriptionStatus((prev) => prev === "waiting_for_browser" ? "recording" : prev);
+          
+          const segment: TranscriptionSegment = m.segment || {
+            id: `segment-${Date.now()}`,
+            text: m.text,
+            timestamp: Date.now(),
+            isFinal: true,
+          };
+          
+          setTranscriptHistory(prev => [...prev, segment]);
+          
+          // Detect Bible references in the transcript
+          detectAndLookupReferences(m.text).then(async (directRefs) => {
+            if (directRefs.length > 0) {
+              setDetectedReferences(prev => [...prev, ...directRefs]);
+              
+              // Add to chat history if enabled
+              if (settings.autoAddDetectedToHistory) {
+                setChatHistory(prev => [...prev, {
+                  id: `transcript-${Date.now()}`,
+                  type: "result",
+                  content: `Detected from transcription`,
+                  timestamp: Date.now(),
+                  references: directRefs,
+                }]);
+              }
+
+              // Auto-trigger if enabled
+              if (settings.autoTriggerOnDetection && directRefs.length > 0) {
+                handleGoLive(directRefs[0]);
+              }
+            }
+          });
+        }
+      });
+    } catch (error) {
+      console.error("[SmartVerses] Failed to connect to browser transcription WebSocket:", error);
+    }
+  }, [settings.autoAddDetectedToHistory, settings.autoTriggerOnDetection, handleGoLive]);
+
+  // Disconnect browser transcription WebSocket
+  const disconnectBrowserTranscriptionWs = useCallback(() => {
+    if (browserTranscriptionWsRef.current) {
+      browserTranscriptionWsRef.current.disconnect();
+      browserTranscriptionWsRef.current = null;
+    }
+  }, []);
+
+  // =============================================================================
   // TRANSCRIPTION HANDLERS
   // =============================================================================
 
   const handleStartTranscription = useCallback(async () => {
     if (!settings.assemblyAIApiKey) {
       alert("Please configure your AssemblyAI API key in Settings > SmartVerses");
+      return;
+    }
+
+    // If browser transcription mode is enabled, open browser and wait for transcriptions
+    if (settings.runTranscriptionInBrowser) {
+      setTranscriptionStatus("waiting_for_browser");
+      await connectToBrowserTranscriptionWs();
+      await openBrowserTranscription();
       return;
     }
 
@@ -684,6 +843,13 @@ const SmartVersesPage: React.FC = () => {
         }
       );
 
+      // Configure audio capture mode (WebRTC vs Native)
+      service.setAudioCaptureMode(settings.audioCaptureMode === "native" ? "native" : "webrtc");
+      if (settings.audioCaptureMode === "native") {
+        const parsed = settings.selectedNativeMicrophoneId ? parseInt(settings.selectedNativeMicrophoneId, 10) : NaN;
+        service.setNativeMicrophoneDeviceId(Number.isFinite(parsed) ? parsed : null);
+      }
+
       if (settings.selectedMicrophoneId) {
         service.setMicrophone(settings.selectedMicrophoneId);
       }
@@ -702,9 +868,11 @@ const SmartVersesPage: React.FC = () => {
       await transcriptionServiceRef.current.stopTranscription();
       transcriptionServiceRef.current = null;
     }
+    // Also disconnect browser transcription WebSocket if connected
+    disconnectBrowserTranscriptionWs();
     setTranscriptionStatus("idle");
     setInterimTranscript("");
-  }, []);
+  }, [disconnectBrowserTranscriptionWs]);
 
   const handleClearTranscript = () => {
     setTranscriptHistory([]);
@@ -1589,6 +1757,18 @@ const SmartVersesPage: React.FC = () => {
                 animation: "pulse 1s infinite",
               }} />
             )}
+            {transcriptionStatus === "waiting_for_browser" && (
+              <span style={{
+                fontSize: "0.75rem",
+                padding: "2px 8px",
+                borderRadius: "4px",
+                backgroundColor: "var(--warning)",
+                color: "#000",
+                fontWeight: 600,
+              }}>
+                Browser
+              </span>
+            )}
           </h3>
           <div style={{ display: "flex", alignItems: "center", gap: "var(--spacing-2)" }}>
             <label
@@ -1625,10 +1805,32 @@ const SmartVersesPage: React.FC = () => {
               >
                 <FaMicrophone />
                 Start
+                {settings.runTranscriptionInBrowser && (
+                  <FaExternalLinkAlt style={{ fontSize: "0.75rem" }} />
+                )}
               </button>
             ) : transcriptionStatus === "connecting" ? (
               <button disabled className="secondary">
                 Connecting...
+              </button>
+            ) : transcriptionStatus === "waiting_for_browser" ? (
+              <button
+                onClick={handleStopTranscription}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  backgroundColor: "var(--warning)",
+                  color: "#000",
+                  border: "none",
+                  padding: "var(--spacing-2) var(--spacing-3)",
+                  borderRadius: "8px",
+                  cursor: "pointer",
+                }}
+                title="Click to cancel and close the browser transcription"
+              >
+                <FaExternalLinkAlt />
+                Waiting for browser...
               </button>
             ) : (
               <button
@@ -1676,11 +1878,25 @@ const SmartVersesPage: React.FC = () => {
               color: "var(--app-text-color-secondary)",
               padding: "var(--spacing-8)",
             }}>
-              <FaMicrophone size={32} style={{ marginBottom: "var(--spacing-3)", opacity: 0.5 }} />
-              <p>Live transcription</p>
-              <p style={{ fontSize: "0.85rem" }}>
-                Click Start to begin transcribing. Bible references will be detected automatically.
-              </p>
+              {transcriptionStatus === "waiting_for_browser" ? (
+                <>
+                  <FaExternalLinkAlt size={32} style={{ marginBottom: "var(--spacing-3)", opacity: 0.7, color: "var(--warning)" }} />
+                  <p style={{ color: "var(--warning)", fontWeight: 600 }}>Waiting for browser transcription...</p>
+                  <p style={{ fontSize: "0.85rem" }}>
+                    A browser window has been opened. Select your microphone and click "Start Transcription" there.
+                    <br />
+                    Transcriptions will appear here automatically.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <FaMicrophone size={32} style={{ marginBottom: "var(--spacing-3)", opacity: 0.5 }} />
+                  <p>Live transcription</p>
+                  <p style={{ fontSize: "0.85rem" }}>
+                    Click Start to begin transcribing. Bible references will be detected automatically.
+                  </p>
+                </>
+              )}
             </div>
           ) : (
             <div>
