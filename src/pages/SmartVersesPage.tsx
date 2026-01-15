@@ -14,7 +14,7 @@
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { FaMicrophone, FaStop, FaPaperPlane, FaRobot, FaPlay, FaSearch, FaChevronDown, FaChevronUp, FaTrash, FaStopCircle, FaExternalLinkAlt, FaEllipsisH, FaDownload } from "react-icons/fa";
+import { FaMicrophone, FaStop, FaPaperPlane, FaRobot, FaPlay, FaSearch, FaChevronDown, FaChevronUp, FaTrash, FaStopCircle, FaExternalLinkAlt, FaEllipsisH, FaDownload, FaSpinner } from "react-icons/fa";
 import {
   SmartVersesSettings,
   SmartVersesChatMessage,
@@ -105,6 +105,7 @@ const SmartVersesPage: React.FC = () => {
 
   // Transcription state
   const [transcriptionStatus, setTranscriptionStatus] = useState<TranscriptionStatus>("idle");
+  const [isStopping, setIsStopping] = useState(false);
   const [interimTranscript, setInterimTranscript] = useState("");
   const [transcriptHistory, setTranscriptHistory] = useState<TranscriptionSegment[]>([]);
   const [detectedReferences, setDetectedReferences] = useState<DetectedBibleReference[]>([]);
@@ -1041,18 +1042,23 @@ const SmartVersesPage: React.FC = () => {
   }, [settings, appSettings, handleGoLive]);
 
   const handleStopTranscription = useCallback(async () => {
-    if (transcriptionServiceRef.current) {
-      await transcriptionServiceRef.current.stopTranscription();
-      transcriptionServiceRef.current = null;
+    setIsStopping(true);
+    try {
+      if (transcriptionServiceRef.current) {
+        await transcriptionServiceRef.current.stopTranscription();
+        transcriptionServiceRef.current = null;
+      }
+      // Also disconnect browser transcription WebSocket if connected
+      disconnectBrowserTranscriptionWs();
+      latestInterimTextRef.current = "";
+      lastInterimDirectSignatureRef.current = "";
+      lastInterimParseAtRef.current = 0;
+      lastInterimWordCountRef.current = 0;
+      setTranscriptionStatus("idle");
+      setInterimTranscript("");
+    } finally {
+      setIsStopping(false);
     }
-    // Also disconnect browser transcription WebSocket if connected
-    disconnectBrowserTranscriptionWs();
-    latestInterimTextRef.current = "";
-    lastInterimDirectSignatureRef.current = "";
-    lastInterimParseAtRef.current = 0;
-    lastInterimWordCountRef.current = 0;
-    setTranscriptionStatus("idle");
-    setInterimTranscript("");
   }, [disconnectBrowserTranscriptionWs]);
 
   const handleClearTranscript = () => {
@@ -1944,7 +1950,7 @@ const SmartVersesPage: React.FC = () => {
                 padding: "2px 8px",
                 borderRadius: "4px",
                 backgroundColor: "var(--warning)",
-                color: "#000",
+                color: "white",
                 fontWeight: 600,
               }}>
                 Browser
@@ -2002,7 +2008,7 @@ const SmartVersesPage: React.FC = () => {
                   alignItems: "center",
                   gap: "6px",
                   backgroundColor: "var(--warning)",
-                  color: "#000",
+                  color: "white",
                   border: "none",
                   padding: "var(--spacing-2) var(--spacing-3)",
                   borderRadius: "8px",
@@ -2016,20 +2022,31 @@ const SmartVersesPage: React.FC = () => {
             ) : (
               <button
                 onClick={handleStopTranscription}
+                disabled={isStopping}
                 style={{
                   display: "flex",
                   alignItems: "center",
                   gap: "6px",
-                  backgroundColor: "rgb(220, 38, 38)",
+                  backgroundColor: isStopping ? "rgb(156, 163, 175)" : "rgb(220, 38, 38)",
                   color: "white",
                   border: "none",
                   padding: "var(--spacing-2) var(--spacing-3)",
                   borderRadius: "8px",
-                  cursor: "pointer",
+                  cursor: isStopping ? "not-allowed" : "pointer",
+                  opacity: isStopping ? 0.7 : 1,
                 }}
               >
-                <FaStop />
-                Stop
+                {isStopping ? (
+                  <>
+                    <FaSpinner style={{ animation: "spin 1s linear infinite" }} />
+                    Stopping...
+                  </>
+                ) : (
+                  <>
+                    <FaStop />
+                    Stop
+                  </>
+                )}
               </button>
             )}
             <button
