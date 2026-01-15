@@ -8,6 +8,7 @@ use futures_util::{SinkExt, StreamExt};
 use warp::Filter;
 use warp::ws::{Message as WarpWsMessage, WebSocket};
 use rust_embed::RustEmbed;
+use cpal::traits::{DeviceTrait, HostTrait};
 
 // ============================================================================
 // Embedded Frontend Assets
@@ -845,6 +846,45 @@ fn greet(name: &str) -> String {
 }
 
 // ============================================================================
+// Audio Device Enumeration (Native)
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize)]
+pub struct NativeAudioInputDevice {
+    pub name: String,
+    pub is_default: bool,
+}
+
+#[tauri::command]
+fn list_native_audio_input_devices() -> Result<Vec<NativeAudioInputDevice>, String> {
+    let host = cpal::default_host();
+    let default_name = host
+        .default_input_device()
+        .and_then(|d| d.name().ok());
+
+    let mut devices: Vec<NativeAudioInputDevice> = host
+        .input_devices()
+        .map_err(|e| format!("input_devices_failed:{}", e))?
+        .filter_map(|d| {
+            let name = d.name().ok()?;
+            let is_default = default_name.as_ref().map(|n| n == &name).unwrap_or(false);
+            Some(NativeAudioInputDevice { name, is_default })
+        })
+        .collect();
+
+    // Put default first, then alphabetical
+    devices.sort_by(|a, b| {
+        match (a.is_default, b.is_default) {
+            (true, false) => std::cmp::Ordering::Less,
+            (false, true) => std::cmp::Ordering::Greater,
+            _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
+        }
+    });
+
+    Ok(devices)
+}
+
+// ============================================================================
 // AssemblyAI Token Generation (Tauri Backend)
 // ============================================================================
 
@@ -1256,6 +1296,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             greet,
+            list_native_audio_input_devices,
             assemblyai_create_realtime_token,
             write_text_to_file,
             start_live_slides_server,

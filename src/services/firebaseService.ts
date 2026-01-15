@@ -147,14 +147,22 @@ async function initializeDefaultServices(config: FirebaseConfig): Promise<void> 
 // Realtime subscription for live testimony
 export function subscribeToLiveTestimony(
   config: FirebaseConfig,
-  callback: (live: LiveTestimony | null) => void
+  callback: (live: LiveTestimony | null) => void,
+  onError?: (err: unknown) => void
 ): () => void {
   const db = getFirebaseDatabase(config);
   const liveRef = ref(db, "liveTestimony");
 
-  const unsubscribe = onValue(liveRef, (snapshot) => {
-    callback(snapshot.exists() ? snapshot.val() : null);
-  });
+  const unsubscribe = onValue(
+    liveRef,
+    (snapshot) => {
+      callback(snapshot.exists() ? snapshot.val() : null);
+    },
+    (err) => {
+      console.error("Firebase subscribeToLiveTestimony error:", err);
+      onError?.(err);
+    }
+  );
 
   return unsubscribe;
 }
@@ -164,27 +172,35 @@ export function subscribeToTestimoniesByDateAndService(
   config: FirebaseConfig,
   date: string,
   service: string,
-  callback: (testimonies: Testimony[]) => void
+  callback: (testimonies: Testimony[]) => void,
+  onError?: (err: unknown) => void
 ): () => void {
   const db = getFirebaseDatabase(config);
   const testimoniesRef = ref(db, "testimonies");
 
-  const unsubscribe = onValue(testimoniesRef, (snapshot) => {
-    if (!snapshot.exists()) {
-      callback([]);
-      return;
-    }
-
-    const testimonies: Testimony[] = [];
-    snapshot.forEach((child) => {
-      const data = child.val();
-      if (data.date === date && data.service === service) {
-        testimonies.push({ id: child.key!, ...data });
+  const unsubscribe = onValue(
+    testimoniesRef,
+    (snapshot) => {
+      if (!snapshot.exists()) {
+        callback([]);
+        return;
       }
-    });
 
-    callback(testimonies.sort((a, b) => a.createdAt - b.createdAt));
-  });
+      const testimonies: Testimony[] = [];
+      snapshot.forEach((child) => {
+        const data = child.val();
+        if (data.date === date && data.service === service) {
+          testimonies.push({ id: child.key!, ...data });
+        }
+      });
+
+      callback(testimonies.sort((a, b) => a.createdAt - b.createdAt));
+    },
+    (err) => {
+      console.error("Firebase subscribeToTestimoniesByDateAndService error:", err);
+      onError?.(err);
+    }
+  );
 
   return unsubscribe;
 }

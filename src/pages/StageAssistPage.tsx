@@ -10,6 +10,8 @@ import {
   FaCloud,
   FaFile,
   FaImage,
+  FaRedo,
+  FaCheck,
 } from "react-icons/fa";
 import {
   ScheduleItem,
@@ -109,6 +111,8 @@ const StageAssistPage: React.FC = () => {
     startCountdownToTime,
     stopTimer,
     getNextSession,
+    resetTriggeredSessions,
+    isSessionTriggered,
   } = useStageAssist();
 
   const [editingCell, setEditingCell] = useState<{
@@ -357,6 +361,13 @@ const StageAssistPage: React.FC = () => {
   // Start a session timer
   const handleStartSession = async (index: number) => {
     const session = schedule[index];
+
+    // Check if trigger once is enabled and session is already triggered
+    if (settings.triggerOnce && isSessionTriggered(session.id)) {
+      showToast("Timer already triggered for this session", "info");
+      return;
+    }
+
     const duration = settings.useDurations
       ? parseDurationToSeconds(session.duration)
       : undefined;
@@ -377,6 +388,7 @@ const StageAssistPage: React.FC = () => {
     });
     setCurrentSessionIndex(index);
 
+    // startSession in context will mark as triggered if triggerOnce is enabled
     const result = await startSession(index);
 
     if (result.success > 0) {
@@ -1677,21 +1689,44 @@ const StageAssistPage: React.FC = () => {
                       justifyContent: "center",
                     }}
                   >
-                    <button
-                      onClick={() => handleStartSession(index)}
-                      style={{
-                        padding: "var(--spacing-2) var(--spacing-3)",
-                        backgroundColor: "rgb(29, 78, 216)",
-                        color: "white",
-                        border: "none",
-                        borderRadius: "6px",
-                        cursor: "pointer",
-                        fontWeight: 500,
-                        fontSize: "0.875rem",
-                      }}
-                    >
-                      Start
-                    </button>
+                    {settings.triggerOnce && isSessionTriggered(item.id) ? (
+                      <button
+                        disabled
+                        style={{
+                          padding: "var(--spacing-2) var(--spacing-3)",
+                          backgroundColor: "rgb(34, 197, 94)",
+                          color: "white",
+                          border: "none",
+                          borderRadius: "6px",
+                          cursor: "not-allowed",
+                          fontWeight: 500,
+                          fontSize: "0.875rem",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "4px",
+                          opacity: 0.9,
+                        }}
+                        title="Timer already triggered for this session. Use 'Reset Session Triggers' to trigger again."
+                      >
+                        <FaCheck style={{ fontSize: "0.75rem" }} /> Triggered
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => handleStartSession(index)}
+                        style={{
+                          padding: "var(--spacing-2) var(--spacing-3)",
+                          backgroundColor: "rgb(29, 78, 216)",
+                          color: "white",
+                          border: "none",
+                          borderRadius: "6px",
+                          cursor: "pointer",
+                          fontWeight: 500,
+                          fontSize: "0.875rem",
+                        }}
+                      >
+                        Start
+                      </button>
+                    )}
                     <button
                       onClick={() => handleDeleteSession(item.id)}
                       style={{
@@ -1750,11 +1785,28 @@ const StageAssistPage: React.FC = () => {
             ))}
           </tbody>
         </table>
-        <div style={{ padding: "var(--spacing-3)" }}>
+        <div style={{ padding: "var(--spacing-3)", display: "flex", gap: "var(--spacing-2)", alignItems: "center" }}>
           <button onClick={handleAddSession} className="secondary">
             <FaPlus style={{ marginRight: "var(--spacing-1)" }} /> Add New
             Session
           </button>
+          {settings.triggerOnce && (
+            <button
+              onClick={() => {
+                resetTriggeredSessions();
+                showToast("All session triggers have been reset", "success");
+              }}
+              className="secondary"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "6px",
+              }}
+              title="Reset all triggered sessions so they can be triggered again"
+            >
+              <FaRedo style={{ fontSize: "0.85em" }} /> Reset Session Triggers
+            </button>
+          )}
         </div>
       </div>
 
@@ -1854,6 +1906,25 @@ const StageAssistPage: React.FC = () => {
             style={{ width: "18px", height: "18px" }}
           />
           <span style={{ fontSize: "0.875rem" }}>Use Durations</span>
+        </label>
+        <label
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "var(--spacing-1)",
+            cursor: "pointer",
+          }}
+          title="When enabled, each timer can only be triggered once per session until manually reset"
+        >
+          <input
+            type="checkbox"
+            checked={settings.triggerOnce}
+            onChange={(e) =>
+              setSettings((s) => ({ ...s, triggerOnce: e.target.checked }))
+            }
+            style={{ width: "18px", height: "18px" }}
+          />
+          <span style={{ fontSize: "0.875rem" }}>Trigger Once</span>
         </label>
       </div>
 

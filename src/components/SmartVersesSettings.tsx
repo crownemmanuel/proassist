@@ -1,6 +1,6 @@
 /**
  * SmartVerses Settings Component
- * 
+ *
  * Settings panel for configuring SmartVerses features:
  * - Transcription engine (AssemblyAI)
  * - AI settings (paraphrase detection, etc.)
@@ -10,7 +10,18 @@
  */
 
 import React, { useState, useEffect, useCallback } from "react";
-import { FaMicrophone, FaRobot, FaPalette, FaFileExport, FaSave, FaKey, FaSpinner, FaDesktop, FaCheck, FaTimes } from "react-icons/fa";
+import {
+  FaMicrophone,
+  FaRobot,
+  FaPalette,
+  FaFileExport,
+  FaSave,
+  FaKey,
+  FaSpinner,
+  FaDesktop,
+  FaCheck,
+  FaTimes,
+} from "react-icons/fa";
 import {
   SmartVersesSettings as SmartVersesSettingsType,
   DEFAULT_SMART_VERSES_SETTINGS,
@@ -21,10 +32,17 @@ import {
   saveSmartVersesSettings,
 } from "../services/transcriptionService";
 import { getAssemblyAITemporaryToken } from "../services/assemblyaiTokenService";
-import { getEnabledConnections, getCurrentSlideIndex } from "../services/propresenterService";
+import {
+  getEnabledConnections,
+  getCurrentSlideIndex,
+} from "../services/propresenterService";
 import { ProPresenterConnection } from "../types/propresenter";
 import { getAppSettings } from "../utils/aiConfig";
-import { fetchOpenAIModels, fetchGeminiModels, fetchGroqModels } from "../services/aiService";
+import {
+  fetchOpenAIModels,
+  fetchGeminiModels,
+  fetchGroqModels,
+} from "../services/aiService";
 import "../App.css";
 
 // =============================================================================
@@ -32,44 +50,70 @@ import "../App.css";
 // =============================================================================
 
 const SmartVersesSettings: React.FC = () => {
-  const [settings, setSettings] = useState<SmartVersesSettingsType>(DEFAULT_SMART_VERSES_SETTINGS);
+  const [settings, setSettings] = useState<SmartVersesSettingsType>(
+    DEFAULT_SMART_VERSES_SETTINGS
+  );
   const [isSaving, setIsSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [availableMics, setAvailableMics] = useState<MediaDeviceInfo[]>([]);
-  
+
   // Bible Search AI model state
   const [bibleSearchModels, setBibleSearchModels] = useState<string[]>([]);
-  const [bibleSearchModelsLoading, setBibleSearchModelsLoading] = useState(false);
-  
+  const [bibleSearchModelsLoading, setBibleSearchModelsLoading] =
+    useState(false);
+
   // ProPresenter activation state
-  const [enabledConnections, setEnabledConnections] = useState<ProPresenterConnection[]>([]);
+  const [enabledConnections, setEnabledConnections] = useState<
+    ProPresenterConnection[]
+  >([]);
   const [selectedConnectionId, setSelectedConnectionId] = useState<string>("");
   const [isLoadingSlide, setIsLoadingSlide] = useState(false);
   const [slideLoadError, setSlideLoadError] = useState<string | null>(null);
   const [slideLoadSuccess, setSlideLoadSuccess] = useState(false);
   const [activationClicks, setActivationClicks] = useState<number>(1);
   const [takeOffClicks, setTakeOffClicks] = useState<number>(0);
-  const [clearTextFileOnTakeOff, setClearTextFileOnTakeOff] = useState<boolean>(true);
+  const [clearTextFileOnTakeOff, setClearTextFileOnTakeOff] =
+    useState<boolean>(true);
 
   // Load settings on mount
   useEffect(() => {
     const savedSettings = loadSmartVersesSettings();
     setSettings(savedSettings);
     loadMicrophones();
-    
+
     // Load ProPresenter connections
     const connections = getEnabledConnections();
     setEnabledConnections(connections);
     if (connections.length > 0) {
-      setSelectedConnectionId(savedSettings.selectedProPresenterConnectionId || connections[0].id);
+      setSelectedConnectionId(
+        savedSettings.selectedProPresenterConnectionId || connections[0].id
+      );
     }
-    
+
     // Load ProPresenter activation settings
     if (savedSettings.proPresenterActivation) {
-      setActivationClicks(savedSettings.proPresenterActivation.activationClicks ?? 1);
+      setActivationClicks(
+        savedSettings.proPresenterActivation.activationClicks ?? 1
+      );
       setTakeOffClicks(savedSettings.proPresenterActivation.takeOffClicks ?? 0);
-      setClearTextFileOnTakeOff(savedSettings.proPresenterActivation.clearTextFileOnTakeOff !== false);
+      setClearTextFileOnTakeOff(
+        savedSettings.proPresenterActivation.clearTextFileOnTakeOff !== false
+      );
     }
+
+    // Listen for device changes (when mics are plugged/unplugged)
+    const handleDeviceChange = () => {
+      console.log("Audio devices changed, refreshing list...");
+      loadMicrophones();
+    };
+    navigator.mediaDevices.addEventListener("devicechange", handleDeviceChange);
+
+    return () => {
+      navigator.mediaDevices.removeEventListener(
+        "devicechange",
+        handleDeviceChange
+      );
+    };
   }, []);
 
   // Load models when provider changes
@@ -120,19 +164,38 @@ const SmartVersesSettings: React.FC = () => {
   // Load available microphones
   const loadMicrophones = async () => {
     try {
-      // Request permission first
-      await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Request permission first - this is required to get full device labels
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+      // Immediately stop the stream to release the microphone
+      stream.getTracks().forEach((track) => track.stop());
+
+      // Now enumerate all devices - we'll have full labels after permission grant
       const devices = await navigator.mediaDevices.enumerateDevices();
-      const mics = devices.filter(d => d.kind === "audioinput");
+      const mics = devices.filter((d) => d.kind === "audioinput");
+
+      console.log(
+        `Found ${mics.length} audio input devices:`,
+        mics.map((m) => m.label || m.deviceId)
+      );
       setAvailableMics(mics);
     } catch (error) {
       console.error("Failed to load microphones:", error);
+
+      // Even if permission fails, try to enumerate devices (might get limited list)
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const mics = devices.filter((d) => d.kind === "audioinput");
+        setAvailableMics(mics);
+      } catch {
+        // Ignore secondary error
+      }
     }
   };
 
   // Handle settings change
   const handleChange = (key: keyof SmartVersesSettingsType, value: unknown) => {
-    setSettings(prev => ({ ...prev, [key]: value }));
+    setSettings((prev) => ({ ...prev, [key]: value }));
     setSaveMessage(null);
   };
 
@@ -143,26 +206,32 @@ const SmartVersesSettings: React.FC = () => {
     setSlideLoadSuccess(false);
 
     if (enabledConnections.length === 0) {
-      setSlideLoadError("No enabled ProPresenter connections found. Please enable at least one connection in Settings > ProPresenter.");
+      setSlideLoadError(
+        "No enabled ProPresenter connections found. Please enable at least one connection in Settings > ProPresenter."
+      );
       setIsLoadingSlide(false);
       return;
     }
 
     // Find the selected connection
-    const connection = enabledConnections.find(c => c.id === selectedConnectionId) || enabledConnections[0];
+    const connection =
+      enabledConnections.find((c) => c.id === selectedConnectionId) ||
+      enabledConnections[0];
 
     try {
       const slideIndexData = await getCurrentSlideIndex(connection);
       if (slideIndexData?.presentation_index) {
         const newActivation = {
-          presentationUuid: slideIndexData.presentation_index.presentation_id.uuid,
+          presentationUuid:
+            slideIndexData.presentation_index.presentation_id.uuid,
           slideIndex: slideIndexData.presentation_index.index,
-          presentationName: slideIndexData.presentation_index.presentation_id.name,
+          presentationName:
+            slideIndexData.presentation_index.presentation_id.name,
           activationClicks: activationClicks,
           takeOffClicks: takeOffClicks,
           clearTextFileOnTakeOff: clearTextFileOnTakeOff,
         };
-        setSettings(prev => ({
+        setSettings((prev) => ({
           ...prev,
           proPresenterActivation: newActivation,
           selectedProPresenterConnectionId: selectedConnectionId,
@@ -171,10 +240,14 @@ const SmartVersesSettings: React.FC = () => {
         setIsLoadingSlide(false);
         return;
       } else {
-        setSlideLoadError("No active presentation found. Make sure a slide is live in ProPresenter.");
+        setSlideLoadError(
+          "No active presentation found. Make sure a slide is live in ProPresenter."
+        );
       }
     } catch (err) {
-      setSlideLoadError(err instanceof Error ? err.message : "Failed to get slide index");
+      setSlideLoadError(
+        err instanceof Error ? err.message : "Failed to get slide index"
+      );
     }
 
     setIsLoadingSlide(false);
@@ -182,7 +255,7 @@ const SmartVersesSettings: React.FC = () => {
 
   // Handle removing ProPresenter configuration
   const handleRemoveProPresenterConfig = () => {
-    setSettings(prev => ({
+    setSettings((prev) => ({
       ...prev,
       proPresenterActivation: undefined,
     }));
@@ -207,12 +280,16 @@ const SmartVersesSettings: React.FC = () => {
             }
           : undefined,
       };
-      
+
       saveSmartVersesSettings(settingsToSave);
       // Update local state to match what was saved
       setSettings(settingsToSave);
       // Dispatch custom event so other components can react immediately
-      window.dispatchEvent(new CustomEvent("smartverses-settings-changed", { detail: settingsToSave }));
+      window.dispatchEvent(
+        new CustomEvent("smartverses-settings-changed", {
+          detail: settingsToSave,
+        })
+      );
       setSaveMessage("Settings saved successfully!");
       setTimeout(() => setSaveMessage(null), 3000);
     } catch (error) {
@@ -237,7 +314,11 @@ const SmartVersesSettings: React.FC = () => {
       }
     } catch (err) {
       const msg =
-        err instanceof Error ? err.message : typeof err === "string" ? err : JSON.stringify(err);
+        err instanceof Error
+          ? err.message
+          : typeof err === "string"
+          ? err
+          : JSON.stringify(err);
       alert(`❌ Failed to validate API key.\n\n${msg}`);
     }
   };
@@ -301,8 +382,14 @@ const SmartVersesSettings: React.FC = () => {
   return (
     <div style={{ maxWidth: "800px" }}>
       <h2 style={{ marginBottom: "var(--spacing-4)" }}>SmartVerses Settings</h2>
-      <p style={{ marginBottom: "var(--spacing-6)", color: "var(--app-text-color-secondary)" }}>
-        Configure SmartVerses smart Bible lookup and live transcription features.
+      <p
+        style={{
+          marginBottom: "var(--spacing-6)",
+          color: "var(--app-text-color-secondary)",
+        }}
+      >
+        Configure SmartVerses smart Bible lookup and live transcription
+        features.
       </p>
 
       {/* Transcription Settings */}
@@ -316,12 +403,21 @@ const SmartVersesSettings: React.FC = () => {
           <label style={labelStyle}>Transcription Engine</label>
           <select
             value={settings.transcriptionEngine}
-            onChange={(e) => handleChange("transcriptionEngine", e.target.value as TranscriptionEngine)}
+            onChange={(e) =>
+              handleChange(
+                "transcriptionEngine",
+                e.target.value as TranscriptionEngine
+              )
+            }
             style={inputStyle}
           >
             <option value="assemblyai">AssemblyAI (Recommended)</option>
-            <option value="elevenlabs" disabled>ElevenLabs (Coming Soon)</option>
-            <option value="whisper" disabled>Whisper (Coming Soon)</option>
+            <option value="elevenlabs" disabled>
+              ElevenLabs (Coming Soon)
+            </option>
+            <option value="whisper" disabled>
+              Whisper (Coming Soon)
+            </option>
           </select>
           <p style={helpTextStyle}>
             AssemblyAI provides high-accuracy real-time transcription.
@@ -348,7 +444,15 @@ const SmartVersesSettings: React.FC = () => {
             </button>
           </div>
           <p style={helpTextStyle}>
-            Get your API key from <a href="https://www.assemblyai.com/dashboard" target="_blank" rel="noopener noreferrer" style={{ color: "var(--app-primary-color)" }}>assemblyai.com/dashboard</a>
+            Get your API key from{" "}
+            <a
+              href="https://www.assemblyai.com/dashboard"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ color: "var(--app-primary-color)" }}
+            >
+              assemblyai.com/dashboard
+            </a>
           </p>
         </div>
 
@@ -356,7 +460,9 @@ const SmartVersesSettings: React.FC = () => {
           <label style={labelStyle}>Microphone</label>
           <select
             value={settings.selectedMicrophoneId || ""}
-            onChange={(e) => handleChange("selectedMicrophoneId", e.target.value)}
+            onChange={(e) =>
+              handleChange("selectedMicrophoneId", e.target.value)
+            }
             style={inputStyle}
           >
             <option value="">Default Microphone</option>
@@ -381,14 +487,18 @@ const SmartVersesSettings: React.FC = () => {
               type="checkbox"
               checked={settings.streamTranscriptionsToWebSocket}
               onChange={(e) =>
-                handleChange("streamTranscriptionsToWebSocket", e.target.checked)
+                handleChange(
+                  "streamTranscriptionsToWebSocket",
+                  e.target.checked
+                )
               }
             />
             Stream transcription output to WebSocket
           </label>
           <p style={helpTextStyle}>
-            Rebroadcast transcript chunks (and any extracted key points / scripture refs) to the
-            Live Slides WebSocket so other pages (like the Notepad) can consume them in real-time.
+            Rebroadcast transcript chunks (and any extracted key points /
+            scripture refs) to the Live Slides WebSocket so other pages (like
+            the Notepad) can consume them in real-time.
           </p>
         </div>
       </div>
@@ -400,25 +510,39 @@ const SmartVersesSettings: React.FC = () => {
           <h3 style={{ margin: 0 }}>AI Settings</h3>
         </div>
 
-        <div style={{
-          padding: "var(--spacing-3)",
-          backgroundColor: "var(--app-bg-color)",
-          borderRadius: "8px",
-          marginBottom: "var(--spacing-4)",
-        }}>
-          <h4 style={{ margin: "0 0 var(--spacing-3) 0", fontSize: "0.95rem" }}>Bible Search AI</h4>
+        <div
+          style={{
+            padding: "var(--spacing-3)",
+            backgroundColor: "var(--app-bg-color)",
+            borderRadius: "8px",
+            marginBottom: "var(--spacing-4)",
+          }}
+        >
+          <h4 style={{ margin: "0 0 var(--spacing-3) 0", fontSize: "0.95rem" }}>
+            Bible Search AI
+          </h4>
           <p style={{ ...helpTextStyle, marginBottom: "var(--spacing-3)" }}>
-            When enabled, AI will search for Bible verses when direct reference parsing fails.
-            Configure the provider and model below. API keys are configured in Settings → AI Configuration.
+            When enabled, AI will search for Bible verses when direct reference
+            parsing fails. Configure the provider and model below. API keys are
+            configured in Settings → AI Configuration.
           </p>
 
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--spacing-3)" }}>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "1fr 1fr",
+              gap: "var(--spacing-3)",
+            }}
+          >
             <div style={fieldStyle}>
               <label style={labelStyle}>Provider</label>
               <select
                 value={settings.bibleSearchProvider || ""}
                 onChange={(e) => {
-                  handleChange("bibleSearchProvider", e.target.value || undefined);
+                  handleChange(
+                    "bibleSearchProvider",
+                    e.target.value || undefined
+                  );
                   handleChange("bibleSearchModel", ""); // Reset model when provider changes
                 }}
                 style={inputStyle}
@@ -435,12 +559,18 @@ const SmartVersesSettings: React.FC = () => {
               <div style={{ position: "relative" }}>
                 <select
                   value={settings.bibleSearchModel || ""}
-                  onChange={(e) => handleChange("bibleSearchModel", e.target.value)}
-                  disabled={!settings.bibleSearchProvider || bibleSearchModelsLoading}
+                  onChange={(e) =>
+                    handleChange("bibleSearchModel", e.target.value)
+                  }
+                  disabled={
+                    !settings.bibleSearchProvider || bibleSearchModelsLoading
+                  }
                   style={inputStyle}
                 >
                   <option value="">
-                    {bibleSearchModelsLoading ? "Loading models..." : "Select Model"}
+                    {bibleSearchModelsLoading
+                      ? "Loading models..."
+                      : "Select Model"}
                   </option>
                   {bibleSearchModels.map((model) => (
                     <option key={model} value={model}>
@@ -449,14 +579,14 @@ const SmartVersesSettings: React.FC = () => {
                   ))}
                 </select>
                 {bibleSearchModelsLoading && (
-                  <FaSpinner 
+                  <FaSpinner
                     style={{
                       position: "absolute",
                       right: "40px",
                       top: "50%",
                       transform: "translateY(-50%)",
                       animation: "spin 1s linear infinite",
-                    }} 
+                    }}
                   />
                 )}
               </div>
@@ -464,7 +594,13 @@ const SmartVersesSettings: React.FC = () => {
           </div>
 
           {!settings.bibleSearchProvider && (
-            <p style={{ ...helpTextStyle, color: "var(--warning)", marginTop: "var(--spacing-2)" }}>
+            <p
+              style={{
+                ...helpTextStyle,
+                color: "var(--warning)",
+                marginTop: "var(--spacing-2)",
+              }}
+            >
               Select a provider and model to enable AI Bible search.
             </p>
           )}
@@ -475,12 +611,15 @@ const SmartVersesSettings: React.FC = () => {
             <input
               type="checkbox"
               checked={settings.enableParaphraseDetection}
-              onChange={(e) => handleChange("enableParaphraseDetection", e.target.checked)}
+              onChange={(e) =>
+                handleChange("enableParaphraseDetection", e.target.checked)
+              }
             />
             Enable Paraphrase Detection (Transcription)
           </label>
           <p style={helpTextStyle}>
-            Detect when speakers paraphrase Bible verses without quoting them directly.
+            Detect when speakers paraphrase Bible verses without quoting them
+            directly.
           </p>
         </div>
 
@@ -489,7 +628,9 @@ const SmartVersesSettings: React.FC = () => {
             <input
               type="checkbox"
               checked={settings.enableKeyPointExtraction}
-              onChange={(e) => handleChange("enableKeyPointExtraction", e.target.checked)}
+              onChange={(e) =>
+                handleChange("enableKeyPointExtraction", e.target.checked)
+              }
             />
             Enable Key Point Extraction
           </label>
@@ -503,7 +644,9 @@ const SmartVersesSettings: React.FC = () => {
             <label style={labelStyle}>Key Point Extraction Instructions</label>
             <textarea
               value={settings.keyPointExtractionInstructions || ""}
-              onChange={(e) => handleChange("keyPointExtractionInstructions", e.target.value)}
+              onChange={(e) =>
+                handleChange("keyPointExtractionInstructions", e.target.value)
+              }
               placeholder="Optional: Customize how key points should be extracted for your church/pastor..."
               style={{
                 ...inputStyle,
@@ -513,22 +656,33 @@ const SmartVersesSettings: React.FC = () => {
               }}
             />
             <p style={helpTextStyle}>
-              These instructions are added to the AI prompt when key point extraction is enabled.
-              Leave blank to use the default behavior.
+              These instructions are added to the AI prompt when key point
+              extraction is enabled. Leave blank to use the default behavior.
             </p>
           </div>
         )}
 
         <div style={fieldStyle}>
           <label style={labelStyle}>Paraphrase Confidence Threshold</label>
-          <div style={{ display: "flex", alignItems: "center", gap: "var(--spacing-3)" }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "var(--spacing-3)",
+            }}
+          >
             <input
               type="range"
               min="0.3"
               max="0.9"
               step="0.1"
               value={settings.paraphraseConfidenceThreshold}
-              onChange={(e) => handleChange("paraphraseConfidenceThreshold", parseFloat(e.target.value))}
+              onChange={(e) =>
+                handleChange(
+                  "paraphraseConfidenceThreshold",
+                  parseFloat(e.target.value)
+                )
+              }
               style={{ flex: 1 }}
             />
             <span style={{ minWidth: "50px", textAlign: "right" }}>
@@ -553,29 +707,53 @@ const SmartVersesSettings: React.FC = () => {
             <input
               type="checkbox"
               checked={settings.autoAddDetectedToHistory}
-              onChange={(e) => handleChange("autoAddDetectedToHistory", e.target.checked)}
+              onChange={(e) =>
+                handleChange("autoAddDetectedToHistory", e.target.checked)
+              }
             />
             Add Detected Verses to Search History
           </label>
           <p style={helpTextStyle}>
-            Automatically add verses detected from transcription to the chat panel.
+            Automatically add verses detected from transcription to the chat
+            panel.
           </p>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--spacing-4)" }}>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1fr 1fr",
+            gap: "var(--spacing-4)",
+          }}
+        >
           <div style={fieldStyle}>
             <label style={labelStyle}>Direct Reference Color</label>
-            <div style={{ display: "flex", alignItems: "center", gap: "var(--spacing-2)" }}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "var(--spacing-2)",
+              }}
+            >
               <input
                 type="color"
                 value={settings.directReferenceColor}
-                onChange={(e) => handleChange("directReferenceColor", e.target.value)}
-                style={{ width: "50px", height: "36px", border: "none", cursor: "pointer" }}
+                onChange={(e) =>
+                  handleChange("directReferenceColor", e.target.value)
+                }
+                style={{
+                  width: "50px",
+                  height: "36px",
+                  border: "none",
+                  cursor: "pointer",
+                }}
               />
               <input
                 type="text"
                 value={settings.directReferenceColor}
-                onChange={(e) => handleChange("directReferenceColor", e.target.value)}
+                onChange={(e) =>
+                  handleChange("directReferenceColor", e.target.value)
+                }
                 style={{ ...inputStyle, flex: 1 }}
               />
             </div>
@@ -583,17 +761,32 @@ const SmartVersesSettings: React.FC = () => {
 
           <div style={fieldStyle}>
             <label style={labelStyle}>Paraphrase Reference Color</label>
-            <div style={{ display: "flex", alignItems: "center", gap: "var(--spacing-2)" }}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "var(--spacing-2)",
+              }}
+            >
               <input
                 type="color"
                 value={settings.paraphraseReferenceColor}
-                onChange={(e) => handleChange("paraphraseReferenceColor", e.target.value)}
-                style={{ width: "50px", height: "36px", border: "none", cursor: "pointer" }}
+                onChange={(e) =>
+                  handleChange("paraphraseReferenceColor", e.target.value)
+                }
+                style={{
+                  width: "50px",
+                  height: "36px",
+                  border: "none",
+                  cursor: "pointer",
+                }}
               />
               <input
                 type="text"
                 value={settings.paraphraseReferenceColor}
-                onChange={(e) => handleChange("paraphraseReferenceColor", e.target.value)}
+                onChange={(e) =>
+                  handleChange("paraphraseReferenceColor", e.target.value)
+                }
                 style={{ ...inputStyle, flex: 1 }}
               />
             </div>
@@ -608,9 +801,16 @@ const SmartVersesSettings: React.FC = () => {
           <h3 style={{ margin: 0 }}>ProPresenter Activation</h3>
         </div>
 
-        <p style={{ marginBottom: "var(--spacing-4)", fontSize: "0.9em", color: "var(--app-text-color-secondary)" }}>
-          Optionally trigger a ProPresenter presentation when a verse goes live or when cleared.
-          This is useful for showing a graphic overlay when verses are being displayed.
+        <p
+          style={{
+            marginBottom: "var(--spacing-4)",
+            fontSize: "0.9em",
+            color: "var(--app-text-color-secondary)",
+          }}
+        >
+          Optionally trigger a ProPresenter presentation when a verse goes live
+          or when cleared. This is useful for showing a graphic overlay when
+          verses are being displayed.
         </p>
 
         <div style={fieldStyle}>
@@ -618,12 +818,15 @@ const SmartVersesSettings: React.FC = () => {
             <input
               type="checkbox"
               checked={settings.autoTriggerOnDetection}
-              onChange={(e) => handleChange("autoTriggerOnDetection", e.target.checked)}
+              onChange={(e) =>
+                handleChange("autoTriggerOnDetection", e.target.checked)
+              }
             />
             Auto-Trigger on Detection
           </label>
           <p style={helpTextStyle}>
-            Automatically go live when a Bible verse is detected in transcription.
+            Automatically go live when a Bible verse is detected in
+            transcription.
           </p>
         </div>
 
@@ -635,8 +838,15 @@ const SmartVersesSettings: React.FC = () => {
             border: "1px solid var(--app-border-color)",
           }}
         >
-          <p style={{ margin: "0 0 12px 0", color: "var(--app-text-color)", fontSize: "0.9em" }}>
-            <strong>Instructions:</strong> Go to ProPresenter and put the slide you want to trigger live, then click "Get Slide".
+          <p
+            style={{
+              margin: "0 0 12px 0",
+              color: "var(--app-text-color)",
+              fontSize: "0.9em",
+            }}
+          >
+            <strong>Instructions:</strong> Go to ProPresenter and put the slide
+            you want to trigger live, then click "Get Slide".
           </p>
 
           {slideLoadError && (
@@ -667,12 +877,22 @@ const SmartVersesSettings: React.FC = () => {
                 fontSize: "0.9em",
               }}
             >
-              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <div
+                style={{ display: "flex", alignItems: "center", gap: "8px" }}
+              >
                 <FaCheck />
                 <div>
                   <div style={{ fontWeight: 600 }}>Slide captured!</div>
-                  <div style={{ fontSize: "0.85em", marginTop: "4px", opacity: 0.9 }}>
-                    Presentation: {settings.proPresenterActivation.presentationName || settings.proPresenterActivation.presentationUuid}
+                  <div
+                    style={{
+                      fontSize: "0.85em",
+                      marginTop: "4px",
+                      opacity: 0.9,
+                    }}
+                  >
+                    Presentation:{" "}
+                    {settings.proPresenterActivation.presentationName ||
+                      settings.proPresenterActivation.presentationUuid}
                     <br />
                     Slide Index: {settings.proPresenterActivation.slideIndex}
                   </div>
@@ -693,9 +913,13 @@ const SmartVersesSettings: React.FC = () => {
                 color: "var(--app-text-color-secondary)",
               }}
             >
-              <div style={{ fontWeight: 600, marginBottom: "4px" }}>Current Configuration:</div>
+              <div style={{ fontWeight: 600, marginBottom: "4px" }}>
+                Current Configuration:
+              </div>
               <div>
-                Presentation: {settings.proPresenterActivation.presentationName || settings.proPresenterActivation.presentationUuid}
+                Presentation:{" "}
+                {settings.proPresenterActivation.presentationName ||
+                  settings.proPresenterActivation.presentationUuid}
                 <br />
                 Slide Index: {settings.proPresenterActivation.slideIndex}
               </div>
@@ -713,19 +937,43 @@ const SmartVersesSettings: React.FC = () => {
                 borderRadius: "6px",
               }}
             >
-              <div style={{ fontSize: "0.85em", fontWeight: 600, marginBottom: "8px", color: "var(--app-text-color)" }}>
+              <div
+                style={{
+                  fontSize: "0.85em",
+                  fontWeight: 600,
+                  marginBottom: "8px",
+                  color: "var(--app-text-color)",
+                }}
+              >
                 Animation Trigger Settings:
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr",
+                  gap: "10px",
+                }}
+              >
                 <div>
-                  <label style={{ fontSize: "0.8em", display: "block", marginBottom: "4px", color: "var(--app-text-color-secondary)" }}>
+                  <label
+                    style={{
+                      fontSize: "0.8em",
+                      display: "block",
+                      marginBottom: "4px",
+                      color: "var(--app-text-color-secondary)",
+                    }}
+                  >
                     Go Live Clicks:
                   </label>
                   <input
                     type="number"
                     min="1"
                     value={activationClicks}
-                    onChange={(e) => setActivationClicks(Math.max(1, parseInt(e.target.value) || 1))}
+                    onChange={(e) =>
+                      setActivationClicks(
+                        Math.max(1, parseInt(e.target.value) || 1)
+                      )
+                    }
                     style={{
                       width: "100%",
                       padding: "4px 6px",
@@ -738,14 +986,25 @@ const SmartVersesSettings: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label style={{ fontSize: "0.8em", display: "block", marginBottom: "4px", color: "var(--app-text-color-secondary)" }}>
+                  <label
+                    style={{
+                      fontSize: "0.8em",
+                      display: "block",
+                      marginBottom: "4px",
+                      color: "var(--app-text-color-secondary)",
+                    }}
+                  >
                     Clear/Off Live Clicks:
                   </label>
                   <input
                     type="number"
                     min="0"
                     value={takeOffClicks}
-                    onChange={(e) => setTakeOffClicks(Math.max(0, parseInt(e.target.value) || 0))}
+                    onChange={(e) =>
+                      setTakeOffClicks(
+                        Math.max(0, parseInt(e.target.value) || 0)
+                      )
+                    }
                     style={{
                       width: "100%",
                       padding: "4px 6px",
@@ -758,29 +1017,65 @@ const SmartVersesSettings: React.FC = () => {
                   />
                 </div>
               </div>
-              <div style={{ fontSize: "0.75em", color: "var(--app-text-color-secondary)", marginTop: "6px" }}>
-                Use multiple clicks to trigger ProPresenter animations. "Go Live Clicks" triggers when a verse is set live. "Clear/Off Live Clicks" triggers when clearing the live verse.
+              <div
+                style={{
+                  fontSize: "0.75em",
+                  color: "var(--app-text-color-secondary)",
+                  marginTop: "6px",
+                }}
+              >
+                Use multiple clicks to trigger ProPresenter animations. "Go Live
+                Clicks" triggers when a verse is set live. "Clear/Off Live
+                Clicks" triggers when clearing the live verse.
               </div>
-              
+
               {/* Clear Text File on Take Off Option */}
-              <div style={{ marginTop: "var(--spacing-3)", paddingTop: "var(--spacing-3)", borderTop: "1px solid var(--app-border-color)" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "var(--spacing-2)" }}>
+              <div
+                style={{
+                  marginTop: "var(--spacing-3)",
+                  paddingTop: "var(--spacing-3)",
+                  borderTop: "1px solid var(--app-border-color)",
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "var(--spacing-2)",
+                  }}
+                >
                   <input
                     type="checkbox"
                     id="clearTextFileOnTakeOff"
                     checked={clearTextFileOnTakeOff}
-                    onChange={(e) => setClearTextFileOnTakeOff(e.target.checked)}
+                    onChange={(e) =>
+                      setClearTextFileOnTakeOff(e.target.checked)
+                    }
                     style={{ width: "auto", margin: 0 }}
                   />
                   <label
                     htmlFor="clearTextFileOnTakeOff"
-                    style={{ margin: 0, cursor: "pointer", fontWeight: 500, fontSize: "0.9em" }}
+                    style={{
+                      margin: 0,
+                      cursor: "pointer",
+                      fontWeight: 500,
+                      fontSize: "0.9em",
+                    }}
                   >
                     Clear text file when taking off live
                   </label>
                 </div>
-                <div style={{ fontSize: "0.75em", color: "var(--app-text-color-secondary)", marginTop: "4px", marginLeft: "24px" }}>
-                  If unchecked, the text file will remain unchanged when clearing a live verse. Only the ProPresenter slide will be triggered.
+                <div
+                  style={{
+                    fontSize: "0.75em",
+                    color: "var(--app-text-color-secondary)",
+                    marginTop: "4px",
+                    marginLeft: "24px",
+                  }}
+                >
+                  If unchecked, the text file will remain unchanged when
+                  clearing a live verse. Only the ProPresenter slide will be
+                  triggered.
                 </div>
               </div>
             </div>
@@ -838,9 +1133,20 @@ const SmartVersesSettings: React.FC = () => {
           )}
 
           {enabledConnections.length === 0 && (
-            <div style={{ marginBottom: "12px", padding: "10px", backgroundColor: "var(--app-header-bg)", borderRadius: "6px", fontSize: "0.85rem" }}>
-              <p style={{ margin: 0, color: "var(--app-text-color-secondary)" }}>
-                No ProPresenter connections enabled. Configure in Settings → ProPresenter.
+            <div
+              style={{
+                marginBottom: "12px",
+                padding: "10px",
+                backgroundColor: "var(--app-header-bg)",
+                borderRadius: "6px",
+                fontSize: "0.85rem",
+              }}
+            >
+              <p
+                style={{ margin: 0, color: "var(--app-text-color-secondary)" }}
+              >
+                No ProPresenter connections enabled. Configure in Settings →
+                ProPresenter.
               </p>
             </div>
           )}
@@ -854,7 +1160,12 @@ const SmartVersesSettings: React.FC = () => {
             >
               {isLoadingSlide ? (
                 <>
-                  <FaSpinner style={{ animation: "spin 1s linear infinite", marginRight: "6px" }} />
+                  <FaSpinner
+                    style={{
+                      animation: "spin 1s linear infinite",
+                      marginRight: "6px",
+                    }}
+                  />
                   Reading...
                 </>
               ) : (
@@ -865,7 +1176,10 @@ const SmartVersesSettings: React.FC = () => {
               )}
             </button>
             {settings.proPresenterActivation && (
-              <button onClick={handleRemoveProPresenterConfig} className="secondary">
+              <button
+                onClick={handleRemoveProPresenterConfig}
+                className="secondary"
+              >
                 <FaTimes style={{ marginRight: "6px" }} />
                 Remove
               </button>
@@ -895,13 +1209,21 @@ const SmartVersesSettings: React.FC = () => {
           </p>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--spacing-4)" }}>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1fr 1fr",
+            gap: "var(--spacing-4)",
+          }}
+        >
           <div style={fieldStyle}>
             <label style={labelStyle}>Verse Text Filename</label>
             <input
               type="text"
               value={settings.bibleTextFileName || ""}
-              onChange={(e) => handleChange("bibleTextFileName", e.target.value)}
+              onChange={(e) =>
+                handleChange("bibleTextFileName", e.target.value)
+              }
               placeholder="verse_text.txt"
               style={inputStyle}
             />
@@ -912,7 +1234,9 @@ const SmartVersesSettings: React.FC = () => {
             <input
               type="text"
               value={settings.bibleReferenceFileName || ""}
-              onChange={(e) => handleChange("bibleReferenceFileName", e.target.value)}
+              onChange={(e) =>
+                handleChange("bibleReferenceFileName", e.target.value)
+              }
               placeholder="verse_reference.txt"
               style={inputStyle}
             />
@@ -921,19 +1245,25 @@ const SmartVersesSettings: React.FC = () => {
       </div>
 
       {/* Save Button */}
-      <div style={{
-        display: "flex",
-        justifyContent: "space-between",
-        alignItems: "center",
-        padding: "var(--spacing-4)",
-        backgroundColor: "var(--app-header-bg)",
-        borderRadius: "12px",
-        border: "1px solid var(--app-border-color)",
-      }}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          padding: "var(--spacing-4)",
+          backgroundColor: "var(--app-header-bg)",
+          borderRadius: "12px",
+          border: "1px solid var(--app-border-color)",
+        }}
+      >
         {saveMessage && (
-          <span style={{
-            color: saveMessage.includes("success") ? "var(--success)" : "var(--error)",
-          }}>
+          <span
+            style={{
+              color: saveMessage.includes("success")
+                ? "var(--success)"
+                : "var(--error)",
+            }}
+          >
             {saveMessage}
           </span>
         )}

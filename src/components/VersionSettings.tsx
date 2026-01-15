@@ -13,6 +13,7 @@ const VersionSettings: React.FC = () => {
   const [isDownloading, setIsDownloading] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [devtoolsError, setDevtoolsError] = useState<string | null>(null);
   const [developerMode, setDeveloperMode] = useState<boolean>(() => {
     return localStorage.getItem('developer-mode') === 'true';
   });
@@ -39,6 +40,28 @@ const VersionSettings: React.FC = () => {
   useEffect(() => {
     localStorage.setItem('developer-mode', developerMode.toString());
   }, [developerMode]);
+
+  const handleOpenInspector = async () => {
+    setDevtoolsError(null);
+    try {
+      // Use core webview command (works even when @tauri-apps/api doesn't expose a convenience helper).
+      const coreApi = await import('@tauri-apps/api/core');
+      const webviewApi = await import('@tauri-apps/api/webview');
+      const current = webviewApi.getCurrentWebview();
+
+      // This requires capability permission: `core:webview:allow-internal-toggle-devtools`
+      await coreApi.invoke('plugin:webview|internal_toggle_devtools', { label: current.label });
+    } catch (err) {
+      const msg =
+        err instanceof Error
+          ? err.message
+          : typeof err === 'string'
+            ? err
+            : 'Failed to open inspector';
+      setDevtoolsError(msg);
+      console.error('Open Inspector failed:', err);
+    }
+  };
 
   const handleCheckForUpdates = async () => {
     setIsChecking(true);
@@ -219,16 +242,34 @@ const VersionSettings: React.FC = () => {
         <p style={styles.description}>
           Enable developer mode to view console logs and debug information.
         </p>
-        <button
-          onClick={() => setDeveloperMode(true)}
-          style={{
-            ...styles.button,
-            backgroundColor: '#4b5563',
-            color: '#ffffff',
-          }}
-        >
-          Enable Developer Mode
-        </button>
+        <div style={{ display: 'flex', gap: 'var(--spacing-2)', flexWrap: 'wrap', alignItems: 'center' }}>
+          <button
+            onClick={() => setDeveloperMode(true)}
+            style={{
+              ...styles.button,
+              backgroundColor: '#4b5563',
+              color: '#ffffff',
+            }}
+          >
+            Enable Developer Mode
+          </button>
+          <button
+            onClick={handleOpenInspector}
+            style={{
+              ...styles.button,
+              backgroundColor: '#2563eb',
+              color: '#ffffff',
+            }}
+            title="Shortcut: F12 (Windows/Linux) or Cmd+Opt+I (macOS)"
+          >
+            Open Inspector
+          </button>
+        </div>
+        {devtoolsError && (
+          <div style={styles.errorMessage}>
+            {devtoolsError}
+          </div>
+        )}
       </div>
     </div>
   );

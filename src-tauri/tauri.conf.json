@@ -20,7 +20,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self' 'unsafe-eval'; connect-src http://localhost:* http://127.0.0.1:* http://*:* https://*:* ws://localhost:* ws://127.0.0.1:* ws://*:* wss://*:* https://api.openai.com https://generativelanguage.googleapis.com 'self'; img-src 'self' data: blob:;"
+      "csp": "default-src 'self'; script-src 'self' 'unsafe-eval'; connect-src 'self' https: http: ws: wss:; img-src 'self' data: blob:;"
     }
   },
   "bundle": {
@@ -33,7 +33,18 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "createUpdaterArtifacts": true
+    "createUpdaterArtifacts": true,
+    "macOS": {
+      "entitlements": "entitlements.plist",
+      "exceptionDomain": null,
+      "frameworks": [],
+      "providerShortName": null,
+      "signingIdentity": null,
+      "minimumSystemVersion": "10.13"
+    },
+    "iOS": {
+      "developmentTeam": null
+    }
   },
   "plugins": {
     "updater": {

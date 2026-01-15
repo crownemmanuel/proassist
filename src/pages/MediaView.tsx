@@ -26,6 +26,24 @@ function getTodayDate(): string {
   return `${year}-${month}-${day}`;
 }
 
+function describeFirebaseError(err: unknown): string {
+  if (!err) return "Unknown Firebase error";
+  if (err instanceof Error) return err.message;
+  if (typeof err === "string") return err;
+  if (typeof err === "object") {
+    const anyErr = err as any;
+    const code = typeof anyErr.code === "string" ? anyErr.code : undefined;
+    const message =
+      typeof anyErr.message === "string"
+        ? anyErr.message
+        : typeof anyErr.toString === "function"
+          ? anyErr.toString()
+          : "Unknown Firebase error";
+    return code ? `${code}: ${message}` : message;
+  }
+  return String(err);
+}
+
 const MediaView: React.FC = () => {
   const [date, setDate] = useState(() => {
     try {
@@ -104,9 +122,16 @@ const MediaView: React.FC = () => {
     loadCurrentLive();
 
     // Subscribe to live testimony changes
-    const unsubscribe = subscribeToLiveTestimony(config, (live) => {
-      setCurrentLive(live);
-    });
+    const unsubscribe = subscribeToLiveTestimony(
+      config,
+      (live) => {
+        setCurrentLive(live);
+      },
+      (err) => {
+        // Important: in production, failures here can look like "stuck loading" unless we surface them.
+        setError(`Live Testimony subscription failed: ${describeFirebaseError(err)}`);
+      }
+    );
 
     return () => unsubscribe();
   }, []);
@@ -125,21 +150,39 @@ const MediaView: React.FC = () => {
     setError(null);
     setIsSubscribed(false);
 
+    // Safety: if Firebase never calls back (e.g., blocked network / CSP / permissions),
+    // don't leave the UI stuck on Loading forever.
+    const timeoutId = window.setTimeout(() => {
+      setIsLoading(false);
+      setIsSubscribed(false);
+      setError(
+        "Timed out connecting to Firebase. This usually means the production app is blocked from reaching Firebase (CSP/network) or Firebase rules/permissions are rejecting the connection."
+      );
+    }, 15000);
+
     // Subscribe to real-time updates
     const unsubscribe = subscribeToTestimoniesByDateAndService(
       firebaseConfig,
       date,
       service,
       (updatedTestimonies) => {
+        window.clearTimeout(timeoutId);
         setTestimonies(updatedTestimonies);
         setIsLoading(false);
         setIsSubscribed(true);
+      },
+      (err) => {
+        window.clearTimeout(timeoutId);
+        setIsLoading(false);
+        setIsSubscribed(false);
+        setError(`Testimonies subscription failed: ${describeFirebaseError(err)}`);
       }
     );
 
     unsubscribeTestimoniesRef.current = unsubscribe;
 
     return () => {
+      window.clearTimeout(timeoutId);
       if (unsubscribeTestimoniesRef.current) {
         unsubscribeTestimoniesRef.current();
         unsubscribeTestimoniesRef.current = null;

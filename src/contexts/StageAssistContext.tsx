@@ -84,6 +84,7 @@ export interface StageAssistSettings {
   useDurations: boolean;
   isAutoPlay: boolean;
   isAllowOverrun: boolean;
+  triggerOnce: boolean; // When true, each timer can only be triggered once per session until reset
 }
 
 const defaultSchedule: ScheduleItem[] = [
@@ -116,6 +117,7 @@ const defaultSettings: StageAssistSettings = {
   useDurations: false,
   isAutoPlay: false,
   isAllowOverrun: false,
+  triggerOnce: true, // Default: timers can only be triggered once per schedule item
 };
 
 export function formatStageAssistTime(seconds: number) {
@@ -143,6 +145,12 @@ type StageAssistContextValue = {
   setTimerState: React.Dispatch<React.SetStateAction<TimerState>>;
   currentSessionIndex: number | null;
   setCurrentSessionIndex: React.Dispatch<React.SetStateAction<number | null>>;
+
+  // triggered sessions tracking (session IDs that have been triggered)
+  triggeredSessions: Set<number>;
+  markSessionTriggered: (sessionId: number) => void;
+  resetTriggeredSessions: () => void;
+  isSessionTriggered: (sessionId: number) => boolean;
 
   // countdown controls
   countdownHours: string;
@@ -189,6 +197,9 @@ export const StageAssistProvider: React.FC<{ children: React.ReactNode }> = ({ c
   const [countdownSeconds, setCountdownSeconds] = useState("0");
   const [countdownToTime, setCountdownToTime] = useState("7:30");
   const [countdownToPeriod, setCountdownToPeriod] = useState<"AM" | "PM">("PM");
+
+  // Track which sessions have been triggered (by session ID)
+  const [triggeredSessions, setTriggeredSessions] = useState<Set<number>>(new Set());
 
   // Load persisted schedule/settings on mount
   useEffect(() => {
@@ -409,6 +420,11 @@ export const StageAssistProvider: React.FC<{ children: React.ReactNode }> = ({ c
       const session = schedule[index];
       if (!session) return { success: 0, failed: 0, errors: [] };
 
+      // Check if trigger once is enabled and session is already triggered
+      if (settings.triggerOnce && triggeredSessions.has(session.id)) {
+        return { success: 0, failed: 0, errors: ["Timer already triggered for this session"] };
+      }
+
       const duration = settings.useDurations ? parseDurationToSeconds(session.duration) : undefined;
       const end = new Date(`${new Date().toDateString()} ${session.endTime}`);
       const now = new Date();
@@ -423,9 +439,14 @@ export const StageAssistProvider: React.FC<{ children: React.ReactNode }> = ({ c
       });
       setCurrentSessionIndex(index);
 
+      // Mark session as triggered (if trigger once is enabled)
+      if (settings.triggerOnce) {
+        setTriggeredSessions((prev) => new Set(prev).add(session.id));
+      }
+
       return await startTimerOnAllEnabled(session.session, duration, settings.useDurations ? undefined : session.endTime);
     },
-    [schedule, settings.useDurations]
+    [schedule, settings.useDurations, settings.triggerOnce, triggeredSessions]
   );
 
   // Auto-play next session (runs at app level so it survives navigation)
@@ -511,6 +532,21 @@ export const StageAssistProvider: React.FC<{ children: React.ReactNode }> = ({ c
     return await stopTimerOnAllEnabled();
   }, []);
 
+  // Mark a session as triggered
+  const markSessionTriggered = useCallback((sessionId: number) => {
+    setTriggeredSessions((prev) => new Set(prev).add(sessionId));
+  }, []);
+
+  // Reset all triggered sessions (allows re-triggering)
+  const resetTriggeredSessions = useCallback(() => {
+    setTriggeredSessions(new Set());
+  }, []);
+
+  // Check if a session has been triggered
+  const isSessionTriggered = useCallback((sessionId: number) => {
+    return triggeredSessions.has(sessionId);
+  }, [triggeredSessions]);
+
   const getNextSession = useCallback(() => {
     if (currentSessionIndex === null || currentSessionIndex >= schedule.length - 1) return null;
     return schedule[currentSessionIndex + 1];
@@ -533,6 +569,10 @@ export const StageAssistProvider: React.FC<{ children: React.ReactNode }> = ({ c
       setTimerState,
       currentSessionIndex,
       setCurrentSessionIndex,
+      triggeredSessions,
+      markSessionTriggered,
+      resetTriggeredSessions,
+      isSessionTriggered,
       countdownHours,
       setCountdownHours,
       countdownMinutes,
@@ -555,6 +595,10 @@ export const StageAssistProvider: React.FC<{ children: React.ReactNode }> = ({ c
       settings,
       timerState,
       currentSessionIndex,
+      triggeredSessions,
+      markSessionTriggered,
+      resetTriggeredSessions,
+      isSessionTriggered,
       countdownHours,
       countdownMinutes,
       countdownSeconds,

@@ -411,6 +411,43 @@ function App() {
     localStorage.getItem("app-theme") || "dark"
   );
 
+  // Global shortcut to open DevTools / Inspector (useful on production machines to debug issues).
+  useEffect(() => {
+    const handler = async (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName?.toLowerCase();
+      const isTypingContext =
+        tag === "input" ||
+        tag === "textarea" ||
+        tag === "select" ||
+        (target?.isContentEditable ?? false);
+      if (isTypingContext) return;
+
+      const isF12 = e.key === "F12";
+      const isMacInspector =
+        (e.key === "I" || e.key === "i") && e.metaKey && e.altKey;
+      const isWinInspector =
+        (e.key === "I" || e.key === "i") && e.ctrlKey && e.shiftKey;
+
+      if (!isF12 && !isMacInspector && !isWinInspector) return;
+
+      e.preventDefault();
+      try {
+        const coreApi = await import("@tauri-apps/api/core");
+        const webviewApi = await import("@tauri-apps/api/webview");
+        const current = webviewApi.getCurrentWebview();
+        await coreApi.invoke("plugin:webview|internal_toggle_devtools", {
+          label: current.label,
+        });
+      } catch (err) {
+        console.warn("Failed to toggle devtools:", err);
+      }
+    };
+
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
+
   // Auto-start Live Slides WebSocket server if enabled in settings.
   useEffect(() => {
     const settings = loadLiveSlidesSettings();

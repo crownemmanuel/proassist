@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>ProAssist needs access to your microphone for SmartVerses live transcription feature. This allows the app to transcribe speech in real-time to detect scripture references.</string>
+</dict>
+</plist>

@@ -119,10 +119,17 @@ export class AssemblyAITranscriptionService implements ITranscriptionService {
    */
   async getMicrophoneDevices(): Promise<MediaDeviceInfo[]> {
     try {
-      // Request permission first to get full device list
-      await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Request permission first to get full device list with labels
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      
+      // Immediately stop the stream to release the microphone
+      stream.getTracks().forEach(track => track.stop());
+      
       const devices = await navigator.mediaDevices.enumerateDevices();
-      return devices.filter(device => device.kind === 'audioinput');
+      const audioInputs = devices.filter(device => device.kind === 'audioinput');
+      
+      console.log(`Found ${audioInputs.length} audio input devices:`, audioInputs.map(d => d.label || d.deviceId));
+      return audioInputs;
     } catch (error) {
       console.error('Error getting microphone devices:', error);
       return [];
