@@ -47,6 +47,7 @@ import { triggerPresentationOnConnections } from "../services/propresenterServic
 import { broadcastTranscriptionStreamMessage } from "../services/transcriptionBroadcastService";
 import { LiveSlidesWebSocket, getLiveSlidesServerInfo } from "../services/liveSlideService";
 import { getAssemblyAITemporaryToken } from "../services/assemblyaiTokenService";
+import { WsTranscriptionStream } from "../types/liveSlides";
 import "../App.css";
 
 // =============================================================================

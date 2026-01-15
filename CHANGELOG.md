@@ -2,6 +2,31 @@
 
 All notable changes to ProAssist will be documented in this file.
 
+## [0.5.2] - 2026-01-15
+
+### Added
+- **Debounced Effect Hook**: New `useDebouncedEffect` hook for optimized form input handling and settings persistence
+- **Public Live Slides HTML**: Added standalone `live-slides.html` file for external access to live slides interface
+
+### Changed
+- **Settings Components**: Enhanced all settings forms with debounced effect for improved performance and reduced unnecessary saves
+  - AISettingsForm: Debounced API key and model selection updates
+  - LiveSlidesSettings: Optimized settings persistence with debounced saves
+  - LiveTestimoniesSettings: Improved form handling with debounced effects
+  - NetworkSettings: Enhanced network configuration with debounced updates
+  - ProPresenterAITemplatesSettings: Optimized template settings persistence
+  - ProPresenterSettings: Improved connection settings handling
+  - SmartVersesSettings: Enhanced transcription settings with debounced effects
+- **Live Slides Service**: Improved WebSocket handling and message broadcasting
+- **Main Application Page**: Enhanced UI and state management
+- **SmartVerses Page**: Improved transcription interface and settings integration
+
+### Technical
+- Added `useDebouncedEffect.ts` hook utility for consistent debouncing across components
+- Updated Tauri backend with improved WebSocket broadcasting capabilities
+- Enhanced Live Slides types with additional message payload support
+- Improved component state management and performance optimizations
+
 ## [0.5.1] - 2025-01-29
 
 ### Changed
