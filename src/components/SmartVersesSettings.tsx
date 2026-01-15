@@ -15,7 +15,6 @@ import {
   FaRobot,
   FaPalette,
   FaFileExport,
-  FaSave,
   FaKey,
   FaSpinner,
   FaDesktop,
@@ -44,6 +43,7 @@ import {
   fetchGeminiModels,
   fetchGroqModels,
 } from "../services/aiService";
+import { useDebouncedEffect } from "../hooks/useDebouncedEffect";
 import "../App.css";
 
 // =============================================================================
@@ -54,7 +54,6 @@ const SmartVersesSettings: React.FC = () => {
   const [settings, setSettings] = useState<SmartVersesSettingsType>(
     DEFAULT_SMART_VERSES_SETTINGS
   );
-  const [isSaving, setIsSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [availableMics, setAvailableMics] = useState<MediaDeviceInfo[]>([]);
   const [nativeDevices, setNativeDevices] = useState<
@@ -81,6 +80,7 @@ const SmartVersesSettings: React.FC = () => {
   const [takeOffClicks, setTakeOffClicks] = useState<number>(0);
   const [clearTextFileOnTakeOff, setClearTextFileOnTakeOff] =
     useState<boolean>(true);
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
 
   // Load settings on mount
   useEffect(() => {
@@ -110,6 +110,7 @@ const SmartVersesSettings: React.FC = () => {
         savedSettings.proPresenterActivation.clearTextFileOnTakeOff !== false
       );
     }
+    setSettingsLoaded(true);
 
     // Listen for device changes (when mics are plugged/unplugged)
     const handleDeviceChange = () => {
@@ -125,6 +126,48 @@ const SmartVersesSettings: React.FC = () => {
       );
     };
   }, []);
+
+  // Auto-save settings on change (debounced), after initial load.
+  useDebouncedEffect(
+    () => {
+      try {
+        const settingsToSave: SmartVersesSettingsType = {
+          ...settings,
+          selectedProPresenterConnectionId: selectedConnectionId,
+          proPresenterActivation: settings.proPresenterActivation
+            ? {
+                ...settings.proPresenterActivation,
+                activationClicks,
+                takeOffClicks,
+                clearTextFileOnTakeOff,
+              }
+            : undefined,
+        };
+
+        saveSmartVersesSettings(settingsToSave);
+        // Dispatch custom event so other components can react immediately
+        window.dispatchEvent(
+          new CustomEvent("smartverses-settings-changed", {
+            detail: settingsToSave,
+          })
+        );
+        setSaveMessage("All changes saved");
+        setTimeout(() => setSaveMessage(null), 2000);
+      } catch (error) {
+        console.error("Failed to save settings:", error);
+        setSaveMessage("Failed to save settings");
+      }
+    },
+    [
+      settings,
+      selectedConnectionId,
+      activationClicks,
+      takeOffClicks,
+      clearTextFileOnTakeOff,
+      settingsLoaded,
+    ],
+    { delayMs: 600, enabled: settingsLoaded, skipFirstRun: true }
+  );
 
   // Load models when provider changes
   const loadBibleSearchModels = useCallback(async (provider: string) => {
@@ -291,43 +334,6 @@ const SmartVersesSettings: React.FC = () => {
     }));
     setSlideLoadSuccess(false);
     setSlideLoadError(null);
-  };
-
-  // Save settings
-  const handleSave = () => {
-    setIsSaving(true);
-    try {
-      // Build the settings with updated ProPresenter activation
-      const settingsToSave: SmartVersesSettingsType = {
-        ...settings,
-        selectedProPresenterConnectionId: selectedConnectionId,
-        proPresenterActivation: settings.proPresenterActivation
-          ? {
-              ...settings.proPresenterActivation,
-              activationClicks: activationClicks,
-              takeOffClicks: takeOffClicks,
-              clearTextFileOnTakeOff: clearTextFileOnTakeOff,
-            }
-          : undefined,
-      };
-
-      saveSmartVersesSettings(settingsToSave);
-      // Update local state to match what was saved
-      setSettings(settingsToSave);
-      // Dispatch custom event so other components can react immediately
-      window.dispatchEvent(
-        new CustomEvent("smartverses-settings-changed", {
-          detail: settingsToSave,
-        })
-      );
-      setSaveMessage("Settings saved successfully!");
-      setTimeout(() => setSaveMessage(null), 3000);
-    } catch (error) {
-      console.error("Failed to save settings:", error);
-      setSaveMessage("Failed to save settings");
-    } finally {
-      setIsSaving(false);
-    }
   };
 
   // Test AssemblyAI API key
@@ -498,6 +504,7 @@ const SmartVersesSettings: React.FC = () => {
               }
             }}
             style={inputStyle}
+            disabled={settings.remoteTranscriptionEnabled}
           >
             <option value="webrtc">WebView (WebRTC) — simplest</option>
             <option value="native">
@@ -508,6 +515,55 @@ const SmartVersesSettings: React.FC = () => {
             Native capture helps when macOS WKWebView doesn't expose some
             virtual devices (Teams/Zoom/etc).
           </p>
+        </div>
+
+        <div style={fieldStyle}>
+          <label style={checkboxLabelStyle}>
+            <input
+              type="checkbox"
+              checked={settings.remoteTranscriptionEnabled || false}
+              onChange={(e) =>
+                handleChange("remoteTranscriptionEnabled", e.target.checked)
+              }
+            />
+            Use remote transcription source
+          </label>
+          <p style={helpTextStyle}>
+            Connect to another ProAssist instance that is already capturing
+            audio and streaming transcriptions. This will disable local mic
+            capture.
+          </p>
+          {settings.remoteTranscriptionEnabled && (
+            <div
+              style={{
+                display: "grid",
+                gap: "var(--spacing-2)",
+                marginTop: "var(--spacing-2)",
+              }}
+            >
+              <input
+                type="text"
+                value={settings.remoteTranscriptionHost || ""}
+                onChange={(e) =>
+                  handleChange("remoteTranscriptionHost", e.target.value)
+                }
+                placeholder="Remote host (e.g. 192.168.1.42)"
+                style={inputStyle}
+              />
+              <input
+                type="number"
+                value={settings.remoteTranscriptionPort || 9876}
+                onChange={(e) =>
+                  handleChange(
+                    "remoteTranscriptionPort",
+                    parseInt(e.target.value || "9876", 10)
+                  )
+                }
+                placeholder="Port"
+                style={inputStyle}
+              />
+            </div>
+          )}
         </div>
 
         <div style={fieldStyle}>
@@ -523,7 +579,10 @@ const SmartVersesSettings: React.FC = () => {
                   )
                 }
                 style={inputStyle}
-                disabled={settings.runTranscriptionInBrowser}
+                disabled={
+                  settings.runTranscriptionInBrowser ||
+                  settings.remoteTranscriptionEnabled
+                }
               >
                 <option value="">System Default</option>
                 {nativeDevices.map((d) => (
@@ -538,7 +597,10 @@ const SmartVersesSettings: React.FC = () => {
                 className="secondary btn-sm"
                 style={{ marginTop: "var(--spacing-2)" }}
                 type="button"
-                disabled={settings.runTranscriptionInBrowser}
+                disabled={
+                  settings.runTranscriptionInBrowser ||
+                  settings.remoteTranscriptionEnabled
+                }
               >
                 Refresh Native Devices
               </button>
@@ -556,7 +618,10 @@ const SmartVersesSettings: React.FC = () => {
                   handleChange("selectedMicrophoneId", e.target.value)
                 }
                 style={inputStyle}
-                disabled={settings.runTranscriptionInBrowser}
+                disabled={
+                  settings.runTranscriptionInBrowser ||
+                  settings.remoteTranscriptionEnabled
+                }
               >
                 <option value="">Default Microphone</option>
                 {availableMics.map((mic) => (
@@ -570,7 +635,10 @@ const SmartVersesSettings: React.FC = () => {
                 className="secondary btn-sm"
                 style={{ marginTop: "var(--spacing-2)" }}
                 type="button"
-                disabled={settings.runTranscriptionInBrowser}
+                disabled={
+                  settings.runTranscriptionInBrowser ||
+                  settings.remoteTranscriptionEnabled
+                }
               >
                 Refresh Devices
               </button>
@@ -1360,13 +1428,10 @@ const SmartVersesSettings: React.FC = () => {
         </div>
       </div>
 
-      {/* Save Button */}
+      {/* Auto-save status */}
       <div
         style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          padding: "var(--spacing-4)",
+          padding: "var(--spacing-3)",
           backgroundColor: "var(--app-header-bg)",
           borderRadius: "12px",
           border: "1px solid var(--app-border-color)",
@@ -1375,28 +1440,15 @@ const SmartVersesSettings: React.FC = () => {
         {saveMessage && (
           <span
             style={{
-              color: saveMessage.includes("success")
+              color: saveMessage.toLowerCase().includes("saved")
                 ? "var(--success)"
                 : "var(--error)",
+              fontSize: "0.9em",
             }}
           >
             {saveMessage}
           </span>
         )}
-        {!saveMessage && <span />}
-        <button
-          onClick={handleSave}
-          disabled={isSaving}
-          className="primary"
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "var(--spacing-2)",
-          }}
-        >
-          <FaSave />
-          {isSaving ? "Saving..." : "Save Settings"}
-        </button>
       </div>
     </div>
   );

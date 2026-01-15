@@ -146,6 +146,9 @@ export interface SmartVersesSettings {
   selectedNativeMicrophoneId?: string;
   streamTranscriptionsToWebSocket: boolean;
   runTranscriptionInBrowser?: boolean; // When true, opens external browser for transcription
+  remoteTranscriptionEnabled?: boolean;
+  remoteTranscriptionHost?: string;
+  remoteTranscriptionPort?: number;
   
   // AI Search settings
   enableAISearch: boolean;
@@ -190,6 +193,9 @@ export const DEFAULT_SMART_VERSES_SETTINGS: SmartVersesSettings = {
   transcriptionEngine: 'assemblyai',
   audioCaptureMode: 'webrtc',
   streamTranscriptionsToWebSocket: true,
+  remoteTranscriptionEnabled: false,
+  remoteTranscriptionHost: "",
+  remoteTranscriptionPort: 9876,
   enableAISearch: false, // Off by default - uses text search instead
   bibleSearchProvider: 'groq',
   bibleSearchModel: 'llama-3.3-70b-versatile',

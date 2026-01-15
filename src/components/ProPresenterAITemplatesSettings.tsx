@@ -23,6 +23,7 @@ import {
   saveProPresenterAITemplates,
   USE_CASE_LABELS,
 } from "../utils/proPresenterAITemplates";
+import { useDebouncedEffect } from "../hooks/useDebouncedEffect";
 
 interface ProPresenterAITemplatesSettingsProps {
   onTemplatesChange?: (templates: ProPresenterAITemplate[]) => void;
@@ -35,10 +36,15 @@ const ProPresenterAITemplatesSettings: React.FC<ProPresenterAITemplatesSettingsP
   const [isEditing, setIsEditing] = useState<string | null>(null);
   const [isAdding, setIsAdding] = useState(false);
   const [editForm, setEditForm] = useState<Partial<ProPresenterAITemplate>>({});
+  const [draftId, setDraftId] = useState<string | null>(null);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
+  const [originalTemplate, setOriginalTemplate] = useState<ProPresenterAITemplate | null>(null);
 
   // Load templates on mount
   useEffect(() => {
     setTemplates(loadProPresenterAITemplates());
+    setSettingsLoaded(true);
   }, []);
 
   // Save templates and notify parent
@@ -48,15 +54,67 @@ const ProPresenterAITemplatesSettings: React.FC<ProPresenterAITemplatesSettingsP
     onTemplatesChange?.(newTemplates);
   };
 
+  const isValidTemplateDraft = (form: Partial<ProPresenterAITemplate>) => {
+    return !!(
+      form.name &&
+      form.outputPath &&
+      form.outputFileNamePrefix &&
+      form.presentationUuid
+    );
+  };
+
+  // Auto-save the current draft on change (debounced). We only persist when the
+  // draft is "valid enough" to avoid breaking downstream consumers.
+  useDebouncedEffect(
+    () => {
+      if (!settingsLoaded) return;
+      if (!isAdding && !isEditing) return;
+      if (!draftId) return;
+
+      if (!isValidTemplateDraft(editForm)) {
+        setStatusMessage("Fill required fields to save");
+        return;
+      }
+
+      const normalized: ProPresenterAITemplate = {
+        id: draftId,
+        name: editForm.name!,
+        description: editForm.description || "",
+        useCase: (editForm.useCase as ProPresenterAITemplateUseCase) || "custom",
+        maxLines: editForm.maxLines || 3,
+        outputPath: editForm.outputPath!,
+        outputFileNamePrefix: editForm.outputFileNamePrefix!,
+        presentationUuid: editForm.presentationUuid!,
+        slideIndex: editForm.slideIndex || 0,
+        activationClicks: editForm.activationClicks || 1,
+      };
+
+      const exists = templates.some((t) => t.id === draftId);
+      const updated = exists
+        ? templates.map((t) => (t.id === draftId ? normalized : t))
+        : [...templates, normalized];
+
+      saveTemplates(updated);
+      setStatusMessage("All changes saved");
+      setTimeout(() => setStatusMessage(null), 2000);
+    },
+    [editForm, isAdding, isEditing, draftId, templates, settingsLoaded],
+    { delayMs: 600, enabled: settingsLoaded, skipFirstRun: true }
+  );
+
   // Start editing a template
   const startEditing = (template: ProPresenterAITemplate) => {
     setEditForm({ ...template });
     setIsEditing(template.id);
     setIsAdding(false);
+    setDraftId(template.id);
+    setOriginalTemplate(template);
+    setStatusMessage(null);
   };
 
   // Start adding a new template
   const startAdding = () => {
+    const newId = `pp-ai-tpl-${Date.now()}`;
     setEditForm({
       name: "",
       description: "",
@@ -70,45 +128,35 @@ const ProPresenterAITemplatesSettings: React.FC<ProPresenterAITemplatesSettingsP
     });
     setIsAdding(true);
     setIsEditing(null);
+    setDraftId(newId);
+    setOriginalTemplate(null);
+    setStatusMessage("Fill required fields to save");
   };
 
-  // Save the current edit
-  const saveEdit = () => {
-    if (!editForm.name || !editForm.outputPath || !editForm.outputFileNamePrefix || !editForm.presentationUuid) {
-      alert("Please fill in all required fields: Name, Output Folder Path, File Name Prefix, and Presentation UUID");
+  const doneEditing = () => {
+    if (!isValidTemplateDraft(editForm)) {
+      setStatusMessage("Fill required fields to save");
       return;
     }
-
-    if (isAdding) {
-      const newTemplate: ProPresenterAITemplate = {
-        id: `pp-ai-tpl-${Date.now()}`,
-        name: editForm.name!,
-        description: editForm.description || "",
-        useCase: editForm.useCase as ProPresenterAITemplateUseCase || "custom",
-        maxLines: editForm.maxLines || 3,
-        outputPath: editForm.outputPath!,
-        outputFileNamePrefix: editForm.outputFileNamePrefix!,
-        presentationUuid: editForm.presentationUuid!,
-        slideIndex: editForm.slideIndex || 0,
-      };
-      saveTemplates([...templates, newTemplate]);
-    } else if (isEditing) {
-      const updated = templates.map((t) =>
-        t.id === isEditing ? { ...t, ...editForm } as ProPresenterAITemplate : t
-      );
-      saveTemplates(updated);
-    }
-
     setIsEditing(null);
     setIsAdding(false);
     setEditForm({});
+    setDraftId(null);
+    setOriginalTemplate(null);
   };
 
-  // Cancel editing
-  const cancelEdit = () => {
+  // Discard changes (reverts to original for edits, or drops the draft for adds)
+  const discardEditing = () => {
+    if (originalTemplate && draftId) {
+      // revert persisted changes (best-effort)
+      saveTemplates(templates.map((t) => (t.id === draftId ? originalTemplate : t)));
+    }
     setIsEditing(null);
     setIsAdding(false);
     setEditForm({});
+    setDraftId(null);
+    setOriginalTemplate(null);
+    setStatusMessage(null);
   };
 
   // Delete a template
@@ -192,8 +240,8 @@ const ProPresenterAITemplatesSettings: React.FC<ProPresenterAITemplatesSettingsP
               <TemplateForm
                 form={editForm}
                 setForm={setEditForm}
-                onSave={saveEdit}
-                onCancel={cancelEdit}
+                onDone={doneEditing}
+                onDiscard={discardEditing}
                 onBrowseFolder={browseForFolder}
               />
             ) : (
@@ -239,14 +287,21 @@ const ProPresenterAITemplatesSettings: React.FC<ProPresenterAITemplatesSettingsP
             <TemplateForm
               form={editForm}
               setForm={setEditForm}
-              onSave={saveEdit}
-              onCancel={cancelEdit}
+              onDone={doneEditing}
+              onDiscard={discardEditing}
               onBrowseFolder={browseForFolder}
               isNew
             />
           </div>
         )}
       </div>
+
+      {/* Auto-save status */}
+      {statusMessage && (
+        <div style={{ marginTop: "var(--spacing-3)", fontSize: "0.85em", color: "var(--app-text-color-secondary)" }}>
+          {statusMessage}
+        </div>
+      )}
     </div>
   );
 };
@@ -257,8 +312,8 @@ const ProPresenterAITemplatesSettings: React.FC<ProPresenterAITemplatesSettingsP
 interface TemplateFormProps {
   form: Partial<ProPresenterAITemplate>;
   setForm: React.Dispatch<React.SetStateAction<Partial<ProPresenterAITemplate>>>;
-  onSave: () => void;
-  onCancel: () => void;
+  onDone: () => void;
+  onDiscard: () => void;
   onBrowseFolder: () => void;
   isNew?: boolean;
 }
@@ -266,8 +321,8 @@ interface TemplateFormProps {
 const TemplateForm: React.FC<TemplateFormProps> = ({
   form,
   setForm,
-  onSave,
-  onCancel,
+  onDone,
+  onDiscard,
   onBrowseFolder,
   isNew,
 }) => {
@@ -431,18 +486,18 @@ const TemplateForm: React.FC<TemplateFormProps> = ({
       {/* Actions */}
       <div className="flex justify-end gap-2 pt-2">
         <button
-          onClick={onCancel}
+          onClick={onDiscard}
           className="flex items-center gap-1 px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white text-sm rounded-lg transition-colors"
         >
           <XMarkIcon className="w-4 h-4" />
-          Cancel
+          {isNew ? "Discard" : "Discard Changes"}
         </button>
         <button
-          onClick={onSave}
+          onClick={onDone}
           className="flex items-center gap-1 px-3 py-1.5 bg-blue-500 hover:bg-blue-600 text-white text-sm rounded-lg transition-colors"
         >
           <CheckIcon className="w-4 h-4" />
-          Save
+          Done
         </button>
       </div>
     </div>

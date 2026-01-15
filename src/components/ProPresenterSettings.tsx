@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { FaPlus, FaTrash, FaCheck, FaTimes, FaEdit, FaSave, FaChevronDown, FaChevronRight } from "react-icons/fa";
+import { FaPlus, FaTrash, FaCheck, FaTimes, FaEdit, FaChevronDown, FaChevronRight } from "react-icons/fa";
 import {
   ProPresenterConnection,
 } from "../types/propresenter";
@@ -32,11 +32,6 @@ const ProPresenterSettings: React.FC = () => {
     const templates = loadProPresenterAITemplates();
     setAiTemplatesCount(templates.length);
   }, []);
-
-  const handleSave = () => {
-    saveProPresenterConnections(connections);
-    setEditingId(null);
-  };
 
   const handleAddConnection = () => {
     const newConnection: ProPresenterConnection = {
@@ -307,16 +302,12 @@ const ProPresenterSettings: React.FC = () => {
                 <div style={{ display: "flex", gap: "var(--spacing-2)" }}>
                   {isEditing ? (
                     <>
-                      <button onClick={handleSave} className="primary" style={{ flex: 1 }}>
-                        <FaSave style={{ marginRight: "var(--spacing-1)" }} />
-                        Save
-                      </button>
                       <button 
-                        onClick={() => setEditingId(null)} 
+                        onClick={() => setEditingId(null)}
                         className="secondary"
                         style={{ flex: 1 }}
                       >
-                        Cancel
+                        Done
                       </button>
                     </>
                   ) : (

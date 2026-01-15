@@ -44,13 +44,8 @@ const VersionSettings: React.FC = () => {
   const handleOpenInspector = async () => {
     setDevtoolsError(null);
     try {
-      // Use core webview command (works even when @tauri-apps/api doesn't expose a convenience helper).
       const coreApi = await import('@tauri-apps/api/core');
-      const webviewApi = await import('@tauri-apps/api/webview');
-      const current = webviewApi.getCurrentWebview();
-
-      // This requires capability permission: `core:webview:allow-internal-toggle-devtools`
-      await coreApi.invoke('plugin:webview|internal_toggle_devtools', { label: current.label });
+      await coreApi.invoke('toggle_devtools');
     } catch (err) {
       const msg =
         err instanceof Error

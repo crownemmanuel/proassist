@@ -105,6 +105,17 @@ export interface LiveSlidesSettings {
   autoStartServer: boolean;
   outputPath: string;
   outputFilePrefix: string;
+  /**
+   * ProPresenter activation rules by slide line-count.
+   * - `lineCount: 1` applies to one-line slides
+   * - `lineCount: 2` applies to two-line slides, etc.
+   * - `lineCount: 0` is a catch-all fallback (applies to any line-count if no exact match exists)
+   */
+  proPresenterActivationRules?: LiveSlidesProPresenterActivationRule[];
+  /**
+   * Legacy single activation config (pre-rules). Kept for backwards-compat + migration.
+   * New code should prefer `proPresenterActivationRules`.
+   */
   proPresenterActivation?: LiveSlidesProPresenterConfig;
 }
 
@@ -115,6 +126,20 @@ export interface LiveSlidesProPresenterConfig {
   activationClicks: number; // Number of clicks when going live (default: 1)
   takeOffClicks: number; // Number of clicks when taking off (default: 0)
   clearTextFileOnTakeOff?: boolean; // Whether to clear text files on take off
+}
+
+export interface LiveSlidesProPresenterActivationRule {
+  id: string;
+  lineCount: number; // 0 = any, 1..6 = exact match
+  // Where to read slide index from when clicking "Get Slide" (optional convenience).
+  sourceConnectionId?: string;
+  // The ProPresenter target for this rule (optional until captured).
+  presentationUuid?: string;
+  slideIndex?: number;
+  presentationName?: string;
+  activationClicks: number;
+  takeOffClicks: number;
+  clearTextFileOnTakeOff?: boolean;
 }
 
 // Default settings

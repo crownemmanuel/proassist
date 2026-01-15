@@ -434,11 +434,7 @@ function App() {
       e.preventDefault();
       try {
         const coreApi = await import("@tauri-apps/api/core");
-        const webviewApi = await import("@tauri-apps/api/webview");
-        const current = webviewApi.getCurrentWebview();
-        await coreApi.invoke("plugin:webview|internal_toggle_devtools", {
-          label: current.label,
-        });
+        await coreApi.invoke("toggle_devtools");
       } catch (err) {
         console.warn("Failed to toggle devtools:", err);
       }

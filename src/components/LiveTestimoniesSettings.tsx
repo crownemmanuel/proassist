@@ -13,6 +13,7 @@ import {
   getCurrentSlideIndex,
 } from "../services/propresenterService";
 import { ProPresenterConnection } from "../types/propresenter";
+import { useDebouncedEffect } from "../hooks/useDebouncedEffect";
 import "../App.css";
 
 const LiveTestimoniesSettings: React.FC = () => {
@@ -25,12 +26,12 @@ const LiveTestimoniesSettings: React.FC = () => {
   const [customLogic, setCustomLogic] = useState("");
   const [testName, setTestName] = useState("");
   const [testResult, setTestResult] = useState<string | null>(null);
-  const [isSaving, setIsSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<{
     text: string;
     type: "success" | "error" | "";
   }>({ text: "", type: "" });
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
   
   // ProPresenter activation state
   const [proPresenterConfig, setProPresenterConfig] = useState<LiveTestimonyProPresenterConfig | null>(null);
@@ -65,7 +66,61 @@ const LiveTestimoniesSettings: React.FC = () => {
     if (connections.length > 0) {
       setSelectedConnectionId(connections[0].id);
     }
+    setSettingsLoaded(true);
   }, []);
+
+  // Auto-save settings on change (debounced), after initial load.
+  // We persist even partial values so users don't lose progress.
+  useDebouncedEffect(
+    () => {
+      try {
+        if (firebaseConfig) {
+          saveFirebaseConfig(firebaseConfig);
+        }
+
+        const proPresenterActivation = proPresenterConfig
+          ? {
+              ...proPresenterConfig,
+              activationClicks,
+              takeOffClicks,
+              clearTextFileOnTakeOff,
+            }
+          : undefined;
+
+        const settingsToSave: LiveTestimoniesSettingsType = {
+          firebaseConfig,
+          liveTestimonyOutputPath: outputPath,
+          liveTestimonyFileName: fileName,
+          nameFormatting: {
+            type: nameFormattingType,
+            customLogic: nameFormattingType !== "default" ? customLogic : undefined,
+          },
+          proPresenterActivation,
+        };
+
+        saveLiveTestimoniesSettings(settingsToSave);
+        setSaveMessage({ text: "All changes saved", type: "success" });
+        setTimeout(() => setSaveMessage({ text: "", type: "" }), 2000);
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Failed to save settings";
+        setSaveMessage({ text: message, type: "error" });
+      }
+    },
+    [
+      firebaseConfig,
+      outputPath,
+      fileName,
+      nameFormattingType,
+      customLogic,
+      proPresenterConfig,
+      activationClicks,
+      takeOffClicks,
+      clearTextFileOnTakeOff,
+      settingsLoaded,
+    ],
+    { delayMs: 600, enabled: settingsLoaded, skipFirstRun: true }
+  );
   
   const handleGetSlide = async () => {
     setIsLoadingSlide(true);
@@ -138,83 +193,6 @@ const LiveTestimoniesSettings: React.FC = () => {
     setFirebaseConfig(config);
     setSaveMessage({ text: "Firebase configuration imported successfully", type: "success" });
     setTimeout(() => setSaveMessage({ text: "", type: "" }), 3000);
-  };
-
-  const handleSave = () => {
-    setIsSaving(true);
-    setSaveMessage({ text: "", type: "" });
-
-    try {
-      if (!firebaseConfig) {
-        throw new Error("Firebase configuration is required");
-      }
-
-      // Validate required fields
-      const requiredFields: (keyof FirebaseConfig)[] = [
-        "apiKey",
-        "authDomain",
-        "databaseURL",
-        "projectId",
-        "storageBucket",
-        "messagingSenderId",
-        "appId",
-      ];
-
-      for (const field of requiredFields) {
-        if (!firebaseConfig[field] || firebaseConfig[field].trim() === "") {
-          throw new Error(`Firebase ${field} is required`);
-        }
-      }
-
-      if (!outputPath.trim()) {
-        throw new Error("Output path is required");
-      }
-
-      if (!fileName.trim()) {
-        throw new Error("File name is required");
-      }
-
-      // Save Firebase config
-      saveFirebaseConfig(firebaseConfig);
-
-      // Validate custom logic if needed
-      if (nameFormattingType !== "default" && !customLogic.trim()) {
-        throw new Error("Custom logic is required when not using default formatting");
-      }
-
-      // Build ProPresenter config if set
-      const proPresenterActivation = proPresenterConfig
-        ? {
-            ...proPresenterConfig,
-            activationClicks: activationClicks,
-            takeOffClicks: takeOffClicks,
-            clearTextFileOnTakeOff: clearTextFileOnTakeOff,
-          }
-        : undefined;
-
-      // Save settings
-      const settings: LiveTestimoniesSettingsType = {
-        firebaseConfig,
-        liveTestimonyOutputPath: outputPath.trim(),
-        liveTestimonyFileName: fileName.trim(),
-        nameFormatting: {
-          type: nameFormattingType,
-          customLogic: nameFormattingType !== "default" ? customLogic.trim() : undefined,
-        },
-        proPresenterActivation,
-      };
-      saveLiveTestimoniesSettings(settings);
-
-      setSaveMessage({ text: "Settings saved successfully", type: "success" });
-      setTimeout(() => setSaveMessage({ text: "", type: "" }), 3000);
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Failed to save settings";
-      setSaveMessage({ text: message, type: "error" });
-      setTimeout(() => setSaveMessage({ text: "", type: "" }), 5000);
-    } finally {
-      setIsSaving(false);
-    }
   };
 
   return (
@@ -825,16 +803,8 @@ const LiveTestimoniesSettings: React.FC = () => {
         </div>
       </div>
 
-      {/* Save Button */}
+      {/* Auto-save status */}
       <div style={{ display: "flex", alignItems: "center", gap: "var(--spacing-2)" }}>
-        <button
-          onClick={handleSave}
-          disabled={isSaving}
-          className="primary"
-          style={{ minWidth: "120px" }}
-        >
-          {isSaving ? "Saving..." : "Save Settings"}
-        </button>
         {saveMessage.text && (
           <span
             style={{

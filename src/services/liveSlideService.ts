@@ -8,6 +8,7 @@ import {
   WsTextUpdate,
   WsJoinSession,
   WsSlidesUpdate,
+  LiveSlidesProPresenterActivationRule,
 } from "../types/liveSlides";
 
 // Storage key for settings
@@ -21,7 +22,53 @@ export function loadLiveSlidesSettings(): LiveSlidesSettings {
   try {
     const stored = localStorage.getItem(LIVE_SLIDES_SETTINGS_KEY);
     if (stored) {
-      return { ...DEFAULT_LIVE_SLIDES_SETTINGS, ...JSON.parse(stored) };
+      const parsed = JSON.parse(stored) as LiveSlidesSettings;
+      const merged: LiveSlidesSettings = {
+        ...DEFAULT_LIVE_SLIDES_SETTINGS,
+        ...parsed,
+      };
+
+      // Migration: legacy single `proPresenterActivation` -> rule list with catch-all (lineCount: 0)
+      if (
+        !merged.proPresenterActivationRules &&
+        (merged as any).proPresenterActivation
+      ) {
+        const legacy = (merged as any).proPresenterActivation as any;
+        const migratedRule: LiveSlidesProPresenterActivationRule = {
+          id: "legacy",
+          lineCount: 0,
+          presentationUuid: legacy.presentationUuid,
+          slideIndex: legacy.slideIndex,
+          presentationName: legacy.presentationName,
+          activationClicks: legacy.activationClicks ?? 1,
+          takeOffClicks: legacy.takeOffClicks ?? 0,
+          clearTextFileOnTakeOff: legacy.clearTextFileOnTakeOff,
+        };
+        merged.proPresenterActivationRules = [migratedRule];
+      }
+
+      // Normalize rules (ensure IDs and click defaults)
+      if (merged.proPresenterActivationRules) {
+        merged.proPresenterActivationRules = merged.proPresenterActivationRules
+          .filter((r: any) => r && typeof r === "object")
+          .map((r: any, idx: number) => {
+            const id =
+              typeof r.id === "string" && r.id.trim().length ? r.id : `rule-${idx}`;
+            const lineCountNum =
+              typeof r.lineCount === "number" && Number.isFinite(r.lineCount)
+                ? Math.max(0, Math.min(6, Math.floor(r.lineCount)))
+                : 0;
+            return {
+              ...r,
+              id,
+              lineCount: lineCountNum,
+              activationClicks: Math.max(1, Number(r.activationClicks ?? 1)),
+              takeOffClicks: Math.max(0, Number(r.takeOffClicks ?? 0)),
+            } as LiveSlidesProPresenterActivationRule;
+          });
+      }
+
+      return merged;
     }
   } catch (e) {
     console.error("Failed to load live slides settings:", e);
@@ -31,7 +78,12 @@ export function loadLiveSlidesSettings(): LiveSlidesSettings {
 
 export function saveLiveSlidesSettings(settings: LiveSlidesSettings): void {
   try {
-    localStorage.setItem(LIVE_SLIDES_SETTINGS_KEY, JSON.stringify(settings));
+    const normalized: LiveSlidesSettings = {
+      ...settings,
+      outputPath: (settings.outputPath || "").trim(),
+      outputFilePrefix: (settings.outputFilePrefix || "").trim(),
+    };
+    localStorage.setItem(LIVE_SLIDES_SETTINGS_KEY, JSON.stringify(normalized));
   } catch (e) {
     console.error("Failed to save live slides settings:", e);
   }
@@ -86,6 +138,9 @@ export class LiveSlidesWebSocket {
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 5;
   private reconnectTimeout: NodeJS.Timeout | null = null;
+  private pendingMessages: WsMessage[] = [];
+  private connectPromise: Promise<void> | null = null;
+  private intentionalClose = false;
 
   constructor(
     url: string,
@@ -98,12 +153,16 @@ export class LiveSlidesWebSocket {
   }
 
   connect(): Promise<void> {
-    return new Promise((resolve, reject) => {
+    if (this.connectPromise) return this.connectPromise;
+
+    this.intentionalClose = false;
+    this.connectPromise = new Promise((resolve, reject) => {
       try {
         // Validate URL format
         if (!this.url.startsWith('ws://') && !this.url.startsWith('wss://')) {
           const error = new Error(`Invalid WebSocket URL: ${this.url}`);
           console.error('[WebSocket]', error);
+          this.connectPromise = null;
           reject(error);
           return;
         }
@@ -121,7 +180,23 @@ export class LiveSlidesWebSocket {
             session_id: this.sessionId,
             client_type: this.clientType,
           };
-          this.send(joinMsg);
+          // Send join immediately (WS is open).
+          this.ws?.send(JSON.stringify(joinMsg));
+
+          // Flush any queued messages that were attempted before the socket opened.
+          if (this.pendingMessages.length) {
+            const toSend = [...this.pendingMessages];
+            this.pendingMessages = [];
+            for (const m of toSend) {
+              try {
+                this.ws?.send(JSON.stringify(m));
+              } catch (e) {
+                // If sending fails mid-flush, re-queue remaining and exit.
+                this.pendingMessages = [m, ...toSend.slice(toSend.indexOf(m) + 1)];
+                break;
+              }
+            }
+          }
           resolve();
         };
 
@@ -146,6 +221,7 @@ export class LiveSlidesWebSocket {
                            this.ws?.readyState === WebSocket.CLOSING ? 'CLOSING' :
                            this.ws?.readyState === WebSocket.CLOSED ? 'CLOSED' : 'UNKNOWN',
           });
+          this.connectPromise = null;
           reject(error);
         };
 
@@ -156,13 +232,20 @@ export class LiveSlidesWebSocket {
             wasClean: event.wasClean,
             url: this.url,
           });
-          this.attemptReconnect();
+          this.ws = null;
+          this.connectPromise = null;
+          if (!this.intentionalClose) {
+            this.attemptReconnect();
+          }
         };
       } catch (e) {
         console.error('[WebSocket] Failed to create WebSocket:', e);
+        this.connectPromise = null;
         reject(e);
       }
     });
+
+    return this.connectPromise;
   }
 
   private attemptReconnect(): void {
@@ -187,7 +270,9 @@ export class LiveSlidesWebSocket {
       clearTimeout(this.reconnectTimeout);
       this.reconnectTimeout = null;
     }
-    this.maxReconnectAttempts = 0; // Prevent reconnection
+    this.intentionalClose = true;
+    this.pendingMessages = [];
+    this.connectPromise = null;
     if (this.ws) {
       this.ws.close();
       this.ws = null;
@@ -195,9 +280,20 @@ export class LiveSlidesWebSocket {
   }
 
   send(message: WsMessage): void {
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify(message));
+    // If the socket isn't open yet, queue and try to connect.
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      this.pendingMessages.push(message);
+      if (
+        !this.intentionalClose &&
+        (!this.ws || this.ws.readyState === WebSocket.CLOSED)
+      ) {
+        this.connect().catch(() => {
+          // Best-effort. Pending messages will flush if/when we reconnect.
+        });
+      }
+      return;
     }
+    this.ws.send(JSON.stringify(message));
   }
 
   sendTextUpdate(text: string): void {

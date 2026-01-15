@@ -12,6 +12,7 @@ import {
   stopSyncServer,
 } from "../services/networkSyncService";
 import { getLocalIp } from "../services/liveSlideService";
+import { useDebouncedEffect } from "../hooks/useDebouncedEffect";
 import "../App.css";
 
 const NetworkSettings: React.FC = () => {
@@ -27,6 +28,7 @@ const NetworkSettings: React.FC = () => {
     type: "success" | "error" | "";
   }>({ text: "", type: "" });
   const [localIp, setLocalIp] = useState<string>("Loading...");
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
 
   useEffect(() => {
     setSyncSettings(loadNetworkSyncSettings());
@@ -35,12 +37,39 @@ const NetworkSettings: React.FC = () => {
     getLocalIp()
       .then((ip) => setLocalIp(ip))
       .catch(() => setLocalIp("Unable to determine"));
+    setSettingsLoaded(true);
   }, []);
 
   useEffect(() => {
     const interval = setInterval(refreshSyncServerStatus, 5000);
     return () => clearInterval(interval);
   }, []);
+
+  // Auto-save settings on change (debounced). We avoid saving while sync server is
+  // running because some fields are intentionally locked in the UI.
+  useDebouncedEffect(
+    () => {
+      try {
+        if (syncSettings.serverPort < 1024 || syncSettings.serverPort > 65535) {
+          throw new Error("Port must be between 1024 and 65535");
+        }
+        if (
+          (syncSettings.mode === "slave" || syncSettings.mode === "peer") &&
+          !syncSettings.remoteHost.trim()
+        ) {
+          throw new Error("Remote host is required for slave/peer mode");
+        }
+        saveNetworkSyncSettings(syncSettings);
+        setSyncMessage({ text: "All changes saved", type: "success" });
+        setTimeout(() => setSyncMessage({ text: "", type: "" }), 2000);
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        setSyncMessage({ text: msg, type: "error" });
+      }
+    },
+    [syncSettings, syncServerRunning, settingsLoaded],
+    { delayMs: 600, enabled: settingsLoaded && !syncServerRunning, skipFirstRun: true }
+  );
 
   const refreshSyncServerStatus = async () => {
     try {
@@ -89,6 +118,7 @@ const NetworkSettings: React.FC = () => {
           throw new Error("Remote host IP is required for slave/peer mode");
         }
 
+        // Ensure the latest settings are persisted before starting
         saveNetworkSyncSettings(syncSettings);
         await startSyncServer(syncSettings.serverPort, syncSettings.mode);
         setSyncMessage({ text: "Sync server started", type: "success" });
@@ -101,28 +131,6 @@ const NetworkSettings: React.FC = () => {
       setTimeout(() => setSyncMessage({ text: "", type: "" }), 5000);
     } finally {
       setIsTogglingSyncServer(false);
-    }
-  };
-
-  const handleSaveSyncSettings = () => {
-    try {
-      if (syncSettings.serverPort < 1024 || syncSettings.serverPort > 65535) {
-        throw new Error("Port must be between 1024 and 65535");
-      }
-      if (
-        (syncSettings.mode === "slave" || syncSettings.mode === "peer") &&
-        !syncSettings.remoteHost.trim()
-      ) {
-        throw new Error("Remote host is required for slave/peer mode");
-      }
-
-      saveNetworkSyncSettings(syncSettings);
-      setSyncMessage({ text: "Sync settings saved", type: "success" });
-      setTimeout(() => setSyncMessage({ text: "", type: "" }), 3000);
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
-      setSyncMessage({ text: msg, type: "error" });
-      setTimeout(() => setSyncMessage({ text: "", type: "" }), 5000);
     }
   };
 
@@ -544,18 +552,9 @@ const NetworkSettings: React.FC = () => {
               gap: "var(--spacing-2)",
             }}
           >
-            <button
-              onClick={handleSaveSyncSettings}
-              disabled={syncServerRunning}
-              className="primary"
-              style={{ minWidth: "120px" }}
-            >
-              Save Sync Settings
-            </button>
             {syncMessage.text && (
               <span
                 style={{
-                  marginLeft: "var(--spacing-2)",
                   color:
                     syncMessage.type === "success" ? "#22c55e" : "#dc2626",
                   fontSize: "0.9em",

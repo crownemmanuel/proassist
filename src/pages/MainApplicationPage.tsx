@@ -38,7 +38,7 @@ import {
   generateShareableNotepadUrl,
   generateWebSocketUrl,
 } from "../services/liveSlideService";
-import { LiveSlide } from "../types/liveSlides";
+import { LiveSlide, LiveSlidesProPresenterActivationRule } from "../types/liveSlides";
 import { calculateSlideBoundaries } from "../utils/liveSlideParser";
 import { triggerPresentationOnConnections } from "../services/propresenterService";
 import { useNetworkSync } from "../hooks/useNetworkSync";
@@ -700,6 +700,8 @@ const MainApplicationPage: React.FC = () => {
       return;
     }
 
+    const isLiveSlidesItem = !!playlistItem.liveSlidesSessionId;
+
     // Find the template used by this playlistItem
     // This assumes playlistItem.templateName is reliable for lookup.
     // A more robust way would be storing templateId in PlaylistItem.
@@ -709,7 +711,7 @@ const MainApplicationPage: React.FC = () => {
 
     if (!template) {
       // Live Slides items don't require a template; they use Live Slides settings for output.
-      if (!playlistItem.liveSlidesSessionId) {
+      if (!isLiveSlidesItem) {
         console.error(
           `Template '${playlistItem.templateName}' not found for playlist item '${playlistItem.title}'.`
         );
@@ -719,14 +721,14 @@ const MainApplicationPage: React.FC = () => {
     }
 
     // Freeze this slide from incoming notepad updates while it is live.
-    if (playlistItem.liveSlidesSessionId) {
+    if (isLiveSlidesItem) {
       setLiveSlidesLockBySession((prev) => ({
         ...prev,
         [playlistItem.liveSlidesSessionId as string]: slide.order,
       }));
     }
 
-    const liveSlidesSettings = playlistItem.liveSlidesSessionId
+    const liveSlidesSettings = isLiveSlidesItem
       ? loadLiveSlidesSettings()
       : null;
 
@@ -744,13 +746,13 @@ const MainApplicationPage: React.FC = () => {
     }
 
     const lines = slide.text.split("\n");
-    const rawBasePath = playlistItem.liveSlidesSessionId
+    const rawBasePath = isLiveSlidesItem
       ? liveSlidesSettings?.outputPath
       : template?.outputPath;
-    const basePath = (rawBasePath || "").replace(/\/?$/, "/");
-    const prefix = (playlistItem.liveSlidesSessionId
+    const basePath = (rawBasePath || "").trim().replace(/\/?$/, "/");
+    const prefix = ((isLiveSlidesItem
       ? liveSlidesSettings?.outputFilePrefix
-      : template?.outputFileNamePrefix) || "";
+      : template?.outputFileNamePrefix) || "").trim();
 
     // Check if this is an auto-scripture slide with custom mapping configured
     const isScriptureWithMapping =
@@ -856,10 +858,28 @@ const MainApplicationPage: React.FC = () => {
       // Success: no UI notification required
 
       // Trigger ProPresenter presentation activation if configured
+      const liveSlidesRule = isLiveSlidesItem
+        ? pickLiveSlidesProPresenterRule(
+            liveSlidesSettings?.proPresenterActivationRules,
+            slide
+          )
+        : null;
+      const liveSlidesRuleConfig =
+        liveSlidesRule &&
+        liveSlidesRule.presentationUuid &&
+        typeof liveSlidesRule.slideIndex === "number"
+          ? {
+              presentationUuid: liveSlidesRule.presentationUuid,
+              slideIndex: liveSlidesRule.slideIndex,
+              presentationName: liveSlidesRule.presentationName,
+            }
+          : null;
+
       const activationConfig =
         slide.proPresenterActivation ||
         playlistItem.defaultProPresenterActivation ||
-        liveSlidesSettings?.proPresenterActivation;
+        liveSlidesRuleConfig ||
+        liveSlidesSettings?.proPresenterActivation; // legacy fallback
       if (activationConfig) {
         try {
           // Get the template to check for specific ProPresenter connections
@@ -873,7 +893,8 @@ const MainApplicationPage: React.FC = () => {
           const activationClicks =
             slide.proPresenterActivation?.activationClicks ??
             playlistItem.defaultProPresenterActivation?.activationClicks ??
-            liveSlidesSettings?.proPresenterActivation?.activationClicks ??
+            liveSlidesRule?.activationClicks ??
+            liveSlidesSettings?.proPresenterActivation?.activationClicks ?? // legacy fallback
             template?.proPresenterActivationClicks ??
             1;
 
@@ -932,6 +953,37 @@ const MainApplicationPage: React.FC = () => {
     }
   };
 
+  const getLineCountForLayout = (layout: LayoutType): number => {
+    switch (layout) {
+      case "one-line":
+        return 1;
+      case "two-line":
+        return 2;
+      case "three-line":
+        return 3;
+      case "four-line":
+        return 4;
+      case "five-line":
+        return 5;
+      case "six-line":
+        return 6;
+      default:
+        return 1;
+    }
+  };
+
+  const pickLiveSlidesProPresenterRule = (
+    rules: LiveSlidesProPresenterActivationRule[] | undefined,
+    slide: Slide
+  ): LiveSlidesProPresenterActivationRule | null => {
+    if (!rules || !rules.length) return null;
+    const lineCount = getLineCountForLayout(slide.layout);
+    const exact = rules.find((r) => r.lineCount === lineCount);
+    if (exact) return exact;
+    const fallback = rules.find((r) => r.lineCount === 0);
+    return fallback || null;
+  };
+
   // Function to handle "Take Off" action
   const handleTakeOffSlide = async (
     slide: Slide,
@@ -957,17 +1009,36 @@ const MainApplicationPage: React.FC = () => {
       : null;
 
     // Trigger ProPresenter presentation activation if configured
+    const liveSlidesRule = isLiveSlidesItem
+      ? pickLiveSlidesProPresenterRule(
+          liveSlidesSettings?.proPresenterActivationRules,
+          slide
+        )
+      : null;
+    const liveSlidesRuleConfig =
+      liveSlidesRule &&
+      liveSlidesRule.presentationUuid &&
+      typeof liveSlidesRule.slideIndex === "number"
+        ? {
+            presentationUuid: liveSlidesRule.presentationUuid,
+            slideIndex: liveSlidesRule.slideIndex,
+            presentationName: liveSlidesRule.presentationName,
+          }
+        : null;
+
     const activationConfig =
       slide.proPresenterActivation ||
       playlistItem.defaultProPresenterActivation ||
-      liveSlidesSettings?.proPresenterActivation;
+      liveSlidesRuleConfig ||
+      liveSlidesSettings?.proPresenterActivation; // legacy fallback
 
     if (activationConfig) {
       // Use slide-level override if present, otherwise use template setting (default: 0)
       const takeOffClicks =
         slide.proPresenterActivation?.takeOffClicks ??
         playlistItem.defaultProPresenterActivation?.takeOffClicks ??
-        liveSlidesSettings?.proPresenterActivation?.takeOffClicks ??
+        liveSlidesRule?.takeOffClicks ??
+        liveSlidesSettings?.proPresenterActivation?.takeOffClicks ?? // legacy fallback
         template?.proPresenterTakeOffClicks ??
         0;
 
@@ -1007,7 +1078,8 @@ const MainApplicationPage: React.FC = () => {
 
     if (isLiveSlidesItem) {
       const shouldClear =
-        liveSlidesSettings?.proPresenterActivation?.clearTextFileOnTakeOff !==
+        (liveSlidesRule?.clearTextFileOnTakeOff ??
+          liveSlidesSettings?.proPresenterActivation?.clearTextFileOnTakeOff) !==
         false;
       if (shouldClear) {
         const basePath = (liveSlidesSettings?.outputPath || "").replace(
@@ -1594,6 +1666,10 @@ const MainApplicationPage: React.FC = () => {
     if (!ws) {
       alert("Live Slides connection is not ready yet. Try again in a moment.");
       return;
+    }
+    if (!ws.isConnected) {
+      // Best-effort: connect in the background; the WS client will queue messages until open.
+      ws.connect().catch(() => {});
     }
 
     // Lock this slide while we patch + send.

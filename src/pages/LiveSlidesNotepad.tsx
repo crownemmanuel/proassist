@@ -393,6 +393,13 @@ const LiveSlidesNotepad: React.FC = () => {
   const lineNumbersRef = useRef<HTMLDivElement>(null);
   const colorIndicatorsRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<LiveSlidesWebSocket | null>(null);
+  // Avoid stale closures in WS handlers (we intentionally do NOT re-bind on every keystroke).
+  const textRef = useRef<string>("");
+  const lastLocalEditAtRef = useRef<number>(0);
+
+  useEffect(() => {
+    textRef.current = text;
+  }, [text]);
 
   // Get WebSocket connection info from URL params
   // The server now serves both HTTP and WebSocket on the same port, with WS at /ws path
@@ -435,12 +442,18 @@ const LiveSlidesNotepad: React.FC = () => {
     const unsubscribe = ws.onSlidesUpdate((update) => {
       if (update.session_id === sessionId) {
         setSlides(update.slides);
-        // Update text if it's different and we don't have focus
-        // Also update if our current text is empty (initial load) to pre-populate from server
+        const currentText = textRef.current;
+        const focused = document.activeElement === textareaRef.current;
+        const recentlyEditedLocally =
+          Date.now() - lastLocalEditAtRef.current < 800;
+
+        // Update if different and we're not actively typing.
+        // This improves main-app -> web reliability even when the textarea is focused,
+        // while still preventing overwrites during active local edits.
         const shouldUpdate =
-          update.raw_text !== text &&
-          (document.activeElement !== textareaRef.current ||
-            !text.trim().length);
+          update.raw_text !== currentText &&
+          (!focused || !recentlyEditedLocally || !currentText.trim().length);
+
         if (shouldUpdate) {
           setText(update.raw_text);
           setBoundaries(calculateSlideBoundaries(update.raw_text));
@@ -477,6 +490,7 @@ const LiveSlidesNotepad: React.FC = () => {
   const handleTextChange = useCallback(
     (e: React.ChangeEvent<HTMLTextAreaElement>) => {
       const newText = e.target.value;
+      lastLocalEditAtRef.current = Date.now();
       setText(newText);
 
       const newBoundaries = calculateSlideBoundaries(newText);
@@ -492,6 +506,7 @@ const LiveSlidesNotepad: React.FC = () => {
 
   const applyTextUpdate = useCallback(
     (newText: string, selectionStart?: number, selectionEnd?: number) => {
+      lastLocalEditAtRef.current = Date.now();
       setText(newText);
       setBoundaries(calculateSlideBoundaries(newText));
       if (wsRef.current && wsRef.current.isConnected) {

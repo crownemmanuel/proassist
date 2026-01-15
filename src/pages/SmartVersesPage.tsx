@@ -114,6 +114,8 @@ const SmartVersesPage: React.FC = () => {
   
   // Browser transcription WebSocket
   const browserTranscriptionWsRef = useRef<LiveSlidesWebSocket | null>(null);
+  const remoteTranscriptionWsRef = useRef<LiveSlidesWebSocket | null>(null);
+  const remoteRebroadcastAllowedRef = useRef<boolean>(true);
   
   // Interim direct-reference parsing (fast local parser; avoids AI)
   const latestInterimTextRef = useRef<string>("");
@@ -836,6 +838,121 @@ const SmartVersesPage: React.FC = () => {
     }
   }, [settings.autoAddDetectedToHistory, settings.autoTriggerOnDetection, handleGoLive]);
 
+  const connectToRemoteTranscriptionWs = useCallback(async () => {
+    const host = (settings.remoteTranscriptionHost || "").trim();
+    const port = settings.remoteTranscriptionPort || 9876;
+    if (!host) {
+      alert("Please configure the remote host in Settings > SmartVerses");
+      return;
+    }
+
+    try {
+      const wsUrl = `ws://${host}:${port}/ws`;
+      const ws = new LiveSlidesWebSocket(wsUrl, "remote-transcription", "viewer");
+      remoteTranscriptionWsRef.current = ws;
+
+      // Check if we should rebroadcast to local Live Slides server (avoid loops).
+      try {
+        const localInfo = await getLiveSlidesServerInfo();
+        const sameTarget =
+          localInfo?.server_running &&
+          localInfo.local_ip === host &&
+          localInfo.server_port === port;
+        remoteRebroadcastAllowedRef.current = !sameTarget;
+      } catch {
+        remoteRebroadcastAllowedRef.current = true;
+      }
+
+      await ws.connect();
+      console.log("[SmartVerses] Connected to remote transcription source:", wsUrl);
+
+      ws.onMessage((message) => {
+        if (message.type !== "transcription_stream") return;
+
+        const m = message as WsTranscriptionStream;
+        if (m.kind === "interim") {
+          setInterimTranscript(m.text || "");
+          scheduleInterimDirectParse(m.text || "");
+          setTranscriptionStatus((prev) => (prev === "connecting" ? "recording" : prev));
+        } else if (m.kind === "final" && m.text) {
+          setInterimTranscript("");
+          setTranscriptionStatus((prev) => (prev === "connecting" ? "recording" : prev));
+
+          const segment: TranscriptionSegment = m.segment || {
+            id: `segment-${Date.now()}`,
+            text: m.text,
+            timestamp: Date.now(),
+            isFinal: true,
+          };
+
+          setTranscriptHistory((prev) => [...prev, segment]);
+
+          // Run local direct parsing (aggressive) for verse refs.
+          detectAndLookupReferences(m.text, {
+            aggressiveSpeechNormalization: true,
+          }).then(async (directRefs) => {
+            if (directRefs.length > 0) {
+              setDetectedReferences((prev) => [...prev, ...directRefs]);
+
+              if (settings.autoAddDetectedToHistory) {
+                setChatHistory((prev) => [
+                  ...prev,
+                  {
+                    id: `transcript-${Date.now()}`,
+                    type: "result",
+                    content: `Detected from transcription`,
+                    timestamp: Date.now(),
+                    references: directRefs,
+                  },
+                ]);
+              }
+
+              if (settings.autoTriggerOnDetection && directRefs.length > 0) {
+                handleGoLive(directRefs[0]);
+              }
+            }
+          });
+
+          // Re-broadcast to local Live Slides server if enabled and safe.
+          if (
+            settings.streamTranscriptionsToWebSocket &&
+            remoteRebroadcastAllowedRef.current
+          ) {
+            broadcastTranscriptionStreamMessage({
+              type: "transcription_stream",
+              kind: m.kind,
+              timestamp: m.timestamp || Date.now(),
+              engine: m.engine || settings.transcriptionEngine,
+              text: m.text,
+              segment: m.segment as TranscriptionSegment | undefined,
+              scripture_references: m.scripture_references,
+              key_points: m.key_points as KeyPoint[] | undefined,
+            }).catch(() => {});
+          }
+        }
+      });
+    } catch (error) {
+      console.error("[SmartVerses] Failed to connect to remote transcription WS:", error);
+      setTranscriptionStatus("error");
+    }
+  }, [
+    settings.remoteTranscriptionHost,
+    settings.remoteTranscriptionPort,
+    settings.transcriptionEngine,
+    settings.streamTranscriptionsToWebSocket,
+    settings.autoAddDetectedToHistory,
+    settings.autoTriggerOnDetection,
+    handleGoLive,
+    scheduleInterimDirectParse,
+  ]);
+
+  const disconnectRemoteTranscriptionWs = useCallback(() => {
+    if (remoteTranscriptionWsRef.current) {
+      remoteTranscriptionWsRef.current.disconnect();
+      remoteTranscriptionWsRef.current = null;
+    }
+  }, []);
+
   // Disconnect browser transcription WebSocket
   const disconnectBrowserTranscriptionWs = useCallback(() => {
     if (browserTranscriptionWsRef.current) {
@@ -859,6 +976,12 @@ const SmartVersesPage: React.FC = () => {
     lastInterimDirectSignatureRef.current = "";
     lastInterimParseAtRef.current = 0;
     lastInterimWordCountRef.current = 0;
+
+    if (settings.remoteTranscriptionEnabled) {
+      setTranscriptionStatus("connecting");
+      await connectToRemoteTranscriptionWs();
+      return;
+    }
 
     // If browser transcription mode is enabled, open browser and wait for transcriptions
     if (settings.runTranscriptionInBrowser) {
@@ -1050,6 +1173,7 @@ const SmartVersesPage: React.FC = () => {
       }
       // Also disconnect browser transcription WebSocket if connected
       disconnectBrowserTranscriptionWs();
+    disconnectRemoteTranscriptionWs();
       latestInterimTextRef.current = "";
       lastInterimDirectSignatureRef.current = "";
       lastInterimParseAtRef.current = 0;
@@ -1059,7 +1183,7 @@ const SmartVersesPage: React.FC = () => {
     } finally {
       setIsStopping(false);
     }
-  }, [disconnectBrowserTranscriptionWs]);
+  }, [disconnectBrowserTranscriptionWs, disconnectRemoteTranscriptionWs]);
 
   const handleClearTranscript = () => {
     setTranscriptHistory([]);

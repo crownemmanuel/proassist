@@ -619,6 +619,28 @@ async fn run_combined_server(port: u16) -> Result<(), String> {
                 }
             }
         });
+
+    // Live Slides landing page (external browser) - serve live-slides.html
+    // This avoids the full React app route (`/live-slides`) which can rely on Tauri APIs.
+    let live_slides_landing_route = warp::path("live-slides")
+        .and(warp::path::end())
+        .map(|| {
+            match serve_embedded_file("live-slides.html") {
+                Some((content, _)) => {
+                    warp::http::Response::builder()
+                        .header("Content-Type", "text/html")
+                        .header("Access-Control-Allow-Origin", "*")
+                        .body(content)
+                        .unwrap()
+                }
+                None => {
+                    warp::http::Response::builder()
+                        .status(404)
+                        .body(b"LiveSlides landing page not found".to_vec())
+                        .unwrap()
+                }
+            }
+        });
     
     // Static files route - serve embedded frontend assets
     let static_route = warp::path::tail()
@@ -683,6 +705,7 @@ async fn run_combined_server(port: u16) -> Result<(), String> {
         .or(schedule_api_route)
         .or(live_slides_api_route)
         .or(schedule_view_route)
+        .or(live_slides_landing_route)
         .or(root_route)
         .or(static_route)
         .with(cors);
@@ -867,6 +890,15 @@ async fn run_sync_server(port: u16) -> Result<(), String> {
 #[tauri::command]
 fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
+}
+
+// Toggle the WebView inspector/devtools.
+//
+// Note: This requires the `devtools` feature on the `tauri` crate for release builds.
+#[tauri::command]
+fn toggle_devtools(window: tauri::WebviewWindow) -> Result<(), String> {
+    window.open_devtools();
+    Ok(())
 }
 
 // ============================================================================
@@ -1263,18 +1295,33 @@ fn write_text_to_file(file_path: String, content: String) -> Result<(), String> 
     use std::io::Write;
     use std::path::Path;
 
-    let path = Path::new(&file_path);
+    // Normalize path:
+    // - trim whitespace (common when users paste paths)
+    // - expand "~/" to HOME (common expectation on macOS/Linux)
+    let mut normalized = file_path.trim().to_string();
+    if normalized.starts_with("~/") || normalized == "~" {
+        let home = std::env::var("HOME")
+            .or_else(|_| std::env::var("USERPROFILE"))
+            .map_err(|_| "home_dir_unavailable".to_string())?;
+        if normalized == "~" {
+            normalized = home;
+        } else {
+            normalized = format!("{}/{}", home.trim_end_matches('/'), &normalized[2..]);
+        }
+    }
+
+    let path = Path::new(&normalized);
     if let Some(parent_dir) = path.parent() {
         if !parent_dir.exists() {
             create_dir_all(parent_dir).map_err(|e| e.to_string())?;
         }
     }
-    let mut file = File::create(&file_path).map_err(|e| {
-        format!("create_failed:{}:{}", file_path, e)
+    let mut file = File::create(&normalized).map_err(|e| {
+        format!("create_failed:{}:{}", normalized, e)
     })?;
     file
         .write_all(content.as_bytes())
-        .map_err(|e| format!("write_failed:{}:{}", file_path, e))?;
+        .map_err(|e| format!("write_failed:{}:{}", normalized, e))?;
     Ok(())
 }
 
@@ -1623,6 +1670,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             greet,
+            toggle_devtools,
             list_native_audio_input_devices,
             start_native_audio_stream,
             stop_native_audio_stream,

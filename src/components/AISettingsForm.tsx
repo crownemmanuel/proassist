@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useEffect, useCallback, useRef, useState } from "react";
 import { AppSettings, AIProvider, AIProviderType, AIModelSetting } from "../types";
 import { getAppSettings, saveAppSettings } from "../utils/aiConfig";
 import { fetchOpenAIModels, fetchGeminiModels, fetchGroqModels } from "../services/aiService";
@@ -17,6 +17,7 @@ import {
   getCurrentSlideIndex,
 } from "../services/propresenterService";
 import { ProPresenterConnection } from "../types/propresenter";
+import { useDebouncedEffect } from "../hooks/useDebouncedEffect";
 
 interface AISettingsFormProps {
   // Props if any, e.g., onSettingsChange callback if SettingsPage needs to react
@@ -74,6 +75,9 @@ const AISettingsForm: React.FC<AISettingsFormProps> = () => {
   // ProPresenter connection selection
   const [enabledConnections, setEnabledConnections] = useState<ProPresenterConnection[]>([]);
   const [selectedConnectionId, setSelectedConnectionId] = useState<string>("");
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<string | null>(null);
+  const originalTemplateRef = useRef<ProPresenterAITemplate | null>(null);
 
   useEffect(() => {
     // Update local state if settings are changed elsewhere (e.g. theme toggle)
@@ -95,7 +99,66 @@ const AISettingsForm: React.FC<AISettingsFormProps> = () => {
     if (connections.length > 0) {
       setSelectedConnectionId(connections[0].id);
     }
+    setSettingsLoaded(true);
   }, []); // Re-evaluate if a dependency on global changes is needed
+
+  // Auto-save AI provider settings (debounced) after initial load.
+  useDebouncedEffect(
+    () => {
+      const spellCheckSetting: AIModelSetting | undefined =
+        spellCheckProvider && spellCheckModel
+          ? { provider: spellCheckProvider as AIProviderType, model: spellCheckModel }
+          : undefined;
+
+      const timerAssistantSetting: AIModelSetting | undefined =
+        timerAssistantProvider && timerAssistantModel
+          ? { provider: timerAssistantProvider as AIProviderType, model: timerAssistantModel }
+          : undefined;
+
+      const globalAssistantSetting: AIModelSetting | undefined =
+        globalAssistantProvider && globalAssistantModel
+          ? { provider: globalAssistantProvider as AIProviderType, model: globalAssistantModel }
+          : undefined;
+
+      // Merge against latest stored settings to avoid clobbering fields changed elsewhere.
+      const base = getAppSettings();
+      const newSettings: AppSettings = {
+        ...base,
+        ...appSettings,
+        openAIConfig: openAIKeyInput ? { apiKey: openAIKeyInput } : undefined,
+        geminiConfig: geminiKeyInput ? { apiKey: geminiKeyInput } : undefined,
+        groqConfig: groqKeyInput ? { apiKey: groqKeyInput } : undefined,
+        defaultAIProvider: appSettings.defaultAIProvider || undefined,
+        spellCheckModel: spellCheckSetting,
+        timerAssistantModel: timerAssistantSetting,
+        globalAssistantModel: globalAssistantSetting,
+      };
+
+      try {
+        saveAppSettings(newSettings);
+        setAppSettings(newSettings);
+        setSaveStatus("All changes saved");
+        setTimeout(() => setSaveStatus(null), 2000);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        setSaveStatus(`Failed to save: ${msg}`);
+      }
+    },
+    [
+      openAIKeyInput,
+      geminiKeyInput,
+      groqKeyInput,
+      appSettings.defaultAIProvider,
+      spellCheckProvider,
+      spellCheckModel,
+      timerAssistantProvider,
+      timerAssistantModel,
+      globalAssistantProvider,
+      globalAssistantModel,
+      settingsLoaded,
+    ],
+    { delayMs: 600, enabled: settingsLoaded, skipFirstRun: true }
+  );
 
   // Fetch models when spell check provider changes
   useEffect(() => {
@@ -215,40 +278,6 @@ const AISettingsForm: React.FC<AISettingsFormProps> = () => {
     })();
   }, [globalAssistantProvider, openAIKeyInput, geminiKeyInput, groqKeyInput]);
 
-  const handleSave = () => {
-    const spellCheckSetting: AIModelSetting | undefined = 
-      spellCheckProvider && spellCheckModel
-        ? { provider: spellCheckProvider as AIProviderType, model: spellCheckModel }
-        : undefined;
-
-    const timerAssistantSetting: AIModelSetting | undefined =
-      timerAssistantProvider && timerAssistantModel
-        ? { provider: timerAssistantProvider as AIProviderType, model: timerAssistantModel }
-        : undefined;
-
-    const globalAssistantSetting: AIModelSetting | undefined =
-      globalAssistantProvider && globalAssistantModel
-        ? { provider: globalAssistantProvider as AIProviderType, model: globalAssistantModel }
-        : undefined;
-
-    const newSettings: AppSettings = {
-      ...appSettings,
-      openAIConfig: openAIKeyInput ? { apiKey: openAIKeyInput } : undefined,
-      geminiConfig: geminiKeyInput ? { apiKey: geminiKeyInput } : undefined,
-      groqConfig: groqKeyInput ? { apiKey: groqKeyInput } : undefined,
-      spellCheckModel: spellCheckSetting,
-      timerAssistantModel: timerAssistantSetting,
-      globalAssistantModel: globalAssistantSetting,
-    };
-    saveAppSettings(newSettings);
-    setAppSettings(newSettings); // Update local state
-    
-    // Note: PP AI Templates are saved immediately when modified (add/edit/delete)
-    // so we don't need to save them here
-    
-    alert("AI settings saved!"); // Simple feedback
-  };
-
   const handleDefaultProviderChange = (
     event: React.ChangeEvent<HTMLSelectElement>
   ) => {
@@ -257,7 +286,6 @@ const AISettingsForm: React.FC<AISettingsFormProps> = () => {
       ...appSettings,
       defaultAIProvider: provider,
     };
-    saveAppSettings(newSettings);
     setAppSettings(newSettings);
   };
 
@@ -304,29 +332,86 @@ const AISettingsForm: React.FC<AISettingsFormProps> = () => {
     };
     setEditingTemplate(newTemplate);
     setIsAddingTemplate(true);
+    originalTemplateRef.current = null;
   };
 
-  const handleSaveTemplate = () => {
-    if (!editingTemplate) return;
-    if (!editingTemplate.name || !editingTemplate.outputPath || !editingTemplate.outputFileNamePrefix || !editingTemplate.presentationUuid) {
-      alert("Please fill in Name, Output Folder Path, File Name Prefix, and Presentation UUID");
+  const isValidPpTemplateDraft = (t: ProPresenterAITemplate | null) => {
+    return !!(
+      t &&
+      t.name &&
+      t.outputPath &&
+      t.outputFileNamePrefix &&
+      t.presentationUuid
+    );
+  };
+
+  // Auto-save ProPresenter AI template draft on change (debounced).
+  useDebouncedEffect(
+    () => {
+      if (!editingTemplate) return;
+      if (!isValidPpTemplateDraft(editingTemplate)) {
+        setSaveStatus("Fill required ProPresenter AI template fields to save");
+        return;
+      }
+
+      setPPAITemplates((prev) => {
+        const exists = prev.some((t) => t.id === editingTemplate.id);
+        const updatedTemplates = exists
+          ? prev.map((t) => (t.id === editingTemplate.id ? editingTemplate : t))
+          : [...prev, editingTemplate];
+
+        saveProPresenterAITemplates(updatedTemplates);
+        console.log(
+          "[AISettings] Auto-saved template:",
+          editingTemplate.name,
+          "Total:",
+          updatedTemplates.length
+        );
+        return updatedTemplates;
+      });
+
+      setSaveStatus("All changes saved");
+      setTimeout(() => setSaveStatus(null), 2000);
+    },
+    [editingTemplate, settingsLoaded],
+    { delayMs: 600, enabled: settingsLoaded, skipFirstRun: true }
+  );
+
+  const handleDoneTemplate = () => {
+    if (isAddingTemplate && !isValidPpTemplateDraft(editingTemplate)) {
+      setSaveStatus("Fill required ProPresenter AI template fields to save");
+      return;
+    }
+    setEditingTemplate(null);
+    setIsAddingTemplate(false);
+    originalTemplateRef.current = null;
+  };
+
+  const handleDiscardTemplate = () => {
+    if (!editingTemplate) {
+      setEditingTemplate(null);
+      setIsAddingTemplate(false);
+      originalTemplateRef.current = null;
       return;
     }
 
-    let updatedTemplates: ProPresenterAITemplate[];
-    if (isAddingTemplate) {
-      updatedTemplates = [...ppAITemplates, editingTemplate];
+    if (originalTemplateRef.current) {
+      const reverted = ppAITemplates.map((t) =>
+        t.id === originalTemplateRef.current!.id ? originalTemplateRef.current! : t
+      );
+      setPPAITemplates(reverted);
+      saveProPresenterAITemplates(reverted);
     } else {
-      updatedTemplates = ppAITemplates.map(t => t.id === editingTemplate.id ? editingTemplate : t);
+      // new draft (best-effort remove if it got auto-saved)
+      const filtered = ppAITemplates.filter((t) => t.id !== editingTemplate.id);
+      setPPAITemplates(filtered);
+      saveProPresenterAITemplates(filtered);
     }
-    
-    // Update state and immediately save to localStorage
-    setPPAITemplates(updatedTemplates);
-    saveProPresenterAITemplates(updatedTemplates);
-    console.log("[AISettings] Saved template:", editingTemplate.name, "Total:", updatedTemplates.length);
-    
+
     setEditingTemplate(null);
     setIsAddingTemplate(false);
+    originalTemplateRef.current = null;
+    setSaveStatus(null);
   };
 
   const handleDeleteTemplate = (id: string) => {
@@ -839,8 +924,8 @@ const AISettingsForm: React.FC<AISettingsFormProps> = () => {
                       <TemplateEditForm
                         template={editingTemplate}
                         setTemplate={setEditingTemplate}
-                        onSave={handleSaveTemplate}
-                        onCancel={() => setEditingTemplate(null)}
+                        onDone={handleDoneTemplate}
+                        onDiscard={handleDiscardTemplate}
                         onGetFromPP={handleGetFromProPresenter}
                         fetchingFromPP={fetchingFromPP}
                         enabledConnections={enabledConnections}
@@ -873,7 +958,11 @@ const AISettingsForm: React.FC<AISettingsFormProps> = () => {
                         </div>
                         <div style={{ display: "flex", gap: "4px" }}>
                           <button
-                            onClick={() => setEditingTemplate(template)}
+                            onClick={() => {
+                              originalTemplateRef.current = template;
+                              setEditingTemplate(template);
+                              setIsAddingTemplate(false);
+                            }}
                             style={{
                               padding: "6px 10px",
                               background: "rgba(255,255,255,0.1)",
@@ -920,8 +1009,8 @@ const AISettingsForm: React.FC<AISettingsFormProps> = () => {
                     <TemplateEditForm
                       template={editingTemplate}
                       setTemplate={setEditingTemplate}
-                      onSave={handleSaveTemplate}
-                      onCancel={() => { setEditingTemplate(null); setIsAddingTemplate(false); }}
+                      onDone={handleDoneTemplate}
+                      onDiscard={handleDiscardTemplate}
                       onGetFromPP={handleGetFromProPresenter}
                       fetchingFromPP={fetchingFromPP}
                       enabledConnections={enabledConnections}
@@ -958,14 +1047,11 @@ const AISettingsForm: React.FC<AISettingsFormProps> = () => {
           </div>
         </div>
       </div>
-
-      <button
-        onClick={handleSave}
-        className="primary"
-        style={{ marginTop: "16px" }}
-      >
-        Save AI Settings
-      </button>
+      {saveStatus && (
+        <p style={{ marginTop: "16px", fontSize: "0.85em", color: "var(--app-text-color-secondary)" }}>
+          {saveStatus}
+        </p>
+      )}
       <p
         style={{
           fontSize: "0.8em",
@@ -990,8 +1076,8 @@ const AISettingsForm: React.FC<AISettingsFormProps> = () => {
 interface TemplateEditFormProps {
   template: ProPresenterAITemplate;
   setTemplate: React.Dispatch<React.SetStateAction<ProPresenterAITemplate | null>>;
-  onSave: () => void;
-  onCancel: () => void;
+  onDone: () => void;
+  onDiscard: () => void;
   onGetFromPP: () => void;
   fetchingFromPP: boolean;
   enabledConnections: ProPresenterConnection[];
@@ -1002,8 +1088,8 @@ interface TemplateEditFormProps {
 const TemplateEditForm: React.FC<TemplateEditFormProps> = ({
   template,
   setTemplate,
-  onSave,
-  onCancel,
+  onDone,
+  onDiscard,
   onGetFromPP,
   fetchingFromPP,
   enabledConnections,
@@ -1199,7 +1285,7 @@ const TemplateEditForm: React.FC<TemplateEditFormProps> = ({
 
       <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px", marginTop: "12px" }}>
         <button
-          onClick={onCancel}
+          onClick={onDiscard}
           style={{
             padding: "6px 14px",
             backgroundColor: "rgba(255,255,255,0.1)",
@@ -1210,10 +1296,10 @@ const TemplateEditForm: React.FC<TemplateEditFormProps> = ({
             fontSize: "0.85em",
           }}
         >
-          Cancel
+          Discard
         </button>
         <button
-          onClick={onSave}
+          onClick={onDone}
           style={{
             padding: "6px 14px",
             backgroundColor: "#a855f7",
@@ -1224,7 +1310,7 @@ const TemplateEditForm: React.FC<TemplateEditFormProps> = ({
             fontSize: "0.85em",
           }}
         >
-          Save
+          Done
         </button>
       </div>
     </div>
