@@ -357,6 +357,11 @@ const getNotepadStyles = (isDark: boolean) => {
       fontSize: "0.75rem",
       fontWeight: 500,
     },
+    border: border,
+    input: {
+      background: bg,
+      color: text,
+    },
   };
 };
 

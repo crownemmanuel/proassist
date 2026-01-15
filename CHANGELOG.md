@@ -2,6 +2,24 @@
 
 All notable changes to ProAssist will be documented in this file.
 
+## [0.5.1] - 2025-01-29
+
+### Changed
+- **Transcription Settings UI**: Reorganized Transcription Settings for better UX
+  - Combined "Native Microphone" and "Microphone" fields into a single "Microphone" dropdown that automatically shows native devices when native audio capture is enabled
+  - Moved "AssemblyAI API Key" section to appear right after "Transcription Engine"
+  - Moved "Run transcription in browser" checkbox to appear directly below microphone selection
+
+### Improved
+- **Transcription Stop Button**: Added immediate visual feedback when stopping transcription
+  - Button shows "Stopping..." with spinner icon and is disabled immediately when clicked
+  - Prevents multiple stop requests and provides clear feedback during the stopping process
+
+### Fixed
+- **Browser Transcription Text Visibility**: Fixed black text visibility issues when browser transcription mode is enabled
+  - Changed "Browser" badge text color from black to white for better visibility on warning-colored background
+  - Changed "Waiting for browser..." button text color from black to white
+
 ## [0.5.0] - 2025-01-28
 
 ### Added
