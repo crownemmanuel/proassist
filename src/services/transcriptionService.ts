@@ -23,7 +23,7 @@ import {
 } from "../types/smartVerses";
 
 type NativeAudioInputDevice = {
-  id: number;
+  id: string;
   name: string;
   is_default: boolean;
 };
@@ -93,7 +93,7 @@ export class AssemblyAITranscriptionService implements ITranscriptionService {
   private mediaStream: MediaStream | null = null; // Store stream reference separately
   private selectedMicId: string = "";
   private audioCaptureMode: "webrtc" | "native" = "webrtc";
-  private selectedNativeDeviceId: number | null = null;
+  private selectedNativeDeviceId: string | null = null;
   private nativeUnlisten: null | (() => void) = null;
   private callbacks: TranscriptionCallbacks = {};
   private _isRecording: boolean = false;
@@ -127,7 +127,7 @@ export class AssemblyAITranscriptionService implements ITranscriptionService {
     this.audioCaptureMode = mode;
   }
 
-  setNativeMicrophoneDeviceId(deviceId: number | null): void {
+  setNativeMicrophoneDeviceId(deviceId: string | null): void {
     this.selectedNativeDeviceId = deviceId;
   }
 

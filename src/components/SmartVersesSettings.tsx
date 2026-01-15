@@ -32,6 +32,7 @@ import {
   loadSmartVersesSettings,
   saveSmartVersesSettings,
 } from "../services/transcriptionService";
+import { getAssemblyAITemporaryToken } from "../services/assemblyaiTokenService";
 import {
   getEnabledConnections,
   getCurrentSlideIndex,

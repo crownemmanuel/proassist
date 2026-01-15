@@ -219,6 +219,23 @@ function normalizeCommaSeparatedChapterVerse(text: string): string {
 }
 
 /**
+ * Normalize speech pattern: "Book 3 verse 5" or "Book chapter 3 verse 5" -> "Book 3:5"
+ * This is common in live speech (e.g., "Psalm 66, verse three").
+ *
+ * Only used in aggressive speech normalization (transcription), not search box.
+ */
+function normalizeBookChapterVersePhrase(text: string): string {
+  const bookPrefix = "(?:the\\s+)?(?:book\\s+of\\s+)?";
+  const bookPattern = "((?:[1-3]\\s*)?[A-Za-z][A-Za-z0-9]*(?:\\s+[A-Za-z][A-Za-z0-9]*)*)";
+  const regex = new RegExp(
+    `\\b${bookPrefix}${bookPattern}\\s+(?:chapter\\s+)?(\\d{1,3})\\s+(?:verse|verses|v|vs)\\s+(\\d{1,3})(?=[^\\d]|$)`,
+    "gi"
+  );
+  return text.replace(regex, (_match, book, chapter, verse) => `${book} ${chapter}:${verse}`);
+}
+
+
+/**
  * Resolve a book name to the canonical form used in the verse data.
  */
 function resolveBookName(bookText: string): string {
@@ -737,13 +754,22 @@ export async function lookupVerses(reference: ParsedBibleReference): Promise<Arr
 /**
  * Detect Bible references in text and return fully resolved references with verse text
  */
-export async function detectAndLookupReferences(text: string): Promise<DetectedBibleReference[]> {
+export async function detectAndLookupReferences(
+  text: string,
+  options?: { aggressiveSpeechNormalization?: boolean }
+): Promise<DetectedBibleReference[]> {
   const results: DetectedBibleReference[] = [];
 
   // Normalize common speech/typo patterns before parsing
   const preprocessed = preprocessBibleReference(text);
   const numericText = wordsToNumbers(preprocessed);
-  const normalizedText = await normalizeCombinedChapterVerseInput(numericText);
+  const normalizedText = await normalizeCombinedChapterVerseInput(
+    normalizeCommaSeparatedChapterVerse(
+      options?.aggressiveSpeechNormalization
+        ? normalizeBookChapterVersePhrase(numericText)
+        : numericText
+    )
+  );
 
   const parsed = parseVerseReference(normalizedText);
   if (!parsed || parsed.length === 0) {

@@ -875,7 +875,7 @@ fn greet(name: &str) -> String {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct NativeAudioInputDevice {
-    pub id: usize,
+    pub id: String,
     pub name: String,
     pub is_default: bool,
 }
@@ -891,10 +891,11 @@ fn list_native_audio_input_devices() -> Result<Vec<NativeAudioInputDevice>, Stri
         .input_devices()
         .map_err(|e| format!("input_devices_failed:{}", e))?
         .enumerate()
-        .filter_map(|(idx, d)| {
+        .filter_map(|(_idx, d)| {
             let name = d.name().ok()?;
             let is_default = default_name.as_ref().map(|n| n == &name).unwrap_or(false);
-            Some(NativeAudioInputDevice { id: idx, name, is_default })
+            // Use the device name as a stable identifier (index can change between calls)
+            Some(NativeAudioInputDevice { id: name.clone(), name, is_default })
         })
         .collect();
 
@@ -990,7 +991,7 @@ fn stop_native_audio_stream() -> Result<(), String> {
 }
 
 #[tauri::command]
-fn start_native_audio_stream(app: tauri::AppHandle, device_id: Option<usize>) -> Result<(), String> {
+fn start_native_audio_stream(app: tauri::AppHandle, device_id: Option<String>) -> Result<(), String> {
     // Stop any existing stream first
     let _ = stop_native_audio_stream();
 
@@ -1001,8 +1002,22 @@ fn start_native_audio_stream(app: tauri::AppHandle, device_id: Option<usize>) ->
 
     let mut selected: cpal::Device = default_device;
     if let Some(id) = device_id {
-        if let Ok(mut iter) = host.input_devices() {
-            if let Some(dev) = iter.nth(id) {
+        if let Ok(iter) = host.input_devices() {
+            // Prefer matching by device name (stable), fall back to numeric index if provided.
+            let mut index_match: Option<cpal::Device> = None;
+            let mut name_match: Option<cpal::Device> = None;
+            for (idx, dev) in iter.enumerate() {
+                if let Ok(name) = dev.name() {
+                    if name == id {
+                        name_match = Some(dev);
+                        break;
+                    }
+                }
+                if index_match.is_none() && id.parse::<usize>().ok() == Some(idx) {
+                    index_match = Some(dev);
+                }
+            }
+            if let Some(dev) = name_match.or(index_match) {
                 selected = dev;
             }
         }

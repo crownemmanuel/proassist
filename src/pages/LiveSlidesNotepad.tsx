@@ -382,6 +382,7 @@ const LiveSlidesNotepad: React.FC = () => {
   const [filterTranscript, setFilterTranscript] = useState(true);
   const [filterReferences, setFilterReferences] = useState(false);
   const [filterKeyPoints, setFilterKeyPoints] = useState(false);
+  const [transcriptSearchQuery, setTranscriptSearchQuery] = useState("");
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const lineNumbersRef = useRef<HTMLDivElement>(null);
@@ -399,6 +400,8 @@ const LiveSlidesNotepad: React.FC = () => {
     () => getNotepadStyles(isDarkMode),
     [isDarkMode]
   );
+
+  const normalizedTranscriptQuery = transcriptSearchQuery.trim().toLowerCase();
 
   // Toggle theme
   const toggleTheme = useCallback(() => {
@@ -895,6 +898,23 @@ Result: Slide 1 = Title, Slide 2 = Title + Sub-item 1, Slide 3 = Title + Sub-ite
               </div>
 
               <div style={notepadStyles.transcriptionFilters}>
+                <div style={{ flex: 1, minWidth: "180px" }}>
+                  <input
+                    type="text"
+                    value={transcriptSearchQuery}
+                    onChange={(e) => setTranscriptSearchQuery(e.target.value)}
+                    placeholder="Search transcript..."
+                    style={{
+                      width: "100%",
+                      padding: "6px 10px",
+                      borderRadius: "6px",
+                      border: `1px solid ${notepadStyles.border}`,
+                      background: notepadStyles.input.background,
+                      color: notepadStyles.input.color,
+                      fontSize: "0.8rem",
+                    }}
+                  />
+                </div>
                 <label style={notepadStyles.transcriptionFilterLabel}>
                   <input
                     type="checkbox"
@@ -923,7 +943,10 @@ Result: Slide 1 = Title, Slide 2 = Title + Sub-item 1, Slide 3 = Title + Sub-ite
             </div>
 
             <div style={notepadStyles.transcriptionScroll}>
-              {filterTranscript && liveInterimTranscript.trim().length > 0 && (
+              {filterTranscript &&
+                liveInterimTranscript.trim().length > 0 &&
+                (!normalizedTranscriptQuery ||
+                  liveInterimTranscript.toLowerCase().includes(normalizedTranscriptQuery)) && (
                 <div style={notepadStyles.transcriptionInterim}>
                   {liveInterimTranscript}
                 </div>
@@ -950,6 +973,11 @@ Result: Slide 1 = Title, Slide 2 = Title + Sub-item 1, Slide 3 = Title + Sub-ite
 
                     const ts = new Date(m.timestamp).toLocaleTimeString();
                     const chunkText = m.segment?.text || m.text;
+                    const matchesQuery =
+                      !normalizedTranscriptQuery ||
+                      chunkText.toLowerCase().includes(normalizedTranscriptQuery);
+
+                    if (!matchesQuery) return null;
 
                     return (
                       <div

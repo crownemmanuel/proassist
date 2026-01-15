@@ -14,7 +14,7 @@
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { FaMicrophone, FaStop, FaPaperPlane, FaRobot, FaPlay, FaSearch, FaChevronDown, FaChevronUp, FaTrash, FaStopCircle, FaExternalLinkAlt } from "react-icons/fa";
+import { FaMicrophone, FaStop, FaPaperPlane, FaRobot, FaPlay, FaSearch, FaChevronDown, FaChevronUp, FaTrash, FaStopCircle, FaExternalLinkAlt, FaEllipsisH, FaDownload } from "react-icons/fa";
 import {
   SmartVersesSettings,
   SmartVersesChatMessage,
@@ -113,6 +113,13 @@ const SmartVersesPage: React.FC = () => {
   
   // Browser transcription WebSocket
   const browserTranscriptionWsRef = useRef<LiveSlidesWebSocket | null>(null);
+  
+  // Interim direct-reference parsing (fast local parser; avoids AI)
+  const latestInterimTextRef = useRef<string>("");
+  const lastInterimDirectSignatureRef = useRef<string>("");
+  const lastInterimParseAtRef = useRef<number>(0);
+  const interimParseInFlightRef = useRef<boolean>(false);
+  const lastInterimWordCountRef = useRef<number>(0);
 
   // Compact detected references UI state
   const [detectedPanelCollapsed, setDetectedPanelCollapsed] = useState(false);
@@ -123,6 +130,9 @@ const SmartVersesPage: React.FC = () => {
   const [autoScrollTranscript, setAutoScrollTranscript] = useState(true);
   const [autoScrollPaused, setAutoScrollPaused] = useState(false);
   const [expandedInlineRefIds, setExpandedInlineRefIds] = useState<Set<string>>(() => new Set());
+  const [transcriptMenuOpen, setTranscriptMenuOpen] = useState(false);
+  const [transcriptSearchQuery, setTranscriptSearchQuery] = useState("");
+  const transcriptMenuRef = useRef<HTMLDivElement | null>(null);
 
   // Live state - tracks which reference is currently live (only one at a time)
   const [liveReferenceId, setLiveReferenceId] = useState<string | null>(null);
@@ -216,10 +226,165 @@ const SmartVersesPage: React.FC = () => {
     detectedReferencesRef.current = detectedReferences;
   }, [detectedReferences]);
 
+  const shouldAttemptDirectParse = useCallback((text: string): boolean => {
+    const t = text.trim();
+    if (!t) return false;
+
+    // Most reliable signal: chapter:verse appears.
+    if (/\b\d{1,3}\s*:\s*\d{1,3}\b/.test(t)) return true;
+
+    // Spoken ASR often comes through as: "John 3 16" (space-separated numbers).
+    // Require 2 numbers after some letters so we don't trigger on "John 3" prematurely.
+    if (/\b[1-3]?\s?[A-Za-z]{3,}\s+\d{1,3}\s+\d{1,3}\b/i.test(t)) return true;
+
+    // "chapter X verse Y" form (often appears in interim before punctuation)
+    if (/\bchapter\b[\s,]+.+?\bverse\b/i.test(t)) return true;
+
+    return false;
+  }, []);
+
+  const getInterimTailForParsing = useCallback((text: string): string => {
+    // TEMP: parse the full current interim chunk so references are found ASAP.
+    return text.trim();
+  }, []);
+
+  const scheduleInterimDirectParse = useCallback(
+    (text: string) => {
+      latestInterimTextRef.current = text;
+
+      // TEMP: parse aggressively on every ~2 words (no early-guard) for real-time pickup.
+      const now = Date.now();
+      const minIntervalMs = 150;
+      if (now - lastInterimParseAtRef.current < minIntervalMs) return;
+      if (interimParseInFlightRef.current) return;
+
+      const wordCount = text.trim().split(/\s+/).filter(Boolean).length;
+      if (wordCount - lastInterimWordCountRef.current < 2) return;
+      lastInterimWordCountRef.current = wordCount;
+
+      lastInterimParseAtRef.current = now;
+      interimParseInFlightRef.current = true;
+
+      (async () => {
+        const latest = latestInterimTextRef.current;
+        const tail = getInterimTailForParsing(latest);
+        try {
+        const refs = await detectAndLookupReferences(tail, {
+          aggressiveSpeechNormalization: true,
+        });
+          if (!refs.length) return;
+
+          // De-dupe against existing refs, and avoid re-adding the same interim result repeatedly.
+          const sig = refs
+            .map((r) => (r.displayRef || "").trim().toLowerCase())
+            .filter(Boolean)
+            .sort()
+            .join("|");
+          if (!sig || sig === lastInterimDirectSignatureRef.current) return;
+          lastInterimDirectSignatureRef.current = sig;
+
+          const existing = new Set(
+            detectedReferencesRef.current
+              .map((r) => (r.displayRef || "").trim().toLowerCase())
+              .filter(Boolean)
+          );
+          const newRefs = refs.filter(
+            (r) => !existing.has((r.displayRef || "").trim().toLowerCase())
+          );
+          if (newRefs.length) {
+            // Important: we do NOT auto-trigger on interim to avoid false positives.
+            setDetectedReferences((prev) => [...prev, ...newRefs]);
+          }
+        } catch (e) {
+          // Silent: interim parsing should never break transcription UX.
+          console.debug("[SmartVerses] Interim direct-parse failed:", e);
+        }
+      })()
+        .finally(() => {
+          interimParseInFlightRef.current = false;
+        });
+    },
+    [getInterimTailForParsing, shouldAttemptDirectParse]
+  );
+
   // Scroll to bottom of chat
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [chatHistory]);
+
+  useEffect(() => {
+    if (!transcriptMenuOpen) return;
+
+    const handleClickOutside = (event: MouseEvent) => {
+      if (!transcriptMenuRef.current) return;
+      if (!transcriptMenuRef.current.contains(event.target as Node)) {
+        setTranscriptMenuOpen(false);
+      }
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setTranscriptMenuOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [transcriptMenuOpen]);
+
+  const filteredTranscriptHistory = useMemo(() => {
+    const query = transcriptSearchQuery.trim().toLowerCase();
+    if (!query) return transcriptHistory;
+    return transcriptHistory.filter((segment) =>
+      segment.text.toLowerCase().includes(query)
+    );
+  }, [transcriptHistory, transcriptSearchQuery]);
+
+  const matchesInterimSearch = useMemo(() => {
+    const query = transcriptSearchQuery.trim().toLowerCase();
+    if (!query) return !!interimTranscript;
+    return interimTranscript.toLowerCase().includes(query);
+  }, [interimTranscript, transcriptSearchQuery]);
+
+  const handleDownloadTranscript = useCallback(
+    (format: "text" | "json") => {
+      const combined = [
+        ...transcriptHistory.map((s) => s.text),
+        ...(interimTranscript ? [interimTranscript] : []),
+      ].filter(Boolean);
+
+      if (format === "text") {
+        const content = combined.join("\n\n");
+        const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `transcript-${new Date().toISOString().slice(0, 19)}.txt`;
+        a.click();
+        URL.revokeObjectURL(url);
+      } else {
+        const payload = {
+          generatedAt: new Date().toISOString(),
+          segments: transcriptHistory,
+          interim: interimTranscript || null,
+        };
+        const blob = new Blob([JSON.stringify(payload, null, 2)], {
+          type: "application/json;charset=utf-8",
+        });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `transcript-${new Date().toISOString().slice(0, 19)}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+      }
+    },
+    [transcriptHistory, interimTranscript]
+  );
 
   // Scroll to bottom of transcript
   useEffect(() => {
@@ -622,6 +787,7 @@ const SmartVersesPage: React.FC = () => {
         
         if (m.kind === "interim") {
           setInterimTranscript(m.text || "");
+          scheduleInterimDirectParse(m.text || "");
           // Update status to recording when we receive first transcription
           setTranscriptionStatus((prev) => prev === "waiting_for_browser" ? "recording" : prev);
         } else if (m.kind === "final" && m.text) {
@@ -639,7 +805,9 @@ const SmartVersesPage: React.FC = () => {
           setTranscriptHistory(prev => [...prev, segment]);
           
           // Detect Bible references in the transcript
-          detectAndLookupReferences(m.text).then(async (directRefs) => {
+          detectAndLookupReferences(m.text, {
+            aggressiveSpeechNormalization: true,
+          }).then(async (directRefs) => {
             if (directRefs.length > 0) {
               setDetectedReferences(prev => [...prev, ...directRefs]);
               
@@ -685,6 +853,12 @@ const SmartVersesPage: React.FC = () => {
       return;
     }
 
+    // Reset interim parse state for a fresh session
+    latestInterimTextRef.current = "";
+    lastInterimDirectSignatureRef.current = "";
+    lastInterimParseAtRef.current = 0;
+    lastInterimWordCountRef.current = 0;
+
     // If browser transcription mode is enabled, open browser and wait for transcriptions
     if (settings.runTranscriptionInBrowser) {
       setTranscriptionStatus("waiting_for_browser");
@@ -701,6 +875,8 @@ const SmartVersesPage: React.FC = () => {
         {
           onInterimTranscript: (text) => {
             setInterimTranscript(text);
+            // Fast local parsing for direct references (no AI) so refs can appear sooner.
+            scheduleInterimDirectParse(text);
 
             if (settings.streamTranscriptionsToWebSocket) {
               broadcastTranscriptionStreamMessage({
@@ -719,7 +895,9 @@ const SmartVersesPage: React.FC = () => {
             setInterimTranscript("");
 
             // Detect Bible references in the transcript
-            const directRefs = await detectAndLookupReferences(text);
+            const directRefs = await detectAndLookupReferences(text, {
+              aggressiveSpeechNormalization: true,
+            });
             let keyPoints: KeyPoint[] = [];
             let scriptureReferences: string[] = [];
             
@@ -846,8 +1024,7 @@ const SmartVersesPage: React.FC = () => {
       // Configure audio capture mode (WebRTC vs Native)
       service.setAudioCaptureMode(settings.audioCaptureMode === "native" ? "native" : "webrtc");
       if (settings.audioCaptureMode === "native") {
-        const parsed = settings.selectedNativeMicrophoneId ? parseInt(settings.selectedNativeMicrophoneId, 10) : NaN;
-        service.setNativeMicrophoneDeviceId(Number.isFinite(parsed) ? parsed : null);
+        service.setNativeMicrophoneDeviceId(settings.selectedNativeMicrophoneId || null);
       }
 
       if (settings.selectedMicrophoneId) {
@@ -870,6 +1047,10 @@ const SmartVersesPage: React.FC = () => {
     }
     // Also disconnect browser transcription WebSocket if connected
     disconnectBrowserTranscriptionWs();
+    latestInterimTextRef.current = "";
+    lastInterimDirectSignatureRef.current = "";
+    lastInterimParseAtRef.current = 0;
+    lastInterimWordCountRef.current = 0;
     setTranscriptionStatus("idle");
     setInterimTranscript("");
   }, [disconnectBrowserTranscriptionWs]);
@@ -1485,7 +1666,7 @@ const SmartVersesPage: React.FC = () => {
             <FaSearch />
             Bible Search
           </h3>
-          <div style={{ display: "flex", alignItems: "center", gap: "var(--spacing-2)" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "var(--spacing-2)", position: "relative" }}>
             {liveReferenceId && (
               <button
                 onClick={handleOffLive}
@@ -1852,13 +2033,101 @@ const SmartVersesPage: React.FC = () => {
               </button>
             )}
             <button
-              onClick={handleClearTranscript}
+              onClick={() => setTranscriptMenuOpen((v) => !v)}
               className="icon-button"
-              title="Clear transcript"
+              title="Transcript options"
               style={{ padding: "6px" }}
             >
-              <FaTrash size={12} />
+              <FaEllipsisH size={12} />
             </button>
+            {transcriptMenuOpen && (
+              <div
+                ref={transcriptMenuRef}
+                style={{
+                  position: "absolute",
+                  top: "36px",
+                  right: 0,
+                  minWidth: "240px",
+                  backgroundColor: "var(--app-header-bg)",
+                  border: "1px solid var(--app-border-color)",
+                  borderRadius: "8px",
+                  padding: "10px",
+                  boxShadow: "0 8px 24px rgba(0,0,0,0.3)",
+                  zIndex: 20,
+                }}
+              >
+                <div style={{ marginBottom: "8px" }}>
+                  <label style={{ fontSize: "0.75rem", color: "var(--app-text-color-secondary)" }}>
+                    Search transcript
+                  </label>
+                  <input
+                    type="text"
+                    value={transcriptSearchQuery}
+                    onChange={(e) => setTranscriptSearchQuery(e.target.value)}
+                    placeholder="Type to filter..."
+                    style={{
+                      width: "100%",
+                      marginTop: "6px",
+                      padding: "8px 10px",
+                      borderRadius: "6px",
+                      border: "1px solid var(--app-border-color)",
+                      backgroundColor: "var(--app-bg-color)",
+                      color: "var(--app-text-color)",
+                      fontSize: "0.85rem",
+                    }}
+                  />
+                  {transcriptSearchQuery.trim() && (
+                    <button
+                      onClick={() => setTranscriptSearchQuery("")}
+                      className="secondary"
+                      style={{
+                        marginTop: "6px",
+                        width: "100%",
+                        padding: "6px 10px",
+                        fontSize: "0.8rem",
+                      }}
+                    >
+                      Clear search
+                    </button>
+                  )}
+                </div>
+                <div style={{ display: "grid", gap: "6px" }}>
+                  <button
+                    onClick={() => {
+                      handleClearTranscript();
+                      setTranscriptMenuOpen(false);
+                    }}
+                    className="secondary"
+                    style={{ display: "flex", alignItems: "center", gap: "8px", padding: "8px 10px" }}
+                  >
+                    <FaTrash size={12} />
+                    Delete transcript
+                  </button>
+                  <button
+                    onClick={() => {
+                      handleDownloadTranscript("text");
+                      setTranscriptMenuOpen(false);
+                    }}
+                    className="secondary"
+                    style={{ display: "flex", alignItems: "center", gap: "8px", padding: "8px 10px" }}
+                  >
+                    <FaDownload size={12} />
+                    Download as text
+                  </button>
+                  <button
+                    onClick={() => {
+                      handleDownloadTranscript("json");
+                      setTranscriptMenuOpen(false);
+                    }}
+                    className="secondary"
+                    style={{ display: "flex", alignItems: "center", gap: "8px", padding: "8px 10px" }}
+                  >
+                    <FaDownload size={12} />
+                    Download as JSON
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -1901,7 +2170,12 @@ const SmartVersesPage: React.FC = () => {
           ) : (
             <div>
               {/* Final transcripts */}
-              {transcriptHistory.map((segment) => {
+              {filteredTranscriptHistory.length === 0 && transcriptSearchQuery.trim() ? (
+                <div style={{ color: "var(--app-text-color-secondary)", fontStyle: "italic", marginBottom: "var(--spacing-3)" }}>
+                  No transcript matches "{transcriptSearchQuery}"
+                </div>
+              ) : null}
+              {filteredTranscriptHistory.map((segment) => {
                 // Check if this segment contains any detected references
                 const segmentRefs = detectedReferences.filter(
                   ref => ref.transcriptText === segment.text
@@ -2063,7 +2337,7 @@ const SmartVersesPage: React.FC = () => {
               })}
               
               {/* Interim transcript */}
-              {interimTranscript && (
+              {matchesInterimSearch && (
                 <p style={{
                   margin: 0,
                   lineHeight: 1.6,
