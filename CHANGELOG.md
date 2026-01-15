@@ -2,6 +2,38 @@
 
 All notable changes to ProAssist will be documented in this file.
 
+## [0.5.3] - 2026-01-15
+
+### Fixed
+- **Firebase Connection Issues**: Fixed Live Testimonies timeout errors on production builds
+  - Added Firebase Realtime Database script-src allowances for long-polling fallback (`.lp` endpoints)
+  - Added Firebase connect-src allowances for WebSocket and HTTP connections
+  - Fixed CSP blocking Firebase connections on some production machines
+- **Tauri IPC Connection Issues**: Fixed "Refused to connect to ipc://localhost" errors
+  - Added `ipc:` and `ipc://localhost` to connect-src directive
+  - Fixed Live Slides server, Network Sync, and other Tauri command calls being blocked
+- **Localhost Connection Issues**: Fixed localhost HTTP/WebSocket connections being blocked
+  - Added `http://localhost:*`, `http://127.0.0.1:*`, `ws://localhost:*`, `ws://127.0.0.1:*` to connect-src
+- **Stylesheet CSP Errors**: Fixed "Refused to apply a stylesheet" errors
+  - Added `style-src 'self' 'unsafe-inline'` directive
+
+### Added
+- **DevTools in Production**: Enabled developer tools for production builds
+  - Added `devtools` feature to Tauri backend
+  - Added `toggle_devtools` Tauri command for opening/closing inspector
+  - Added "Open Inspector" button in Settings → Version → Developer Tools
+  - Added keyboard shortcuts: F12, Cmd+Opt+I (macOS), Ctrl+Shift+I (Windows/Linux)
+- **Firebase Error Handling**: Improved error reporting for Firebase connection failures
+  - Added timeout detection and error callbacks for Firebase subscriptions
+  - Better error messages when Firebase connections fail
+
+### Changed
+- **Content Security Policy**: Updated CSP to support all required external connections
+  - Firebase Realtime Database (any project, not just specific domains)
+  - Tauri IPC protocol
+  - Localhost HTTP/WebSocket connections
+  - Inline styles for Tauri WebView compatibility
+
 ## [0.5.2] - 2026-01-15
 
 ### Added
