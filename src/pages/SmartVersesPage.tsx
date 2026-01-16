@@ -110,6 +110,7 @@ const SmartVersesPage: React.FC = () => {
   const [interimTranscript, setInterimTranscript] = useState("");
   const [transcriptHistory, setTranscriptHistory] = useState<TranscriptionSegment[]>([]);
   const [detectedReferences, setDetectedReferences] = useState<DetectedBibleReference[]>([]);
+  const [transcriptKeyPoints, setTranscriptKeyPoints] = useState<Record<string, KeyPoint[]>>({});
   const transcriptionServiceRef = useRef<AssemblyAITranscriptionService | null>(null);
   const detectedReferencesRef = useRef<DetectedBibleReference[]>([]);
   
@@ -371,10 +372,31 @@ const SmartVersesPage: React.FC = () => {
         a.click();
         URL.revokeObjectURL(url);
       } else {
+        const directReferences = detectedReferences.filter(
+          (ref) => ref.source === "direct"
+        );
+        const paraphraseReferences = detectedReferences.filter(
+          (ref) => ref.source === "paraphrase"
+        );
+        const segments = transcriptHistory.map((segment) => {
+          const segmentRefs = detectedReferences.filter(
+            (ref) => ref.transcriptText === segment.text
+          );
+          const keyPoints = transcriptKeyPoints[segment.id];
+          return {
+            ...segment,
+            references: segmentRefs.length ? segmentRefs : undefined,
+            keyPoints: keyPoints?.length ? keyPoints : undefined,
+          };
+        });
         const payload = {
           generatedAt: new Date().toISOString(),
-          segments: transcriptHistory,
+          segments,
           interim: interimTranscript || null,
+          references: {
+            direct: directReferences,
+            paraphrase: paraphraseReferences,
+          },
         };
         const blob = new Blob([JSON.stringify(payload, null, 2)], {
           type: "application/json;charset=utf-8",
@@ -387,7 +409,7 @@ const SmartVersesPage: React.FC = () => {
         URL.revokeObjectURL(url);
       }
     },
-    [transcriptHistory, interimTranscript]
+    [transcriptHistory, interimTranscript, detectedReferences, transcriptKeyPoints]
   );
 
   // Scroll to bottom of transcript
@@ -787,7 +809,7 @@ const SmartVersesPage: React.FC = () => {
       ws.onMessage((message) => {
         if (message.type !== "transcription_stream") return;
 
-        const m = message as { type: string; kind: string; text: string; segment?: TranscriptionSegment };
+      const m = message as WsTranscriptionStream;
         
         if (m.kind === "interim") {
           setInterimTranscript(m.text || "");
@@ -807,6 +829,19 @@ const SmartVersesPage: React.FC = () => {
           };
           
           setTranscriptHistory(prev => [...prev, segment]);
+
+          if (m.key_points?.length) {
+            const normalizedKeyPoints: KeyPoint[] = m.key_points.map((point) => ({
+              text: point.text,
+              category: point.category as KeyPoint["category"],
+            }));
+            if (normalizedKeyPoints.length > 0) {
+              setTranscriptKeyPoints((prev) => ({
+                ...prev,
+                [segment.id]: normalizedKeyPoints,
+              }));
+            }
+          }
           
           // Detect Bible references in the transcript
           detectAndLookupReferences(m.text, {
@@ -887,6 +922,19 @@ const SmartVersesPage: React.FC = () => {
           };
 
           setTranscriptHistory((prev) => [...prev, segment]);
+
+          if (m.key_points?.length) {
+            const normalizedKeyPoints: KeyPoint[] = m.key_points.map((point) => ({
+              text: point.text,
+              category: point.category as KeyPoint["category"],
+            }));
+            if (normalizedKeyPoints.length > 0) {
+              setTranscriptKeyPoints((prev) => ({
+                ...prev,
+                [segment.id]: normalizedKeyPoints,
+              }));
+            }
+          }
 
           // Run local direct parsing (aggressive) for verse refs.
           detectAndLookupReferences(m.text, {
@@ -1060,6 +1108,12 @@ const SmartVersesPage: React.FC = () => {
                 }
               );
               keyPoints = analysis.keyPoints || [];
+              if (keyPoints.length > 0) {
+                setTranscriptKeyPoints((prev) => ({
+                  ...prev,
+                  [segment.id]: keyPoints,
+                }));
+              }
 
               console.log(
                 "[SmartVerses][Paraphrase] AI analysis returned:",
@@ -1189,6 +1243,7 @@ const SmartVersesPage: React.FC = () => {
   const handleClearTranscript = () => {
     setTranscriptHistory([]);
     setDetectedReferences([]);
+    setTranscriptKeyPoints({});
     setInterimTranscript("");
   };
 
@@ -1262,8 +1317,8 @@ const SmartVersesPage: React.FC = () => {
   }, [autoScrollTranscript, autoScrollPaused]);
 
   const recentDetectedReferences = useMemo(() => {
-    // Show most recent first
-    return detectedReferences.slice(-10).reverse();
+    // Show most recent first (allow full scroll list)
+    return detectedReferences.slice().reverse();
   }, [detectedReferences]);
 
   // =============================================================================
@@ -2324,12 +2379,23 @@ const SmartVersesPage: React.FC = () => {
                 );
                 
                 return (
-                  <div key={segment.id} style={{ marginBottom: "var(--spacing-3)" }}>
-                    <p style={{
-                      margin: 0,
-                      lineHeight: 1.6,
-                      color: "var(--app-text-color)",
-                    }}>
+                  <div
+                    key={segment.id}
+                    style={{
+                      marginBottom: "var(--spacing-3)",
+                      padding: "var(--spacing-3)",
+                      borderRadius: "10px",
+                      backgroundColor: "var(--app-header-bg)",
+                      border: "1px solid var(--app-border-color)",
+                    }}
+                  >
+                    <p
+                      style={{
+                        margin: 0,
+                        lineHeight: 1.6,
+                        color: "var(--app-text-color)",
+                      }}
+                    >
                       {segment.text}
                     </p>
                     {segmentRefs.length > 0 && (
@@ -2480,14 +2546,26 @@ const SmartVersesPage: React.FC = () => {
               
               {/* Interim transcript */}
               {matchesInterimSearch && (
-                <p style={{
-                  margin: 0,
-                  lineHeight: 1.6,
-                  color: "var(--app-text-color-secondary)",
-                  fontStyle: "italic",
-                }}>
-                  {interimTranscript}
-                </p>
+                <div
+                  style={{
+                    marginBottom: "var(--spacing-3)",
+                    padding: "var(--spacing-3)",
+                    borderRadius: "10px",
+                    backgroundColor: "var(--app-header-bg)",
+                    border: "1px dashed var(--app-border-color)",
+                  }}
+                >
+                  <p
+                    style={{
+                      margin: 0,
+                      lineHeight: 1.6,
+                      color: "var(--app-text-color-secondary)",
+                      fontStyle: "italic",
+                    }}
+                  >
+                    {interimTranscript}
+                  </p>
+                </div>
               )}
               <div ref={transcriptEndRef} />
             </div>

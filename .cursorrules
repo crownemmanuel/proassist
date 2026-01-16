@@ -92,7 +92,74 @@ If a release was created manually (via `gh release create` or GitHub UI):
 4. Push the tag: `git push origin vX.Y.Z`
 5. Let CI/CD create the release automatically
 
+## Security Policy (CSP) Updates
+
+**CRITICAL: Always update Content Security Policy when adding external URL features**
+
+When adding any feature that connects to an external URL (API, service, database, etc.), you **MUST** update the Content Security Policy (CSP) in `src-tauri/tauri.conf.json` to allow those connections.
+
+### What Requires CSP Updates
+
+- **External APIs** (OpenAI, AssemblyAI, Google Gemini, Groq, etc.)
+- **Database connections** (Firebase Realtime Database, Firestore, etc.)
+- **WebSocket connections** to external servers
+- **Script loading** from external domains (e.g., Firebase long-polling `.lp` endpoints)
+- **Any HTTP/HTTPS request** to a domain outside your app
+
+### CSP Update Checklist
+
+When adding external URL features:
+
+1. **Identify all domains/URLs** the feature will connect to
+2. **Update `connect-src`** in `src-tauri/tauri.conf.json` to include:
+   - `https://<domain>` or `https://*.<domain>` for subdomains
+   - `wss://<domain>` for WebSocket connections
+   - Specific paths if needed (e.g., `https://*.firebaseio.com`)
+
+3. **Update `script-src`** if the feature loads external scripts:
+   - Add `https://<domain>` or `https://*.<domain>`
+   - Example: Firebase RTDB long-polling requires `https://*.firebaseio.com` in `script-src`
+
+4. **Test in production build** - CSP is stricter in release builds
+   - Use DevTools (F12 or Settings → Version → Open Inspector) to check for CSP errors
+   - Look for "Refused to connect" or "Refused to load" errors in console
+
+### Example: Adding Firebase Support
+
+```json
+{
+  "app": {
+    "security": {
+      "csp": "default-src 'self'; script-src 'self' 'unsafe-eval' https://*.firebaseio.com; connect-src 'self' ipc: ipc://localhost http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:* https: http: ws: wss: https://*.firebaseio.com https://*.firebasedatabase.app wss://*.firebaseio.com wss://*.firebasedatabase.app; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:;"
+    }
+  }
+}
+```
+
+### Common CSP Directives
+
+- **`connect-src`**: Controls fetch, XHR, WebSocket, EventSource connections
+- **`script-src`**: Controls `<script>` tag sources and `eval()`
+- **`style-src`**: Controls `<style>` and `<link rel="stylesheet">` sources
+- **`img-src`**: Controls `<img>` and image sources
+
+### Important Notes
+
+- **Tauri IPC** requires `ipc:` and `ipc://localhost` in `connect-src`
+- **Localhost connections** should include `http://localhost:*`, `http://127.0.0.1:*`, `ws://localhost:*`, `ws://127.0.0.1:*`
+- **Firebase RTDB** requires both `connect-src` (for WebSocket/HTTP) AND `script-src` (for long-polling fallback)
+- **Always test in production build** - dev builds may have relaxed CSP
+
+### If CSP Errors Occur
+
+1. Open DevTools (F12 or Settings → Version → Open Inspector)
+2. Check Console for "Refused to connect" or "Refused to load" errors
+3. Identify which directive is blocking (connect-src, script-src, etc.)
+4. Add the required domain/URL pattern to that directive
+5. Rebuild and test again
+
 ## See Also
 
 - `RELEASE.md` - Complete release documentation
 - `.github/workflows/release.yml` - CI/CD workflow configuration
+- `src-tauri/tauri.conf.json` - Current CSP configuration

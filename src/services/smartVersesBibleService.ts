@@ -107,6 +107,19 @@ const BOOK_NAME_MAPPING: Record<string, string> = {
   Rev: "Revelation",
 };
 
+// Shared regex for book name matching in normalization steps.
+// Keep this in sync with common English book names used by the parser.
+const BOOKS_REGEX =
+  "(?:Genesis|Exodus|Leviticus|Numbers|Deuteronomy|" +
+  "Joshua|Judges|Ruth|1\\s*Samuel|2\\s*Samuel|1\\s*Kings|2\\s*Kings|" +
+  "1\\s*Chronicles|2\\s*Chronicles|Ezra|Nehemiah|Esther|Job|Psalms?"+
+  "|Proverbs?|Ecclesiastes|Song\\s+of\\s+Solomon|Isaiah|Jeremiah|Lamentations|" +
+  "Ezekiel|Daniel|Hosea|Joel|Amos|Obadiah|Jonah|Micah|Nahum|Habakkuk|" +
+  "Zephaniah|Haggai|Zechariah|Malachi|Matthew|Mark|Luke|John|Acts|Romans|" +
+  "1\\s*Corinthians|2\\s*Corinthians|Galatians|Ephesians|Philippians|Colossians|" +
+  "1\\s*Thessalonians|2\\s*Thessalonians|1\\s*Timothy|2\\s*Timothy|Titus|Philemon|" +
+  "Hebrews|James|1\\s*Peter|2\\s*Peter|1\\s*John|2\\s*John|3\\s*John|Jude|Revelation)";
+
 // =============================================================================
 // INITIALIZATION
 // =============================================================================
@@ -198,6 +211,9 @@ function preprocessBibleReference(reference: string): string {
   // (comma after a digit) remain intact.
   normalized = normalized.replace(/([A-Za-z])\s*,\s*(?=[A-Za-z0-9])/g, '$1 ');
 
+  // Step 1c: Remove stray slashes/backslashes before book names (e.g., "\Psalms 91:2")
+  normalized = normalized.replace(new RegExp(`[\\\\/]+(?=${BOOKS_REGEX})`, "gi"), "");
+
   // Step 2: Clean up multiple spaces
   normalized = normalized.replace(/\s+/g, ' ').trim();
 
@@ -228,10 +244,44 @@ function normalizeBookChapterVersePhrase(text: string): string {
   const bookPrefix = "(?:the\\s+)?(?:book\\s+of\\s+)?";
   const bookPattern = "((?:[1-3]\\s*)?[A-Za-z][A-Za-z0-9]*(?:\\s+[A-Za-z][A-Za-z0-9]*)*)";
   const regex = new RegExp(
-    `\\b${bookPrefix}${bookPattern}\\s+(?:chapter\\s+)?(\\d{1,3})\\s+(?:verse|verses|v|vs)\\s+(\\d{1,3})(?=[^\\d]|$)`,
+    `\\b${bookPrefix}${bookPattern}\\s+(?:chapter\\s+)?(\\d{1,3})\\s*(?:,\\s*)?(?:verse|verses|v|vs)\\s+(\\d{1,3})(?=[^\\d]|$)`,
     "gi"
   );
   return text.replace(regex, (_match, book, chapter, verse) => `${book} ${chapter}:${verse}`);
+}
+
+/**
+ * Normalize speech pattern: "Book 3 16" -> "Book 3:16"
+ * Only used in aggressive speech normalization to avoid false positives in typed search.
+ */
+function normalizeSpaceSeparatedChapterVerse(text: string): string {
+  return text.replace(
+    /\b((?:[1-3]\s*)?[A-Za-z][A-Za-z0-9]*(?:\s+[A-Za-z][A-Za-z0-9]*)*)\s+(\d{1,3})\s+(\d{1,3})(?=[^\d]|$)/gi,
+    (_match, book, chapter, verse) => `${book} ${chapter}:${verse}`
+  );
+}
+
+/**
+ * Normalize comma between chapter and verse word: "chapter 21, verse 22" -> "chapter 21 verse 22"
+ */
+function normalizeCommaBetweenChapterAndVerse(text: string): string {
+  return text.replace(/\b(\d{1,3})\s*,\s*(?=(?:verse|verses|v|vs)\b)/gi, "$1 ");
+}
+
+/**
+ * Normalize missing space between book and chapter: "Daniel2:16" -> "Daniel 2:16"
+ */
+function normalizeMissingBookChapterSpace(text: string): string {
+  const regex = new RegExp(`(${BOOKS_REGEX})(\\d{1,3}(?::\\d{1,3})?)`, "gi");
+  return text.replace(regex, "$1 $2");
+}
+
+/**
+ * Normalize concatenated references: "Daniel 2:16Daniel 2:17" -> "Daniel 2:16 Daniel 2:17"
+ */
+function normalizeConcatenatedReferences(text: string): string {
+  const regex = new RegExp(`(\\d{1,3}:\\d{1,3}(?:-\\d{1,3})?)(${BOOKS_REGEX})`, "gi");
+  return text.replace(regex, "$1 $2");
 }
 
 
@@ -264,17 +314,6 @@ function resolveBookName(bookText: string): string {
  * Only applies when there is exactly one valid match in the verse data.
  */
 async function normalizeCombinedChapterVerseInput(text: string): Promise<string> {
-  const BOOKS_REGEX =
-    "(?:Genesis|Exodus|Leviticus|Numbers|Deuteronomy|" +
-    "Joshua|Judges|Ruth|1\\s*Samuel|2\\s*Samuel|1\\s*Kings|2\\s*Kings|" +
-    "1\\s*Chronicles|2\\s*Chronicles|Ezra|Nehemiah|Esther|Job|Psalms|" +
-    "Proverbs|Ecclesiastes|Song\\s+of\\s+Solomon|Isaiah|Jeremiah|Lamentations|" +
-    "Ezekiel|Daniel|Hosea|Joel|Amos|Obadiah|Jonah|Micah|Nahum|Habakkuk|" +
-    "Zephaniah|Haggai|Zechariah|Malachi|Matthew|Mark|Luke|John|Acts|Romans|" +
-    "1\\s*Corinthians|2\\s*Corinthians|Galatians|Ephesians|Philippians|Colossians|" +
-    "1\\s*Thessalonians|2\\s*Thessalonians|1\\s*Timothy|2\\s*Timothy|Titus|Philemon|" +
-    "Hebrews|James|1\\s*Peter|2\\s*Peter|1\\s*John|2\\s*John|3\\s*John|Jude|Revelation)";
-
   const combinedRegex = new RegExp(
     `(?:\\b(?:the\\s+)?(?:book\\s+of\\s+))?(?<book>${BOOKS_REGEX})\\s*(?<combined>\\d{3,5})\\b`,
     "gi"
@@ -482,7 +521,11 @@ export function parseVerseReference(reference: string): ParsedBibleReference[] |
     const preprocessed = preprocessBibleReference(reference);
 
     // Step 2: Convert written numbers to numeric values
-    const textToProcess = normalizeCommaSeparatedChapterVerse(wordsToNumbers(preprocessed));
+    let textToProcess = wordsToNumbers(preprocessed);
+    textToProcess = normalizeCommaBetweenChapterAndVerse(textToProcess);
+    textToProcess = normalizeCommaSeparatedChapterVerse(textToProcess);
+    textToProcess = normalizeMissingBookChapterSpace(textToProcess);
+    textToProcess = normalizeConcatenatedReferences(textToProcess);
 
     // Check for "chapter X verse Y" without book name (use context)
     const chapterVersePattern = /chapter\s+(\d+)[,\s]+verse\s+(\d+)/i;
@@ -762,14 +805,18 @@ export async function detectAndLookupReferences(
 
   // Normalize common speech/typo patterns before parsing
   const preprocessed = preprocessBibleReference(text);
-  const numericText = wordsToNumbers(preprocessed);
-  const normalizedText = await normalizeCombinedChapterVerseInput(
-    normalizeCommaSeparatedChapterVerse(
-      options?.aggressiveSpeechNormalization
-        ? normalizeBookChapterVersePhrase(numericText)
-        : numericText
-    )
-  );
+  let numericText = wordsToNumbers(preprocessed);
+  numericText = normalizeCommaBetweenChapterAndVerse(numericText);
+  const phraseNormalized = options?.aggressiveSpeechNormalization
+    ? normalizeBookChapterVersePhrase(numericText)
+    : numericText;
+  let normalizedText = normalizeCommaSeparatedChapterVerse(phraseNormalized);
+  if (options?.aggressiveSpeechNormalization) {
+    normalizedText = normalizeSpaceSeparatedChapterVerse(normalizedText);
+  }
+  normalizedText = normalizeMissingBookChapterSpace(normalizedText);
+  normalizedText = normalizeConcatenatedReferences(normalizedText);
+  normalizedText = await normalizeCombinedChapterVerseInput(normalizedText);
 
   const parsed = parseVerseReference(normalizedText);
   if (!parsed || parsed.length === 0) {

@@ -25,6 +25,8 @@ const getNotepadStyles = (isDark: boolean) => {
   const textMuted = isDark ? "#555" : "#999";
   const buttonBg = isDark ? "#2a2a2a" : "#e8e8e8";
   const buttonBorder = isDark ? "#3a3a3a" : "#d0d0d0";
+  const keyPointBorder = isDark ? "#f59e0b" : "#d97706";
+  const keyPointBg = isDark ? "rgba(245, 158, 11, 0.12)" : "rgba(245, 158, 11, 0.08)";
 
   return {
     container: {
@@ -334,6 +336,43 @@ const getNotepadStyles = (isDark: boolean) => {
       display: "flex",
       flexDirection: "column" as const,
       gap: "6px",
+    },
+    keyPointCard: {
+      border: `1px solid ${keyPointBorder}`,
+      borderLeft: `4px solid ${keyPointBorder}`,
+      borderRadius: "8px",
+      padding: "8px 10px",
+      backgroundColor: keyPointBg,
+      display: "flex",
+      alignItems: "flex-start",
+      justifyContent: "space-between",
+      gap: "10px",
+    },
+    keyPointText: {
+      color: text,
+      fontSize: "0.85rem",
+      lineHeight: "1.4",
+      wordBreak: "break-word" as const,
+    },
+    keyPointBadge: {
+      fontSize: "0.7rem",
+      fontWeight: 700,
+      letterSpacing: "0.04em",
+      color: keyPointBorder,
+      textTransform: "uppercase" as const,
+    },
+    keyPointAddButton: {
+      backgroundColor: buttonBg,
+      color: text,
+      border: `1px solid ${buttonBorder}`,
+      padding: "4px 8px",
+      borderRadius: "6px",
+      cursor: "pointer",
+      fontSize: "0.75rem",
+      display: "inline-flex",
+      alignItems: "center",
+      gap: "6px",
+      whiteSpace: "nowrap" as const,
     },
     footer: {
       padding: "8px 20px",
@@ -1055,14 +1094,29 @@ Result: Slide 1 = Title, Slide 2 = Title + Sub-item 1, Slide 3 = Title + Sub-ite
                                 gap: "6px",
                               }}
                             >
-                              {m.key_points?.map((kp, i) => (
-                                <div key={`${m.timestamp}-kp-${i}`}>
-                                  <span style={{ opacity: 0.9 }}>
-                                    [{kp.category}]
-                                  </span>{" "}
-                                  {kp.text}
-                                </div>
-                              ))}
+                              {m.key_points?.map((kp, i) => {
+                                const category = kp.category?.trim();
+                                const keyPointText = category
+                                  ? `[${category}] ${kp.text}`
+                                  : kp.text;
+                                return (
+                                  <div key={`${m.timestamp}-kp-${i}`} style={notepadStyles.keyPointCard}>
+                                    <div style={{ display: "flex", flexDirection: "column", gap: "4px", flex: 1 }}>
+                                      {category && (
+                                        <span style={notepadStyles.keyPointBadge}>{category}</span>
+                                      )}
+                                      <span style={notepadStyles.keyPointText}>{kp.text}</span>
+                                    </div>
+                                    <button
+                                      style={notepadStyles.keyPointAddButton}
+                                      onClick={() => insertTranscriptChunkIntoNotepad(keyPointText)}
+                                      title="Add this key point to the notepad as a new slide"
+                                    >
+                                      <FaPlus size={10} /> Add
+                                    </button>
+                                  </div>
+                                );
+                              })}
                             </div>
                           </div>
                         )}
