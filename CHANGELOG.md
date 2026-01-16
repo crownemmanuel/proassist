@@ -2,6 +2,25 @@
 
 All notable changes to ProAssist will be documented in this file.
 
+## [0.5.4] - 2026-01-16
+
+### Fixed
+- **Bible Parsing**: Improved scripture reference parsing and verse extraction accuracy
+  - Enhanced bible service with better reference matching and verse lookup
+  - Fixed parsing issues with various scripture reference formats
+
+### Changed
+- **Live Slides Notepad**: Enhanced parsing and display of live notes
+  - Improved text processing and formatting for better readability
+- **SmartVerses Page**: Updated transcription and verse detection interface
+  - Better integration with bible parsing service
+  - Improved verse reference detection and display
+
+### Added
+- **Documentation**: Updated installation and usage documentation
+  - Added macOS installation instructions
+  - Enhanced documentation with additional details and examples
+
 ## [0.5.3] - 2026-01-15
 
 ### Fixed

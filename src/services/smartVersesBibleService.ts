@@ -330,7 +330,7 @@ function normalizeBookChapterThenVerseLater(text: string): string {
   );
   return text.replace(
     regex,
-    (match, book, chapter, _gap, v1, vRangeEnd, vAnd) => {
+    (_match, book, chapter, _gap, v1, vRangeEnd, vAnd) => {
       const end = vRangeEnd || vAnd || null;
       if (end) return `${book} ${chapter}:${v1}-${end}`;
       return `${book} ${chapter}:${v1}`;
