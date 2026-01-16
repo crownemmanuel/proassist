@@ -784,6 +784,163 @@
       .delay-4 {
         animation-delay: 0.4s;
       }
+
+      /* Modal Styles */
+      .modal-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.8);
+        backdrop-filter: blur(10px);
+        z-index: 2000;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        padding: 2rem;
+        opacity: 0;
+        transition: opacity 0.3s ease;
+      }
+
+      .modal-overlay.active {
+        display: flex;
+        opacity: 1;
+      }
+
+      .modal-content {
+        background: var(--bg-dark);
+        border: 1px solid var(--border-subtle);
+        border-radius: 24px;
+        padding: 2.5rem;
+        max-width: 600px;
+        width: 100%;
+        max-height: 90vh;
+        overflow-y: auto;
+        position: relative;
+        box-shadow: 0 40px 100px rgba(0, 0, 0, 0.5);
+        transform: scale(0.9);
+        transition: transform 0.3s ease;
+      }
+
+      .modal-overlay.active .modal-content {
+        transform: scale(1);
+      }
+
+      .modal-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1.5rem;
+      }
+
+      .modal-header h2 {
+        font-size: 1.75rem;
+        font-weight: 700;
+        margin: 0;
+        background: var(--gradient-primary);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+      }
+
+      .modal-close {
+        background: none;
+        border: none;
+        color: var(--text-secondary);
+        font-size: 1.5rem;
+        cursor: pointer;
+        padding: 0.5rem;
+        line-height: 1;
+        transition: color 0.3s ease;
+        width: 32px;
+        height: 32px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 8px;
+      }
+
+      .modal-close:hover {
+        color: var(--text-primary);
+        background: var(--bg-card);
+      }
+
+      .modal-body {
+        color: var(--text-secondary);
+        line-height: 1.7;
+        margin-bottom: 2rem;
+      }
+
+      .modal-body p {
+        margin-bottom: 1rem;
+      }
+
+      .modal-body strong {
+        color: var(--text-primary);
+        font-weight: 600;
+      }
+
+      .modal-instruction {
+        background: var(--bg-card);
+        border: 1px solid var(--border-subtle);
+        border-radius: 12px;
+        padding: 1.5rem;
+        margin-bottom: 1rem;
+      }
+
+      .modal-instruction h3 {
+        font-size: 1.125rem;
+        font-weight: 600;
+        color: var(--text-primary);
+        margin-bottom: 0.75rem;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+      }
+
+      .modal-instruction p {
+        margin-bottom: 0.5rem;
+        color: var(--text-secondary);
+      }
+
+      .modal-instruction code {
+        background: rgba(0, 0, 0, 0.3);
+        padding: 0.25rem 0.5rem;
+        border-radius: 6px;
+        font-family: "Monaco", "Menlo", "Courier New", monospace;
+        font-size: 0.875rem;
+        color: var(--cyan-bright);
+        display: block;
+        margin-top: 0.5rem;
+        word-break: break-all;
+      }
+
+      .modal-actions {
+        display: flex;
+        gap: 1rem;
+        flex-direction: column;
+      }
+
+      .modal-download-btn {
+        width: 100%;
+        justify-content: center;
+      }
+
+      @media (max-width: 768px) {
+        .modal-content {
+          padding: 1.5rem;
+          max-width: 100%;
+        }
+
+        .modal-header h2 {
+          font-size: 1.5rem;
+        }
+
+        .modal-instruction {
+          padding: 1rem;
+        }
+      }
     </style>
   </head>
   <body>
@@ -1249,6 +1406,75 @@
       </div>
     </footer>
 
+    <!-- macOS Installation Modal -->
+    <div class="modal-overlay" id="macInstallModal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2>macOS Installation Note</h2>
+          <button
+            class="modal-close"
+            id="closeMacModal"
+            aria-label="Close modal"
+          >
+            ×
+          </button>
+        </div>
+        <div class="modal-body">
+          <p>
+            <strong>Important:</strong> This is an open-source project and does
+            not have an Apple Developer account signing the app. To run on
+            macOS:
+          </p>
+
+          <div class="modal-instruction">
+            <h3>
+              <span>Option 1 (Recommended)</span>
+            </h3>
+            <p>Right-click the DMG file → Open (instead of double-clicking)</p>
+          </div>
+
+          <div class="modal-instruction">
+            <h3>
+              <span>Option 2</span>
+            </h3>
+            <p>Run in Terminal:</p>
+            <code>xattr -cr /path/to/proassist.app</code>
+            <p style="margin-top: 0.75rem; font-size: 0.875rem">
+              Replace
+              <code style="background: transparent; padding: 0"
+                >/path/to/proassist.app</code
+              >
+              with the actual path to the application after mounting the DMG.
+            </p>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <a
+            href="#"
+            id="macDownloadBtn"
+            class="btn btn-primary modal-download-btn"
+            target="_blank"
+          >
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+              <polyline points="7 10 12 15 17 10"></polyline>
+              <line x1="12" y1="15" x2="12" y2="3"></line>
+            </svg>
+            Download DMG
+          </a>
+        </div>
+      </div>
+    </div>
+
     <script>
       // Smooth scroll for navigation links
       document.querySelectorAll('a[href^="#"]').forEach((anchor) => {
@@ -1287,6 +1513,48 @@
           el.style.transition = "opacity 0.6s ease, transform 0.6s ease";
           observer.observe(el);
         });
+
+      // macOS Installation Modal
+      let macDownloadUrl = null;
+      const macInstallModal = document.getElementById("macInstallModal");
+      const closeMacModal = document.getElementById("closeMacModal");
+      const macDownloadBtn = document.getElementById("macDownloadBtn");
+
+      function showMacInstallModal() {
+        if (macDownloadUrl) {
+          macInstallModal.classList.add("active");
+          document.body.style.overflow = "hidden";
+        }
+      }
+
+      function hideMacInstallModal() {
+        macInstallModal.classList.remove("active");
+        document.body.style.overflow = "";
+      }
+
+      // Close modal handlers
+      closeMacModal.addEventListener("click", hideMacInstallModal);
+      macInstallModal.addEventListener("click", function (e) {
+        if (e.target === macInstallModal) {
+          hideMacInstallModal();
+        }
+      });
+
+      // Close on Escape key
+      document.addEventListener("keydown", function (e) {
+        if (
+          e.key === "Escape" &&
+          macInstallModal.classList.contains("active")
+        ) {
+          hideMacInstallModal();
+        }
+      });
+
+      // Close modal when download button is clicked (after starting download)
+      macDownloadBtn.addEventListener("click", function () {
+        // Small delay to ensure download starts before closing
+        setTimeout(hideMacInstallModal, 100);
+      });
 
       // Fetch latest release and update download links
       async function getLatestReleaseDownloads() {
@@ -1398,12 +1666,19 @@
             ) ||
             linuxAssets[0];
 
-          // Update Mac download link
+          // Update Mac download link - store URL and show modal on click
           if (macAsset && macLink) {
-            macLink.href = macAsset.browser_download_url;
+            macDownloadUrl = macAsset.browser_download_url;
             macLink.textContent = `Download for Mac (${release.tag_name})`;
-            macLink.onclick = null; // Remove onclick to allow navigation
-            console.log("Mac link updated:", macAsset.browser_download_url);
+            macLink.href = "#";
+            macLink.onclick = function (e) {
+              e.preventDefault();
+              showMacInstallModal();
+            };
+            // Update modal download button
+            macDownloadBtn.href = macDownloadUrl;
+            macDownloadBtn.textContent = `Download DMG (${release.tag_name})`;
+            console.log("Mac link updated:", macDownloadUrl);
           } else if (macLink) {
             // Fallback if no Mac asset found - scroll to download section
             macLink.href = "#download";
