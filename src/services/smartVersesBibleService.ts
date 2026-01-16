@@ -120,6 +120,21 @@ const BOOKS_REGEX =
   "1\\s*Thessalonians|2\\s*Thessalonians|1\\s*Timothy|2\\s*Timothy|Titus|Philemon|" +
   "Hebrews|James|1\\s*Peter|2\\s*Peter|1\\s*John|2\\s*John|3\\s*John|Jude|Revelation)";
 
+const BIBLE_BOOK_PATTERN = new RegExp(`\\b${BOOKS_REGEX}\\b`, "i");
+
+function containsBibleBook(text: string): boolean {
+  if (!text) return false;
+  return BIBLE_BOOK_PATTERN.test(text);
+}
+
+function isDebugBibleParse(): boolean {
+  try {
+    return localStorage.getItem("proassist_debug_bible_parse") === "true";
+  } catch {
+    return false;
+  }
+}
+
 // =============================================================================
 // INITIALIZATION
 // =============================================================================
@@ -211,6 +226,10 @@ function preprocessBibleReference(reference: string): string {
   // (comma after a digit) remain intact.
   normalized = normalized.replace(/([A-Za-z])\s*,\s*(?=[A-Za-z0-9])/g, '$1 ');
 
+  // Step 1c: Fix common typos from speech-to-text
+  // Example: "chaper" -> "chapter"
+  normalized = normalized.replace(/\bchaper\b/gi, "chapter");
+
   // Step 1c: Remove stray slashes/backslashes before book names (e.g., "\Psalms 91:2")
   normalized = normalized.replace(new RegExp(`[\\\\/]+(?=${BOOKS_REGEX})`, "gi"), "");
 
@@ -218,6 +237,34 @@ function preprocessBibleReference(reference: string): string {
   normalized = normalized.replace(/\s+/g, ' ').trim();
 
   return normalized;
+}
+
+/**
+ * Normalize chapter-only ranges/lists into explicit verse-1 references.
+ *
+ * Examples:
+ * - "Matthew 21 to 22" -> "Matthew 21:1; Matthew 22:1"
+ * - "Exodus 30, 31" -> "Exodus 30:1; Exodus 31:1"
+ *
+ * Guardrails:
+ * - Only applies when there is NO ":" present and NO explicit verse indicator
+ * - Only triggers when exactly two chapter numbers are present (avoid "Isaiah 58, 6 to 14")
+ */
+function normalizeChapterRangeOrListToVerseOne(text: string): string {
+  if (!text) return text;
+  const lowered = String(text).toLowerCase();
+  if (lowered.includes(":")) return text;
+  if (/(?:\bverse\b|\bverses\b|\bvs\.?\b|\bv\.?\b)/i.test(text)) return text;
+
+  const regex = new RegExp(
+    `\\b(?<book>${BOOKS_REGEX})\\s+(?<c1>\\d{1,3})\\s*(?:,|\\band\\b|\\bto\\b|-)\\s*(?<c2>\\d{1,3})\\b(?!\\s*(?:to|-)\\s*\\d)`,
+    "gi"
+  );
+
+  return text.replace(regex, (_m, book, c1, c2) => {
+    const b = String(book).trim();
+    return `${b} ${c1}:1; ${b} ${c2}:1`;
+  });
 }
 
 /**
@@ -241,13 +288,54 @@ function normalizeCommaSeparatedChapterVerse(text: string): string {
  * Only used in aggressive speech normalization (transcription), not search box.
  */
 function normalizeBookChapterVersePhrase(text: string): string {
+  // IMPORTANT: Only match recognized Bible book names (via BOOKS_REGEX).
+  // This avoids capturing leading words like "In" (e.g., "In Micah chapter 2 verse 13").
   const bookPrefix = "(?:the\\s+)?(?:book\\s+of\\s+)?";
-  const bookPattern = "((?:[1-3]\\s*)?[A-Za-z][A-Za-z0-9]*(?:\\s+[A-Za-z][A-Za-z0-9]*)*)";
   const regex = new RegExp(
-    `\\b${bookPrefix}${bookPattern}\\s+(?:chapter\\s+)?(\\d{1,3})\\s*(?:,\\s*)?(?:verse|verses|v|vs)\\s+(\\d{1,3})(?=[^\\d]|$)`,
+    // Support ranges like "verse 29 to 31" / "verse 29-31" / "verse 29 and 31"
+    `\\b(?:in\\s+)?${bookPrefix}(${BOOKS_REGEX})\\s+(?:chapter\\s+)?(\\d{1,3})\\s*(?:,\\s*)?(?:verse|verses|v|vs)\\s+(\\d{1,3})\\b(?:(?:\\s*(?:-|to)\\s*|\\s*(?:and|&)\\s*)(\\d{1,3})\\b)?(?=[^\\d]|$)`,
     "gi"
   );
-  return text.replace(regex, (_match, book, chapter, verse) => `${book} ${chapter}:${verse}`);
+  return text.replace(regex, (_match, book, chapter, verse, endVerse) => {
+    if (endVerse) return `${book} ${chapter}:${verse}-${endVerse}`;
+    return `${book} ${chapter}:${verse}`;
+  });
+}
+
+/**
+ * Normalize mixed typed/speech pattern: "Book chapter 21:5" -> "Book 21:5"
+ * (Sometimes users say/type "chapter" and still include a colon.)
+ */
+function normalizeBookChapterColonVerse(text: string): string {
+  const bookPrefix = "(?:the\\s+)?(?:book\\s+of\\s+)?";
+  const regex = new RegExp(
+    `\\b(?:in\\s+)?${bookPrefix}(${BOOKS_REGEX})\\s+(?:chapter|ch\\.?)+\\s+(\\d{1,3}:\\d{1,3}(?:-\\d{1,3})?)\\b`,
+    "gi"
+  );
+  return text.replace(regex, (_m, book, ref) => `${book} ${ref}`);
+}
+
+/**
+ * Normalize speech pattern where "verse" appears later with filler words in between:
+ * Example: "Psalms 107, thank you Holy Spirit, verse 15 and 16" -> "Psalms 107:15-16"
+ *
+ * Guardrails:
+ * - The gap between chapter and "verse" must contain no digits (avoid "Isaiah 56, I mean 58, 6 to 14")
+ * - Cap the gap length to avoid spanning too far across sentences.
+ */
+function normalizeBookChapterThenVerseLater(text: string): string {
+  const regex = new RegExp(
+    `\\b(${BOOKS_REGEX})\\s+(\\d{1,3})\\b([^\\d]{0,80}?)\\b(?:verse|verses|v|vs)\\s+(\\d{1,3})\\b(?:\\s*(?:-|to)\\s*(\\d{1,3})\\b|\\s*(?:and|&)\\s*(\\d{1,3})\\b)?`,
+    "gi"
+  );
+  return text.replace(
+    regex,
+    (match, book, chapter, _gap, v1, vRangeEnd, vAnd) => {
+      const end = vRangeEnd || vAnd || null;
+      if (end) return `${book} ${chapter}:${v1}-${end}`;
+      return `${book} ${chapter}:${v1}`;
+    }
+  );
 }
 
 /**
@@ -313,13 +401,16 @@ function resolveBookName(bookText: string): string {
  * Try to interpret combined chapter+verse digits like "John316" as "John 3:16".
  * Only applies when there is exactly one valid match in the verse data.
  */
-async function normalizeCombinedChapterVerseInput(text: string): Promise<string> {
+async function normalizeCombinedChapterVerseInput(
+  text: string,
+  versesOverride?: Record<string, string>
+): Promise<string> {
   const combinedRegex = new RegExp(
     `(?:\\b(?:the\\s+)?(?:book\\s+of\\s+))?(?<book>${BOOKS_REGEX})\\s*(?<combined>\\d{3,5})\\b`,
     "gi"
   );
 
-  const verses = await loadVerses();
+  const verses = versesOverride || (await loadVerses());
   let result = text;
   let match: RegExpExecArray | null;
 
@@ -328,6 +419,22 @@ async function normalizeCombinedChapterVerseInput(text: string): Promise<string>
     const bookText = groups?.book;
     const combined = groups?.combined;
     if (!bookText || !combined) continue;
+
+    // Heuristic guardrails:
+    // - If punctuation immediately follows the digits, it's probably a chapter mention
+    //   (e.g., "Psalms 107, ... verse 15") and we should NOT split 107 -> 10:7.
+    // - Skip if a "verse" keyword appears shortly after, which implies the digits are a chapter.
+    // - If ":" follows, it's already explicit chapter:verse (e.g., "Psalms 107:15").
+    const afterIdx = match.index + match[0].length;
+    const nextChar = result[afterIdx] || "";
+    const afterWindow = result.slice(afterIdx, afterIdx + 100);
+    if (
+      nextChar === ":" ||
+      /[),.;]/.test(nextChar) ||
+      /\b(?:verse|verses|v|vs)\b/i.test(afterWindow)
+    ) {
+      continue;
+    }
 
     const bookName = resolveBookName(bookText);
     const candidates: Array<{ chapter: number; verse: number }> = [];
@@ -515,6 +622,7 @@ export function parseVerseReference(reference: string): ParsedBibleReference[] |
   }
 
   let passages: ParsedBibleReference[] | null = null;
+  let hasBook = false;
 
   try {
     // Step 1: Preprocess the reference
@@ -523,9 +631,26 @@ export function parseVerseReference(reference: string): ParsedBibleReference[] |
     // Step 2: Convert written numbers to numeric values
     let textToProcess = wordsToNumbers(preprocessed);
     textToProcess = normalizeCommaBetweenChapterAndVerse(textToProcess);
+    textToProcess = normalizeChapterRangeOrListToVerseOne(textToProcess);
     textToProcess = normalizeCommaSeparatedChapterVerse(textToProcess);
     textToProcess = normalizeMissingBookChapterSpace(textToProcess);
     textToProcess = normalizeConcatenatedReferences(textToProcess);
+
+    // If we have an explicit Bible book name, apply the safe "chapter/verse" phrase rewrite.
+    // This avoids falling back to previous context when parsing phrases like:
+    // "Luke chapter 4 verse 1 to 2"
+    hasBook = containsBibleBook(textToProcess);
+    if (hasBook) {
+      textToProcess = normalizeBookChapterColonVerse(textToProcess);
+      textToProcess = normalizeBookChapterThenVerseLater(
+        normalizeBookChapterVersePhrase(textToProcess)
+      );
+    }
+
+    if (isDebugBibleParse()) {
+      console.log("[SmartVerses][BibleParse] raw:", reference);
+      console.log("[SmartVerses][BibleParse] normalized:", textToProcess);
+    }
 
     // Check for "chapter X verse Y" without book name (use context)
     const chapterVersePattern = /chapter\s+(\d+)[,\s]+verse\s+(\d+)/i;
@@ -655,12 +780,26 @@ export function parseVerseReference(reference: string): ParsedBibleReference[] |
       }
     }
 
+    if (isDebugBibleParse()) {
+      console.log(
+        "[SmartVerses][BibleParse] passages:",
+        (passages || []).map((p) => p.displayRef)
+      );
+    }
+
   } catch (error) {
     console.error('Error parsing verse reference:', error);
   }
 
-  // If no passages found and we have a stored context, try parsing with context
-  if ((!passages || passages.length === 0) && lastParsedContext.fullReference) {
+  // If no passages found and we have a stored context, try parsing with context.
+  // IMPORTANT: Only do this when the current input does NOT already contain a book name.
+  // If it contains a book and parsing failed, a context fallback can return the wrong book
+  // (e.g., reusing the previous passage's book).
+  if (
+    (!passages || passages.length === 0) &&
+    !hasBook &&
+    lastParsedContext.fullReference
+  ) {
     try {
       const parser = getParser();
       const contextResult = parser.parse_with_context(reference, lastParsedContext.fullReference);
@@ -674,7 +813,12 @@ export function parseVerseReference(reference: string): ParsedBibleReference[] |
   }
 
   // Also try with the old context variable as a final fallback
-  if ((!passages || passages.length === 0) && legacyContext && legacyContext !== reference) {
+  if (
+    (!passages || passages.length === 0) &&
+    !hasBook &&
+    legacyContext &&
+    legacyContext !== reference
+  ) {
     try {
       const parser = getParser();
       const contextResult = parser.parse_with_context(reference, legacyContext);
@@ -807,16 +951,39 @@ export async function detectAndLookupReferences(
   const preprocessed = preprocessBibleReference(text);
   let numericText = wordsToNumbers(preprocessed);
   numericText = normalizeCommaBetweenChapterAndVerse(numericText);
-  const phraseNormalized = options?.aggressiveSpeechNormalization
-    ? normalizeBookChapterVersePhrase(numericText)
+
+  // Guardrail: only apply the more aggressive/heuristic transforms if we actually
+  // see a known Bible book in the text. This avoids accidental "chapter/verse"
+  // style matches on unrelated speech.
+  const hasBook = containsBibleBook(numericText);
+
+  // Always handle the common "Book <chapter> ... verse <n>" pattern (even for typed queries),
+  // but only when a Bible book is present.
+  const phraseNormalized = hasBook
+    ? normalizeBookChapterThenVerseLater(
+        normalizeBookChapterVersePhrase(
+          normalizeBookChapterColonVerse(numericText)
+        )
+      )
     : numericText;
-  let normalizedText = normalizeCommaSeparatedChapterVerse(phraseNormalized);
-  if (options?.aggressiveSpeechNormalization) {
+
+  let normalizedText = hasBook
+    ? normalizeChapterRangeOrListToVerseOne(phraseNormalized)
+    : phraseNormalized;
+  normalizedText = normalizeCommaSeparatedChapterVerse(normalizedText);
+  if (options?.aggressiveSpeechNormalization && hasBook) {
     normalizedText = normalizeSpaceSeparatedChapterVerse(normalizedText);
   }
   normalizedText = normalizeMissingBookChapterSpace(normalizedText);
   normalizedText = normalizeConcatenatedReferences(normalizedText);
-  normalizedText = await normalizeCombinedChapterVerseInput(normalizedText);
+  // Reuse already-cached verses to avoid redundant loads during normalization.
+  const verses = await loadVerses();
+  normalizedText = await normalizeCombinedChapterVerseInput(normalizedText, verses);
+
+  if (isDebugBibleParse()) {
+    console.log("[SmartVerses][Detect] raw:", text);
+    console.log("[SmartVerses][Detect] normalized:", normalizedText);
+  }
 
   const parsed = parseVerseReference(normalizedText);
   if (!parsed || parsed.length === 0) {
