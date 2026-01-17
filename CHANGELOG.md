@@ -2,6 +2,36 @@
 
 All notable changes to ProAssist will be documented in this file.
 
+## [0.5.6] - 2026-01-16
+
+### Added
+- **Live Notepad Bullet List**: Added bullet list functionality to Live Slides notepad
+  - Press Tab to convert lines to bulleted lists with visual bullet character (•)
+  - Press Enter to continue bullet list on new line
+  - Press Backspace to remove bullet prefix
+  - Added "Bullet List" toolbar button that highlights when cursor is on bulleted line
+  - Bullet characters are automatically stripped when importing/syncing slides to main app
+- **Slide Dividers**: Added visual divider lines between slides in Live Notepad
+  - Toggle "Slide Dividers" button in toolbar to show/hide horizontal lines
+  - Enabled by default to help visualize slide boundaries
+  - Lines appear at the bottom of each slide's last line
+
+### Changed
+- **Live Notepad Slide Boundaries**: Fixed slide boundary logic
+  - Consecutive non-indented lines are now correctly grouped as one slide
+  - Color indicators now show same color for lines on the same slide
+  - Improved visual consistency with actual slide parsing behavior
+- **Live Notepad Transcription Panel**: Enhanced UI layout
+  - Search transcript box now full width
+  - Checkboxes (Transcript, Scripture refs, Key points) positioned directly below search
+  - Auto-scroll checkbox repositioned to top right of transcription display area
+  - Scripture refs and Key points checkboxes checked by default
+  - Auto-scroll checkbox styling improved (no border/background, reduced padding)
+- **Favicon Updates**: Updated favicon to ProAssist icon across all pages
+  - Live Notepad page now uses ProAssist icon
+  - Remote timer page now uses ProAssist icon
+  - Browser transcription page now uses ProAssist icon
+
 ## [0.5.5] - 2026-01-16
 
 ### Changed
