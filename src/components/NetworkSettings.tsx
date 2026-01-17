@@ -977,71 +977,7 @@ const NetworkSettings: React.FC = () => {
           </div>
         )}
 
-        {/* Follow Master Timer (for slave/peer mode) */}
-        {(syncSettings.mode === "slave" || syncSettings.mode === "peer") && (
-          <div style={{ marginBottom: "var(--spacing-4)" }}>
-            <h4 style={{ marginBottom: "var(--spacing-2)", fontSize: "1rem" }}>
-              Remote Control
-            </h4>
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "var(--spacing-2)",
-                padding: "var(--spacing-3)",
-                backgroundColor: syncSettings.followMasterTimer 
-                  ? "rgba(34, 197, 94, 0.1)" 
-                  : "var(--app-bg-color)",
-                borderRadius: "8px",
-                border: syncSettings.followMasterTimer 
-                  ? "1px solid rgba(34, 197, 94, 0.3)" 
-                  : "1px solid transparent",
-              }}
-            >
-              <input
-                type="checkbox"
-                id="followMasterTimer"
-                checked={syncSettings.followMasterTimer}
-                onChange={(e) =>
-                  handleSyncSettingChange("followMasterTimer", e.target.checked)
-                }
-                style={{ width: "auto", margin: 0 }}
-              />
-              <label
-                htmlFor="followMasterTimer"
-                style={{ margin: 0, cursor: "pointer", flex: 1 }}
-              >
-                <span style={{ fontWeight: 500 }}>Follow Master Timer</span>
-                <span
-                  style={{
-                    display: "block",
-                    fontSize: "0.85em",
-                    color: "var(--app-text-color-secondary)",
-                  }}
-                >
-                  When the master starts a session, run local automations for that session.
-                  Use this to remotely trigger recordings or other actions.
-                </span>
-              </label>
-            </div>
-            {syncSettings.followMasterTimer && (
-              <div
-                style={{
-                  marginTop: "var(--spacing-2)",
-                  padding: "var(--spacing-2) var(--spacing-3)",
-                  backgroundColor: "rgba(59, 130, 246, 0.1)",
-                  borderRadius: "6px",
-                  fontSize: "0.85em",
-                  color: "#3b82f6",
-                }}
-              >
-                <strong>Tip:</strong> Set up recording automations in the Timer page 
-                (click the ⚡ icon on a schedule item). When the master starts that session, 
-                this device will automatically start/stop recording based on your automations.
-              </div>
-            )}
-          </div>
-        )}
+        {/* Follow Master Timer toggle lives on the Timer page (to avoid duplicate/confusing controls). */}
 
         {/* Auto-connect */}
         {syncSettings.mode !== "off" && (

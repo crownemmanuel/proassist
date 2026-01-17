@@ -40,6 +40,8 @@ export function loadNetworkSyncSettings(): NetworkSyncSettings {
 export function saveNetworkSyncSettings(settings: NetworkSyncSettings): void {
   try {
     localStorage.setItem(NETWORK_SYNC_SETTINGS_KEY, JSON.stringify(settings));
+    // Notify in-app listeners (storage event won't fire in same window)
+    window.dispatchEvent(new CustomEvent("network-sync-settings-changed"));
   } catch (e) {
     console.error("Failed to save network sync settings:", e);
   }

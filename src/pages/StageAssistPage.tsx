@@ -29,6 +29,7 @@ import {
 } from "../contexts/StageAssistContext";
 import { loadNetworkSyncSettings } from "../services/networkSyncService";
 import { loadLiveSlidesSettings } from "../services/liveSlideService";
+import { mergeScheduleWithLocalAutomations } from "../utils/scheduleSync";
 import LoadScheduleModal from "../components/LoadScheduleModal";
 import ImageScheduleUploadModal from "../components/ImageScheduleUploadModal";
 import RemoteAccessLinkModal from "../components/RemoteAccessLinkModal";
@@ -149,6 +150,27 @@ const StageAssistPage: React.FC = () => {
     useState(false);
   const loadScheduleDropdownRef = useRef<HTMLDivElement>(null);
   const [isLoadingFromMaster, setIsLoadingFromMaster] = useState(false);
+  const [networkSyncSettingsState, setNetworkSyncSettingsState] = useState(() =>
+    loadNetworkSyncSettings()
+  );
+
+  // Keep timer page in sync with Network Settings edits (mode/host/port/follow flag)
+  useEffect(() => {
+    const key = "proassist-network-sync-settings";
+    const handler = (e: StorageEvent) => {
+      if (e.key !== key) return;
+      setNetworkSyncSettingsState(loadNetworkSyncSettings());
+    };
+    const inAppHandler = () => {
+      setNetworkSyncSettingsState(loadNetworkSyncSettings());
+    };
+    window.addEventListener("storage", handler);
+    window.addEventListener("network-sync-settings-changed", inAppHandler);
+    return () => {
+      window.removeEventListener("storage", handler);
+      window.removeEventListener("network-sync-settings-changed", inAppHandler);
+    };
+  }, []);
 
   // Remote Access Link Modal state
   const [showRemoteAccessModal, setShowRemoteAccessModal] = useState(false);
@@ -158,12 +180,16 @@ const StageAssistPage: React.FC = () => {
     useState<ScheduleItem | null>(null);
 
   // Network sync settings for "Get from Master" feature
-  const networkSyncSettings = loadNetworkSyncSettings();
+  const networkSyncSettings = networkSyncSettingsState;
   const liveSlidesSettings = loadLiveSlidesSettings();
   const canLoadFromMaster =
     (networkSyncSettings.mode === "slave" ||
       networkSyncSettings.mode === "peer") &&
     networkSyncSettings.remoteHost.trim() !== "";
+
+  const isFollowingMaster =
+    (networkSyncSettings.mode === "slave" || networkSyncSettings.mode === "peer") &&
+    networkSyncSettings.followMasterTimer;
 
   // Close load schedule dropdown when clicking outside
   useEffect(() => {
@@ -235,7 +261,8 @@ const StageAssistPage: React.FC = () => {
         })
       );
 
-      setSchedule(transformedSchedule);
+      // Merge: never import automations from master; preserve our local ones by session name
+      setSchedule((prev) => mergeScheduleWithLocalAutomations(prev, transformedSchedule));
 
       // Update current session index if provided
       if (typeof data.currentSessionIndex === "number") {
@@ -253,6 +280,18 @@ const StageAssistPage: React.FC = () => {
     } finally {
       setIsLoadingFromMaster(false);
     }
+  };
+
+  const handleToggleFollowMaster = () => {
+    const next = {
+      ...networkSyncSettings,
+      followMasterTimer: !networkSyncSettings.followMasterTimer,
+    };
+    // Persist via existing service
+    import("../services/networkSyncService").then(({ saveNetworkSyncSettings }) => {
+      saveNetworkSyncSettings(next);
+      setNetworkSyncSettingsState(next);
+    });
   };
 
   // Load connection count on mount
@@ -1236,6 +1275,7 @@ const StageAssistPage: React.FC = () => {
             >
               <button
                 onClick={handleStartCountdown}
+                disabled={isFollowingMaster}
                 style={{
                   padding: "var(--spacing-2) var(--spacing-4)",
                   backgroundColor: "rgb(34, 197, 94)",
@@ -1244,12 +1284,14 @@ const StageAssistPage: React.FC = () => {
                   borderRadius: "8px",
                   cursor: "pointer",
                   fontWeight: 600,
+                  opacity: isFollowingMaster ? 0.6 : 1,
                 }}
               >
                 <FaPlay style={{ marginRight: "4px" }} /> Start
               </button>
               <button
                 onClick={handleStopTimer}
+                disabled={isFollowingMaster}
                 style={{
                   padding: "var(--spacing-2) var(--spacing-4)",
                   backgroundColor: "rgb(153, 27, 27)",
@@ -1258,6 +1300,7 @@ const StageAssistPage: React.FC = () => {
                   borderRadius: "8px",
                   cursor: "pointer",
                   fontWeight: 600,
+                  opacity: isFollowingMaster ? 0.6 : 1,
                 }}
               >
                 <FaStop style={{ marginRight: "4px" }} /> Stop
@@ -1401,6 +1444,7 @@ const StageAssistPage: React.FC = () => {
             >
               <button
                 onClick={handleStartCountdownToTime}
+                disabled={isFollowingMaster}
                 style={{
                   padding: "var(--spacing-2) var(--spacing-4)",
                   backgroundColor: "rgb(34, 197, 94)",
@@ -1409,12 +1453,14 @@ const StageAssistPage: React.FC = () => {
                   borderRadius: "8px",
                   cursor: "pointer",
                   fontWeight: 600,
+                  opacity: isFollowingMaster ? 0.6 : 1,
                 }}
               >
                 <FaPlay style={{ marginRight: "4px" }} /> Start
               </button>
               <button
                 onClick={handleStopTimer}
+                disabled={isFollowingMaster}
                 style={{
                   padding: "var(--spacing-2) var(--spacing-4)",
                   backgroundColor: "rgb(153, 27, 27)",
@@ -1423,6 +1469,7 @@ const StageAssistPage: React.FC = () => {
                   borderRadius: "8px",
                   cursor: "pointer",
                   fontWeight: 600,
+                  opacity: isFollowingMaster ? 0.6 : 1,
                 }}
               >
                 <FaStop style={{ marginRight: "4px" }} /> Stop
@@ -1431,6 +1478,60 @@ const StageAssistPage: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Follow Master Toggle (display-only mode) */}
+      {(networkSyncSettings.mode === "slave" || networkSyncSettings.mode === "peer") && (
+        <div
+          style={{
+            marginBottom: "var(--spacing-4)",
+            padding: "12px 14px",
+            borderRadius: "10px",
+            border: isFollowingMaster
+              ? "1px solid rgba(34, 197, 94, 0.45)"
+              : "1px solid var(--app-border-color)",
+            backgroundColor: isFollowingMaster
+              ? "rgba(34, 197, 94, 0.08)"
+              : "var(--app-input-bg-color)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: "12px",
+          }}
+        >
+          <div>
+            <div style={{ fontWeight: 700, marginBottom: "2px" }}>
+              Follow Master Timer
+            </div>
+            <div
+              style={{
+                fontSize: "0.9em",
+                color: "var(--app-text-color-secondary)",
+              }}
+            >
+              When enabled, this device becomes display-only: it follows the master’s active
+              session and starts/stops its local timer + local automations automatically.
+            </div>
+          </div>
+          <label
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "10px",
+              cursor: "pointer",
+              userSelect: "none",
+              whiteSpace: "nowrap",
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={isFollowingMaster}
+              onChange={handleToggleFollowMaster}
+              style={{ transform: "scale(1.1)" }}
+            />
+            {isFollowingMaster ? "On" : "Off"}
+          </label>
+        </div>
+      )}
 
       {/* Schedule Table */}
       <div
@@ -1740,16 +1841,23 @@ const StageAssistPage: React.FC = () => {
                     ) : (
                       <button
                         onClick={() => handleStartSession(index)}
+                        disabled={isFollowingMaster}
                         style={{
                           padding: "var(--spacing-2) var(--spacing-3)",
                           backgroundColor: "rgb(29, 78, 216)",
                           color: "white",
                           border: "none",
                           borderRadius: "6px",
-                          cursor: "pointer",
+                          cursor: isFollowingMaster ? "not-allowed" : "pointer",
                           fontWeight: 500,
                           fontSize: "0.875rem",
+                          opacity: isFollowingMaster ? 0.6 : 1,
                         }}
+                        title={
+                          isFollowingMaster
+                            ? "Follow Master Timer is enabled. Disable it to start timers manually on this device."
+                            : undefined
+                        }
                       >
                         Start
                       </button>

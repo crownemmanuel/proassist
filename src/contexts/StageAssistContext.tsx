@@ -2,6 +2,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 import { ScheduleItem, TimerState, TimeAdjustmentMode, ScheduleItemAutomation } from "../types/propresenter";
 import { startTimerOnAllEnabled, stopTimerOnAllEnabled } from "../services/propresenterService";
 import { loadNetworkSyncSettings, networkSyncManager } from "../services/networkSyncService";
+import { mergeScheduleWithLocalAutomations, stripScheduleAutomations } from "../utils/scheduleSync";
 
 // Storage keys
 const SCHEDULE_STORAGE_KEY = "proassist-stage-assist-schedule";
@@ -225,6 +226,12 @@ export const StageAssistProvider: React.FC<{ children: React.ReactNode }> = ({ c
   });
   const [currentSessionIndex, setCurrentSessionIndex] = useState<number | null>(null);
 
+  // Keep refs to latest values for sync callbacks (avoids stale closures)
+  const scheduleRef = useRef<ScheduleItem[]>([]);
+  useEffect(() => {
+    scheduleRef.current = schedule;
+  }, [schedule]);
+
   const [countdownHours, setCountdownHours] = useState("0");
   const [countdownMinutes, setCountdownMinutes] = useState("5");
   const [countdownSeconds, setCountdownSeconds] = useState("0");
@@ -315,17 +322,50 @@ export const StageAssistProvider: React.FC<{ children: React.ReactNode }> = ({ c
     }
     
     // Only broadcast if schedule actually changed (to avoid loops)
-    const scheduleKey = JSON.stringify({ schedule, currentSessionIndex });
+    const scheduleKey = JSON.stringify({ schedule: stripScheduleAutomations(schedule), currentSessionIndex });
     if (scheduleKey === lastBroadcastRef.current) return;
     lastBroadcastRef.current = scheduleKey;
     
-    networkSyncManager.broadcastScheduleSync(schedule, currentSessionIndex).catch((error) => {
+    networkSyncManager
+      .broadcastScheduleSync(stripScheduleAutomations(schedule), currentSessionIndex)
+      .catch((error) => {
       console.debug("Failed to broadcast schedule sync:", error);
     });
   }, [schedule, currentSessionIndex]);
 
   // Track the last session index we triggered automations for (to avoid duplicate triggers)
   const lastTriggeredSessionIndexRef = useRef<number | null>(null);
+
+  const startSessionLocally = useCallback(
+    (index: number, sessionSchedule: ScheduleItem[]) => {
+      const session = sessionSchedule[index];
+      if (!session) return;
+
+      const duration = settings.useDurations ? parseDurationToSeconds(session.duration) : undefined;
+      const end = new Date(`${new Date().toDateString()} ${session.endTime}`);
+      const now = new Date();
+      const timeLeft = duration || Math.floor((end.getTime() - now.getTime()) / 1000);
+
+      setTimerState({
+        isRunning: true,
+        timeLeft,
+        sessionName: session.session,
+        endTime: session.endTime,
+        isOverrun: false,
+      });
+      setCurrentSessionIndex(index);
+
+      // Still mark as triggered for UI/consistency if triggerOnce is enabled, but do not block follower updates.
+      if (settings.triggerOnce) {
+        setTriggeredSessions((prev) => new Set(prev).add(session.id));
+      }
+    },
+    [settings.triggerOnce, settings.useDurations]
+  );
+
+  const stopTimerLocally = useCallback(() => {
+    setTimerState((prev) => ({ ...prev, isRunning: false }));
+  }, []);
 
   // Function to run local automations for a session (used by Follow Master Timer)
   const runLocalAutomations = useCallback(async (sessionIndex: number, sessionSchedule: ScheduleItem[]) => {
@@ -390,42 +430,74 @@ export const StageAssistProvider: React.FC<{ children: React.ReactNode }> = ({ c
       onScheduleSync: (syncedSchedule, syncedCurrentSessionIndex) => {
         console.log("[NetworkSync] Received schedule update");
         // Only update if schedule is different to avoid loops
-        const newKey = JSON.stringify({ schedule: syncedSchedule, currentSessionIndex: syncedCurrentSessionIndex });
+        const newKey = JSON.stringify({
+          schedule: stripScheduleAutomations(syncedSchedule),
+          currentSessionIndex: syncedCurrentSessionIndex,
+        });
         if (newKey !== lastBroadcastRef.current) {
           lastBroadcastRef.current = newKey;
-          
-          // Check if we should run local automations (Follow Master Timer)
+
+          // Merge schedule but NEVER import automations from master
+          const merged = mergeScheduleWithLocalAutomations(scheduleRef.current, syncedSchedule);
+          setSchedule(merged);
+
           const currentSyncSettings = loadNetworkSyncSettings();
-          if (
-            currentSyncSettings.followMasterTimer &&
-            syncedCurrentSessionIndex !== null &&
-            syncedCurrentSessionIndex !== lastTriggeredSessionIndexRef.current
-          ) {
-            // Master started a new session - run our local automations
-            lastTriggeredSessionIndexRef.current = syncedCurrentSessionIndex;
-            // Use the synced schedule to get the session with its automations
-            runLocalAutomations(syncedCurrentSessionIndex, syncedSchedule);
+          if (currentSyncSettings.followMasterTimer) {
+            // Always track what master says is active
+            setCurrentSessionIndex(syncedCurrentSessionIndex);
+
+            if (syncedCurrentSessionIndex === null) {
+              lastTriggeredSessionIndexRef.current = null;
+              stopTimerLocally();
+              return;
+            }
+
+            // Master started (or re-announced) a session; only *trigger* actions on index change
+            if (syncedCurrentSessionIndex !== lastTriggeredSessionIndexRef.current) {
+              lastTriggeredSessionIndexRef.current = syncedCurrentSessionIndex;
+              runLocalAutomations(syncedCurrentSessionIndex, merged);
+              startSessionLocally(syncedCurrentSessionIndex, merged);
+            }
+          } else {
+            setCurrentSessionIndex(syncedCurrentSessionIndex);
           }
-          
-          setSchedule(syncedSchedule);
-          setCurrentSessionIndex(syncedCurrentSessionIndex);
         }
       },
       onFullStateSync: (_playlists, syncedSchedule, syncedCurrentSessionIndex) => {
         if (syncedSchedule) {
           console.log("[NetworkSync] Received full state with schedule");
-          const newKey = JSON.stringify({ schedule: syncedSchedule, currentSessionIndex: syncedCurrentSessionIndex });
+          const newKey = JSON.stringify({
+            schedule: stripScheduleAutomations(syncedSchedule),
+            currentSessionIndex: syncedCurrentSessionIndex,
+          });
           if (newKey !== lastBroadcastRef.current) {
             lastBroadcastRef.current = newKey;
-            setSchedule(syncedSchedule);
-            if (syncedCurrentSessionIndex !== undefined) {
+            const merged = mergeScheduleWithLocalAutomations(scheduleRef.current, syncedSchedule);
+            setSchedule(merged);
+            const currentSyncSettings = loadNetworkSyncSettings();
+            if (currentSyncSettings.followMasterTimer && syncedCurrentSessionIndex !== undefined) {
+              // Always track what master says is active (if included in full state)
+              setCurrentSessionIndex(syncedCurrentSessionIndex);
+
+              if (syncedCurrentSessionIndex === null) {
+                lastTriggeredSessionIndexRef.current = null;
+                stopTimerLocally();
+                return;
+              }
+
+              if (syncedCurrentSessionIndex !== lastTriggeredSessionIndexRef.current) {
+                lastTriggeredSessionIndexRef.current = syncedCurrentSessionIndex;
+                runLocalAutomations(syncedCurrentSessionIndex, merged);
+                startSessionLocally(syncedCurrentSessionIndex, merged);
+              }
+            } else if (syncedCurrentSessionIndex !== undefined) {
               setCurrentSessionIndex(syncedCurrentSessionIndex);
             }
           }
         }
       },
     });
-  }, [runLocalAutomations]);
+  }, [runLocalAutomations, startSessionLocally, stopTimerLocally]);
 
   // Persist settings only after initial load (to avoid overwriting saved settings)
   useEffect(() => {

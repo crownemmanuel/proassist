@@ -2,6 +2,24 @@
 
 All notable changes to ProAssist will be documented in this file.
 
+## [0.6.1] - 2026-01-16
+
+### Changed
+- **Network Sync - Follow Master Timer**: Moved "Follow Master Timer" toggle from Network Settings to Timer page for better UX
+  - Toggle now appears directly on the Timer page when in slave/peer mode
+  - When enabled, timer controls (Start/Stop buttons) are disabled to indicate display-only mode
+  - Timer page now listens to Network Settings changes in real-time
+- **Schedule Sync**: Improved schedule synchronization to prevent automation conflicts
+  - Automations are never synced over the network (stripped before broadcast)
+  - Local automations are preserved and merged by matching session names
+  - Prevents master automations from overwriting local automation configurations
+- **Stage Assist Context**: Enhanced schedule merging logic to preserve local automations when syncing from master
+
+### Technical
+- Added `scheduleSync.ts` utility with `stripScheduleAutomations()` and `mergeScheduleWithLocalAutomations()` functions
+- Improved network sync event handling with custom events for in-app updates
+- Enhanced timer state management when following master timer
+
 ## [0.6.0] - 2026-01-16
 
 ### Changed
