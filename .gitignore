@@ -14,6 +14,9 @@ dist-ssr
 *.local
 .env
 
+# Tool outputs
+tools/scripture-eval/output
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

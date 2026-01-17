@@ -28,6 +28,8 @@ let lastParsedContext: BibleParseContext = {
   book: null,
   chapter: null,
   verse: null,
+  endChapter: null,
+  endVerse: null,
   fullReference: null,
 };
 
@@ -109,22 +111,49 @@ const BOOK_NAME_MAPPING: Record<string, string> = {
 
 // Shared regex for book name matching in normalization steps.
 // Keep this in sync with common English book names used by the parser.
-const BOOKS_REGEX =
+const BOOKS_REGEX_STRICT =
   "(?:Genesis|Exodus|Leviticus|Numbers|Deuteronomy|" +
   "Joshua|Judges|Ruth|1\\s*Samuel|2\\s*Samuel|1\\s*Kings|2\\s*Kings|" +
   "1\\s*Chronicles|2\\s*Chronicles|Ezra|Nehemiah|Esther|Job|Psalms?"+
-  "|Proverbs?|Ecclesiastes|Song\\s+of\\s+Solomon|Isaiah|Jeremiah|Lamentations|" +
-  "Ezekiel|Daniel|Hosea|Joel|Amos|Obadiah|Jonah|Micah|Nahum|Habakkuk|" +
-  "Zephaniah|Haggai|Zechariah|Malachi|Matthew|Mark|Luke|John|Acts|Romans|" +
-  "1\\s*Corinthians|2\\s*Corinthians|Galatians|Ephesians|Philippians|Colossians|" +
-  "1\\s*Thessalonians|2\\s*Thessalonians|1\\s*Timothy|2\\s*Timothy|Titus|Philemon|" +
-  "Hebrews|James|1\\s*Peter|2\\s*Peter|1\\s*John|2\\s*John|3\\s*John|Jude|Revelation)";
+  "|Proverbs?|Ecclesiastes|Song\\s+of\\s+Solomon|Song\\s+of\\s+Songs|Canticles|" +
+  "Isaiah|Jeremiah|Lamentations|Ezekiel|Daniel|Hosea|Joel|Amos|Obadiah|" +
+  "Jonah|Micah|Nahum|Habakkuk|Zephaniah|Haggai|Zechariah|Malachi|" +
+  "Matthew|Mark|Luke|John|Acts|Romans|1\\s*Corinthians|2\\s*Corinthians|" +
+  "Galatians|Ephesians|Philippians|Colossians|1\\s*Thessalonians|2\\s*Thessalonians|" +
+  "1\\s*Timothy|2\\s*Timothy|Titus|Philemon|Hebrews|James|1\\s*Peter|2\\s*Peter|" +
+  "1\\s*John|2\\s*John|3\\s*John|Jude|Revelation)";
 
-const BIBLE_BOOK_PATTERN = new RegExp(`\\b${BOOKS_REGEX}\\b`, "i");
+// Common abbreviations and shorthand used in spoken/typed references.
+// Keep this tighter to avoid false positives; ambiguous 2-letter abbreviations are excluded.
+const BOOKS_REGEX_ABBREV =
+  "(?:Gen\\.?|Exod\\.?|Lev\\.?|Num\\.?|Deut\\.?|Josh\\.?|Judg\\.?|" +
+  "1\\s*Sam\\.?|2\\s*Sam\\.?|1\\s*Kgs\\.?|2\\s*Kgs\\.?|1\\s*Chr\\.?|2\\s*Chr\\.?|" +
+  "Neh\\.?|Esth\\.?|Ps\\.?|Prov\\.?|Eccl\\.?|Song\\.?|Cant\\.?|Isa\\.?|Jer\\.?|" +
+  "Lam\\.?|Ezek\\.?|Dan\\.?|Hos\\.?|Joel\\.?|Amos\\.?|Obad\\.?|Jonah\\.?|Mic\\.?|" +
+  "Nah\\.?|Hab\\.?|Zeph\\.?|Hag\\.?|Zech\\.?|Mal\\.?|Matt\\.?|Mark\\.?|Luke\\.?|" +
+  "Jn\\.?|Acts\\.?|Rom\\.?|1\\s*Cor\\.?|2\\s*Cor\\.?|Gal\\.?|Eph\\.?|Phil\\.?|Col\\.?|" +
+  "1\\s*Thess\\.?|2\\s*Thess\\.?|1\\s*Tim\\.?|2\\s*Tim\\.?|Phlm\\.?|Heb\\.?|Jas\\.?|" +
+  "1\\s*Pet\\.?|2\\s*Pet\\.?|1\\s*Jn\\.?|2\\s*Jn\\.?|3\\s*Jn\\.?|Jude\\.?|Rev\\.?)";
+
+const BOOKS_REGEX_FLEX = `(?:${BOOKS_REGEX_STRICT}|${BOOKS_REGEX_ABBREV})`;
+
+const BIBLE_BOOK_PATTERN_STRICT = new RegExp(`\\b${BOOKS_REGEX_STRICT}\\b`, "i");
+const BIBLE_BOOK_ABBREV_CONTEXT_PATTERN = new RegExp(
+  `\\b${BOOKS_REGEX_ABBREV}\\b(?=\\s*(?:\\d{1,3}|chapter|ch\\.?|\\d{1,3}:\\d{1,3}))`,
+  "i"
+);
+const BIBLE_BOOK_ABBREV_JOINED_PATTERN = new RegExp(
+  `\\b${BOOKS_REGEX_ABBREV}\\s*\\d{1,3}(?::\\d{1,3})?\\b`,
+  "i"
+);
 
 function containsBibleBook(text: string): boolean {
   if (!text) return false;
-  return BIBLE_BOOK_PATTERN.test(text);
+  if (BIBLE_BOOK_PATTERN_STRICT.test(text)) return true;
+  return (
+    BIBLE_BOOK_ABBREV_CONTEXT_PATTERN.test(text) ||
+    BIBLE_BOOK_ABBREV_JOINED_PATTERN.test(text)
+  );
 }
 
 function isDebugBibleParse(): boolean {
@@ -161,6 +190,8 @@ export function resetParseContext(): void {
     book: null,
     chapter: null,
     verse: null,
+    endChapter: null,
+    endVerse: null,
     fullReference: null,
   };
   legacyContext = null;
@@ -188,14 +219,15 @@ function wordsToNumbers(text: string): string {
     'ten': '10', 'eleven': '11', 'twelve': '12', 'thirteen': '13',
     'fourteen': '14', 'fifteen': '15', 'sixteen': '16', 'seventeen': '17',
     'eighteen': '18', 'nineteen': '19', 'twenty': '20',
-    'thirty': '30', 'forty': '40', 'fifty': '50',
+    'thirty': '30', 'forty': '40', 'fifty': '50', 'sixty': '60',
+    'seventy': '70', 'eighty': '80', 'ninety': '90',
     'first': '1', 'second': '2', 'third': '3',
   };
 
   let result = text.toLowerCase();
   
   // Handle compound numbers like "twenty one" -> "21"
-  const compoundPattern = /(twenty|thirty|forty|fifty)\s+(one|two|three|four|five|six|seven|eight|nine)/gi;
+  const compoundPattern = /(twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)\s+(one|two|three|four|five|six|seven|eight|nine)/gi;
   result = result.replace(compoundPattern, (_, tens, ones) => {
     const tensVal = parseInt(numberWords[tens.toLowerCase()] || '0');
     const onesVal = parseInt(numberWords[ones.toLowerCase()] || '0');
@@ -209,6 +241,163 @@ function wordsToNumbers(text: string): string {
   }
 
   return result;
+}
+
+function normalizeDashVariants(text: string): string {
+  return text.replace(/[\u2013\u2014]/g, "-");
+}
+
+function normalizeOrdinalIndicators(text: string): string {
+  return text.replace(/\b(\d{1,3})(?:st|nd|rd|th)\b/gi, "$1");
+}
+
+function romanToInt(roman: string): number | null {
+  const map: Record<string, number> = { i: 1, v: 5, x: 10, l: 50, c: 100 };
+  const chars = roman.toLowerCase().split("");
+  let total = 0;
+  let prev = 0;
+  for (let i = chars.length - 1; i >= 0; i--) {
+    const value = map[chars[i]];
+    if (!value) return null;
+    if (value < prev) total -= value;
+    else {
+      total += value;
+      prev = value;
+    }
+  }
+  return total > 0 ? total : null;
+}
+
+function normalizeRomanNumeralsForChapterVerse(text: string): string {
+  return text.replace(
+    /\b(chapter|ch\.?|verse|verses|v|vs)\s+([ivxlc]{1,6})\b/gi,
+    (match, label, roman) => {
+      const value = romanToInt(roman);
+      if (!value) return match;
+      return `${label} ${value}`;
+    }
+  );
+}
+
+function normalizeRomanNumeralsForBooks(text: string): string {
+  const numberedBooks =
+    "(?:Samuel|Kings|Chronicles|Corinthians|Thessalonians|Timothy|Peter|John)";
+  const regex = new RegExp(`\\b(I{1,3})\\.?\\s+(?=${numberedBooks}\\b)`, "gi");
+  return text.replace(regex, (match, roman) => {
+    const normalized = roman.toLowerCase();
+    if (normalized === "i") return "1 ";
+    if (normalized === "ii") return "2 ";
+    if (normalized === "iii") return "3 ";
+    return match;
+  });
+}
+
+type VerseRange = { start: number; end: number };
+
+function isValidVerseNumber(value: number): boolean {
+  return Number.isFinite(value) && value > 0 && value <= 200;
+}
+
+function parseVerseRangeList(rawList: string): VerseRange[] {
+  const cleaned = normalizeDashVariants(String(rawList || ""))
+    .replace(/\bthrough\b|\bthru\b/gi, "to")
+    .replace(/\band\b/gi, ",")
+    .replace(/&/g, ",")
+    .replace(/\bverses?\b/gi, " ")
+    .replace(/\bvv?\.?\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!cleaned) return [];
+
+  const tokens = cleaned
+    .split(/[,;]+/)
+    .map((token) => token.trim())
+    .filter(Boolean);
+
+  const ranges: VerseRange[] = [];
+  for (const token of tokens) {
+    const rangeMatch = token.match(/^(\d{1,3})\s*(?:-|to)\s*(\d{1,3})$/i);
+    if (rangeMatch) {
+      const start = parseInt(rangeMatch[1], 10);
+      const end = parseInt(rangeMatch[2], 10);
+      if (isValidVerseNumber(start) && isValidVerseNumber(end)) {
+        ranges.push({ start: Math.min(start, end), end: Math.max(start, end) });
+      }
+      continue;
+    }
+
+    const nums = token.match(/\d{1,3}/g);
+    if (!nums) continue;
+    for (const n of nums) {
+      const value = parseInt(n, 10);
+      if (isValidVerseNumber(value)) {
+        ranges.push({ start: value, end: value });
+      }
+    }
+  }
+
+  return ranges;
+}
+
+function mergeVerseRanges(ranges: VerseRange[]): VerseRange[] {
+  if (ranges.length === 0) return [];
+  const sorted = [...ranges].sort((a, b) => a.start - b.start);
+  const merged: VerseRange[] = [sorted[0]];
+  for (let i = 1; i < sorted.length; i++) {
+    const current = sorted[i];
+    const last = merged[merged.length - 1];
+    if (current.start <= last.end + 1) {
+      last.end = Math.max(last.end, current.end);
+    } else {
+      merged.push({ ...current });
+    }
+  }
+  return merged;
+}
+
+function formatVerseRanges(ranges: VerseRange[]): string | null {
+  if (!ranges.length) return null;
+  const merged = mergeVerseRanges(ranges);
+  return merged
+    .map((range) =>
+      range.start === range.end ? `${range.start}` : `${range.start}-${range.end}`
+    )
+    .join(", ");
+}
+
+function trimVerseListTail(raw: string): string {
+  if (!raw) return raw;
+  const stopRegex = new RegExp(`\\b(?:chapter|ch\\.?|${BOOKS_REGEX_FLEX})\\b`, "i");
+  const idx = raw.search(stopRegex);
+  return (idx >= 0 ? raw.slice(0, idx) : raw).trim();
+}
+
+function extractVerseListToken(text: string): string | null {
+  const match = text.match(/\b(?:verses?|vv?\.?|v|vs)\s+([^.;\n]{0,80})/i);
+  if (!match) return null;
+  const trimmed = trimVerseListTail(match[1]);
+  return trimmed || null;
+}
+
+function extractVerseRangesFromText(text: string): VerseRange[] {
+  const ranges: VerseRange[] = [];
+  const listToken = extractVerseListToken(text);
+  if (listToken) {
+    ranges.push(...parseVerseRangeList(listToken));
+  }
+
+  const explicitPattern =
+    /\b(?:verse|verses|vv?\.?|v|vs)\s+(\d{1,3})(?:\s*(?:-|to|through|thru)\s*(\d{1,3}))?/gi;
+  for (const match of text.matchAll(explicitPattern)) {
+    const start = parseInt(match[1], 10);
+    const end = match[2] ? parseInt(match[2], 10) : start;
+    if (isValidVerseNumber(start) && isValidVerseNumber(end)) {
+      ranges.push({ start: Math.min(start, end), end: Math.max(start, end) });
+    }
+  }
+
+  return mergeVerseRanges(ranges);
 }
 
 /**
@@ -231,9 +420,13 @@ function preprocessBibleReference(reference: string): string {
   normalized = normalized.replace(/\bchaper\b/gi, "chapter");
 
   // Step 1c: Remove stray slashes/backslashes before book names (e.g., "\Psalms 91:2")
-  normalized = normalized.replace(new RegExp(`[\\\\/]+(?=${BOOKS_REGEX})`, "gi"), "");
+  normalized = normalized.replace(
+    new RegExp(`[\\\\/]+(?=${BOOKS_REGEX_FLEX})`, "gi"),
+    ""
+  );
 
   // Step 2: Clean up multiple spaces
+  normalized = normalizeDashVariants(normalized);
   normalized = normalized.replace(/\s+/g, ' ').trim();
 
   return normalized;
@@ -257,7 +450,7 @@ function normalizeChapterRangeOrListToVerseOne(text: string): string {
   if (/(?:\bverse\b|\bverses\b|\bvs\.?\b|\bv\.?\b)/i.test(text)) return text;
 
   const regex = new RegExp(
-    `\\b(?<book>${BOOKS_REGEX})\\s+(?<c1>\\d{1,3})\\s*(?:,|\\band\\b|\\bto\\b|-)\\s*(?<c2>\\d{1,3})\\b(?!\\s*(?:to|-)\\s*\\d)`,
+    `\\b(?<book>${BOOKS_REGEX_FLEX})\\s+(?<c1>\\d{1,3})\\s*(?:,|\\band\\b|\\bto\\b|-)\\s*(?<c2>\\d{1,3})\\b(?!\\s*(?:to|-)\\s*\\d)`,
     "gi"
   );
 
@@ -288,17 +481,35 @@ function normalizeCommaSeparatedChapterVerse(text: string): string {
  * Only used in aggressive speech normalization (transcription), not search box.
  */
 function normalizeBookChapterVersePhrase(text: string): string {
-  // IMPORTANT: Only match recognized Bible book names (via BOOKS_REGEX).
+  // IMPORTANT: Only match recognized Bible book names (via BOOKS_REGEX_FLEX).
   // This avoids capturing leading words like "In" (e.g., "In Micah chapter 2 verse 13").
   const bookPrefix = "(?:the\\s+)?(?:book\\s+of\\s+)?";
   const regex = new RegExp(
     // Support ranges like "verse 29 to 31" / "verse 29-31" / "verse 29 and 31"
-    `\\b(?:in\\s+)?${bookPrefix}(${BOOKS_REGEX})\\s+(?:chapter\\s+)?(\\d{1,3})\\s*(?:,\\s*)?(?:verse|verses|v|vs)\\s+(\\d{1,3})\\b(?:(?:\\s*(?:-|to)\\s*|\\s*(?:and|&)\\s*)(\\d{1,3})\\b)?(?=[^\\d]|$)`,
+    `\\b(?:in\\s+)?${bookPrefix}(${BOOKS_REGEX_FLEX})\\s+(?:chapter\\s+)?(\\d{1,3})\\s*(?:,\\s*)?(?:verse|verses|v|vs)\\s+(\\d{1,3})\\b(?:(?:\\s*(?:-|to)\\s*|\\s*(?:and|&)\\s*)(\\d{1,3})\\b)?(?=[^\\d]|$)`,
     "gi"
   );
   return text.replace(regex, (_match, book, chapter, verse, endVerse) => {
     if (endVerse) return `${book} ${chapter}:${verse}-${endVerse}`;
     return `${book} ${chapter}:${verse}`;
+  });
+}
+
+/**
+ * Normalize verse lists: "Book 3 verses 4, 5 and 7" -> "Book 3:4, 5, 7"
+ */
+function normalizeBookChapterVerseList(text: string): string {
+  const bookPrefix = "(?:the\\s+)?(?:book\\s+of\\s+)?";
+  const regex = new RegExp(
+    `\\b(?:in\\s+)?${bookPrefix}(${BOOKS_REGEX_FLEX})\\s+(?:chapter\\s+)?(\\d{1,3})\\s*(?:,\\s*)?(?:verses?|vv?\\.?|v|vs)\\s+([^.;\\n]{0,80})`,
+    "gi"
+  );
+
+  return text.replace(regex, (match, book, chapter, verseList) => {
+    const ranges = parseVerseRangeList(trimVerseListTail(verseList));
+    const formatted = formatVerseRanges(ranges);
+    if (!formatted) return match;
+    return `${book} ${chapter}:${formatted}`;
   });
 }
 
@@ -309,7 +520,7 @@ function normalizeBookChapterVersePhrase(text: string): string {
 function normalizeBookChapterColonVerse(text: string): string {
   const bookPrefix = "(?:the\\s+)?(?:book\\s+of\\s+)?";
   const regex = new RegExp(
-    `\\b(?:in\\s+)?${bookPrefix}(${BOOKS_REGEX})\\s+(?:chapter|ch\\.?)+\\s+(\\d{1,3}:\\d{1,3}(?:-\\d{1,3})?)\\b`,
+    `\\b(?:in\\s+)?${bookPrefix}(${BOOKS_REGEX_FLEX})\\s+(?:chapter|ch\\.?)+\\s+(\\d{1,3}:\\d{1,3}(?:-\\d{1,3})?)\\b`,
     "gi"
   );
   return text.replace(regex, (_m, book, ref) => `${book} ${ref}`);
@@ -325,17 +536,31 @@ function normalizeBookChapterColonVerse(text: string): string {
  */
 function normalizeBookChapterThenVerseLater(text: string): string {
   const regex = new RegExp(
-    `\\b(${BOOKS_REGEX})\\s+(\\d{1,3})\\b([^\\d]{0,80}?)\\b(?:verse|verses|v|vs)\\s+(\\d{1,3})\\b(?:\\s*(?:-|to)\\s*(\\d{1,3})\\b|\\s*(?:and|&)\\s*(\\d{1,3})\\b)?`,
+    `\\b(${BOOKS_REGEX_FLEX})\\s+(\\d{1,3})\\b([^\\d]{0,80}?)\\b(?:verse|verses|v|vs)\\s+([^.;\\n]{0,60})`,
     "gi"
   );
-  return text.replace(
-    regex,
-    (_match, book, chapter, _gap, v1, vRangeEnd, vAnd) => {
-      const end = vRangeEnd || vAnd || null;
-      if (end) return `${book} ${chapter}:${v1}-${end}`;
-      return `${book} ${chapter}:${v1}`;
-    }
+  return text.replace(regex, (match, book, chapter, _gap, verseList) => {
+    const ranges = parseVerseRangeList(trimVerseListTail(verseList));
+    const formatted = formatVerseRanges(ranges);
+    if (!formatted) return match;
+    return `${book} ${chapter}:${formatted}`;
+  });
+}
+
+/**
+ * Normalize trailing verse lists after a full reference: "John 3:16 and 17" -> "John 3:16-17"
+ */
+function normalizeTrailingVerseListAfterFullReference(text: string): string {
+  const regex = new RegExp(
+    `\\b(${BOOKS_REGEX_FLEX})\\s+(\\d{1,3}):(\\d{1,3})\\s*((?:\\s*(?:,|and|&|to|-)\\s*\\d{1,3}){1,6})`,
+    "gi"
   );
+  return text.replace(regex, (match, book, chapter, startVerse, tail) => {
+    const ranges = parseVerseRangeList(`${startVerse} ${tail}`);
+    const formatted = formatVerseRanges(ranges);
+    if (!formatted) return match;
+    return `${book} ${chapter}:${formatted}`;
+  });
 }
 
 /**
@@ -360,7 +585,7 @@ function normalizeCommaBetweenChapterAndVerse(text: string): string {
  * Normalize missing space between book and chapter: "Daniel2:16" -> "Daniel 2:16"
  */
 function normalizeMissingBookChapterSpace(text: string): string {
-  const regex = new RegExp(`(${BOOKS_REGEX})(\\d{1,3}(?::\\d{1,3})?)`, "gi");
+  const regex = new RegExp(`(${BOOKS_REGEX_FLEX})(\\d{1,3}(?::\\d{1,3})?)`, "gi");
   return text.replace(regex, "$1 $2");
 }
 
@@ -368,7 +593,7 @@ function normalizeMissingBookChapterSpace(text: string): string {
  * Normalize concatenated references: "Daniel 2:16Daniel 2:17" -> "Daniel 2:16 Daniel 2:17"
  */
 function normalizeConcatenatedReferences(text: string): string {
-  const regex = new RegExp(`(\\d{1,3}:\\d{1,3}(?:-\\d{1,3})?)(${BOOKS_REGEX})`, "gi");
+  const regex = new RegExp(`(\\d{1,3}:\\d{1,3}(?:-\\d{1,3})?)(${BOOKS_REGEX_FLEX})`, "gi");
   return text.replace(regex, "$1 $2");
 }
 
@@ -406,7 +631,7 @@ async function normalizeCombinedChapterVerseInput(
   versesOverride?: Record<string, string>
 ): Promise<string> {
   const combinedRegex = new RegExp(
-    `(?:\\b(?:the\\s+)?(?:book\\s+of\\s+))?(?<book>${BOOKS_REGEX})\\s*(?<combined>\\d{3,5})\\b`,
+    `(?:\\b(?:the\\s+)?(?:book\\s+of\\s+))?(?<book>${BOOKS_REGEX_FLEX})\\s*(?<combined>\\d{3,5})\\b`,
     "gi"
   );
 
@@ -482,7 +707,7 @@ function isVerseOnlyReference(text: string): number | null {
 
   // Look for "verse" or "v" followed by a number anywhere in the text
   const flexiblePatterns = [
-    /(?:verse|vs?\.?)\s+(\d+)/i,
+    /(?:verse|verses|vv?\.?|v|vs)\s+(\d+)/i,
   ];
 
   for (const pattern of flexiblePatterns) {
@@ -535,7 +760,9 @@ function isChapterOnlyReference(text: string): { book: string; chapter: number }
 /**
  * Check for navigation commands that should be filtered out
  */
-function isNavigationCommand(text: string): 'next' | 'previous' | null {
+function isNavigationCommand(
+  text: string
+): 'next' | 'previous' | 'next_chapter' | 'previous_chapter' | null {
   const normalized = text.toLowerCase().trim();
   
   const nextPatterns = [
@@ -548,6 +775,18 @@ function isNavigationCommand(text: string): 'next' | 'previous' | null {
     /\b(?:previous|last)\s+(?:verse|scripture|one)\b/,
     /\bgo\s+back\b/,
   ];
+
+  const nextChapterPatterns = [
+    /\bnext\s+chapter\b/,
+    /\bgo\s+(?:to\s+)?next\s+chapter\b/,
+    /\bchapter\s+after\b/,
+  ];
+
+  const prevChapterPatterns = [
+    /\bprevious\s+chapter\b/,
+    /\bprior\s+chapter\b/,
+    /\bgo\s+back\s+a\s+chapter\b/,
+  ];
   
   for (const pattern of nextPatterns) {
     if (pattern.test(normalized)) return 'next';
@@ -555,6 +794,14 @@ function isNavigationCommand(text: string): 'next' | 'previous' | null {
   
   for (const pattern of prevPatterns) {
     if (pattern.test(normalized)) return 'previous';
+  }
+
+  for (const pattern of nextChapterPatterns) {
+    if (pattern.test(normalized)) return 'next_chapter';
+  }
+
+  for (const pattern of prevChapterPatterns) {
+    if (pattern.test(normalized)) return 'previous_chapter';
   }
   
   return null;
@@ -589,6 +836,69 @@ function extractChapterAndVerse(text: string): { chapter: number | null; verse: 
   return result;
 }
 
+function extractExplicitChapterNumber(text: string): number | null {
+  const match = text.match(/\b(?:chapter|ch\.?)\s*(\d{1,3})\b/i);
+  if (!match) return null;
+  const value = parseInt(match[1], 10);
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
+
+function buildContextualPassages(
+  book: string,
+  fullBookName: string,
+  chapter: number,
+  ranges: VerseRange[]
+): ParsedBibleReference[] {
+  const mappedBook = mapBookName(book);
+  return ranges.map((range) => ({
+    book: mappedBook,
+    fullBookName,
+    chapter,
+    endChapter: chapter,
+    startVerse: range.start,
+    endVerse: range.end,
+    translation: "default",
+    displayRef: createDisplayRef(fullBookName, chapter, range.start, range.end),
+  }));
+}
+
+function parseContextualVerseReferences(text: string): ParsedBibleReference[] | null {
+  if (!lastParsedContext.book) return null;
+
+  const book = lastParsedContext.book;
+  const fullBookName = lastParsedContext.book;
+  const explicitChapter = extractExplicitChapterNumber(text);
+  const chapter = explicitChapter ?? lastParsedContext.chapter ?? null;
+
+  const ranges = extractVerseRangesFromText(text);
+  if (chapter && ranges.length > 0) {
+    return buildContextualPassages(book, fullBookName, chapter, ranges);
+  }
+
+  // Handle "chapter N" without explicit verses (default to verse 1).
+  if (explicitChapter && (!ranges || ranges.length === 0)) {
+    return buildContextualPassages(book, fullBookName, explicitChapter, [
+      { start: 1, end: 1 },
+    ]);
+  }
+
+  return null;
+}
+
+function updateContextFromPassages(passages: ParsedBibleReference[], rawReference?: string): void {
+  if (!passages || passages.length === 0) return;
+  const lastPassage = passages[passages.length - 1];
+  const endChapter = lastPassage.endChapter ?? lastPassage.chapter;
+  const endVerse = lastPassage.endVerse ?? lastPassage.startVerse;
+  lastParsedContext.book = lastPassage.fullBookName || lastPassage.book;
+  lastParsedContext.chapter = lastPassage.chapter;
+  lastParsedContext.verse = endVerse;
+  lastParsedContext.endChapter = endChapter;
+  lastParsedContext.endVerse = endVerse;
+  lastParsedContext.fullReference = `${lastPassage.book} ${endChapter}:${endVerse}`;
+  if (rawReference) legacyContext = rawReference;
+}
+
 /**
  * Map parser book name to full book name
  */
@@ -599,9 +909,18 @@ function mapBookName(parserBook: string): string {
 /**
  * Create display reference string
  */
-function createDisplayRef(book: string, chapter: number, startVerse: number, endVerse?: number): string {
+function createDisplayRef(
+  book: string,
+  chapter: number,
+  startVerse: number,
+  endVerse?: number,
+  endChapter?: number
+): string {
   const fullBook = mapBookName(book);
   if (endVerse && endVerse !== startVerse) {
+    if (endChapter && endChapter !== chapter) {
+      return `${fullBook} ${chapter}:${startVerse}-${endChapter}:${endVerse}`;
+    }
     return `${fullBook} ${chapter}:${startVerse}-${endVerse}`;
   }
   return `${fullBook} ${chapter}:${startVerse}`;
@@ -630,77 +949,40 @@ export function parseVerseReference(reference: string): ParsedBibleReference[] |
 
     // Step 2: Convert written numbers to numeric values
     let textToProcess = wordsToNumbers(preprocessed);
+    textToProcess = normalizeOrdinalIndicators(textToProcess);
+    textToProcess = normalizeRomanNumeralsForBooks(textToProcess);
+    textToProcess = normalizeRomanNumeralsForChapterVerse(textToProcess);
     textToProcess = normalizeCommaBetweenChapterAndVerse(textToProcess);
     textToProcess = normalizeChapterRangeOrListToVerseOne(textToProcess);
-    textToProcess = normalizeCommaSeparatedChapterVerse(textToProcess);
-    textToProcess = normalizeMissingBookChapterSpace(textToProcess);
-    textToProcess = normalizeConcatenatedReferences(textToProcess);
 
     // If we have an explicit Bible book name, apply the safe "chapter/verse" phrase rewrite.
     // This avoids falling back to previous context when parsing phrases like:
     // "Luke chapter 4 verse 1 to 2"
     hasBook = containsBibleBook(textToProcess);
     if (hasBook) {
+      textToProcess = normalizeBookChapterVerseList(textToProcess);
       textToProcess = normalizeBookChapterColonVerse(textToProcess);
-      textToProcess = normalizeBookChapterThenVerseLater(
-        normalizeBookChapterVersePhrase(textToProcess)
-      );
+      textToProcess = normalizeBookChapterVersePhrase(textToProcess);
+      textToProcess = normalizeBookChapterThenVerseLater(textToProcess);
+      textToProcess = normalizeTrailingVerseListAfterFullReference(textToProcess);
     }
+
+    textToProcess = normalizeCommaSeparatedChapterVerse(textToProcess);
+    textToProcess = normalizeMissingBookChapterSpace(textToProcess);
+    textToProcess = normalizeConcatenatedReferences(textToProcess);
 
     if (isDebugBibleParse()) {
       console.log("[SmartVerses][BibleParse] raw:", reference);
       console.log("[SmartVerses][BibleParse] normalized:", textToProcess);
     }
 
-    // Check for "chapter X verse Y" without book name (use context)
-    const chapterVersePattern = /chapter\s+(\d+)[,\s]+verse\s+(\d+)/i;
-    const chapterVerseMatch = textToProcess.match(chapterVersePattern);
-    if (chapterVerseMatch && lastParsedContext.book) {
-      const chapter = parseInt(chapterVerseMatch[1], 10);
-      const verse = parseInt(chapterVerseMatch[2], 10);
-
-      const mappedBook = mapBookName(lastParsedContext.book);
-      passages = [
-        {
-          book: mappedBook,
-          fullBookName: lastParsedContext.book,
-          chapter: chapter,
-          startVerse: verse,
-          endVerse: verse,
-          translation: 'default',
-          displayRef: createDisplayRef(lastParsedContext.book, chapter, verse),
-        },
-      ];
-
-      // Update context
-      lastParsedContext.chapter = chapter;
-      lastParsedContext.verse = verse;
-      lastParsedContext.fullReference = `${mappedBook} ${chapter}:${verse}`;
-
-      return passages;
-    }
-
-    // Check for verse-only reference (e.g., "verse 7", "from verse 18")
-    const verseOnly = isVerseOnlyReference(textToProcess);
-    if (verseOnly !== null && lastParsedContext.book && lastParsedContext.chapter) {
-      const mappedBook = mapBookName(lastParsedContext.book);
-      passages = [
-        {
-          book: mappedBook,
-          fullBookName: lastParsedContext.book,
-          chapter: lastParsedContext.chapter,
-          startVerse: verseOnly,
-          endVerse: verseOnly,
-          translation: 'default',
-          displayRef: createDisplayRef(lastParsedContext.book, lastParsedContext.chapter, verseOnly),
-        },
-      ];
-
-      // Update context
-      lastParsedContext.verse = verseOnly;
-      lastParsedContext.fullReference = `${mappedBook} ${lastParsedContext.chapter}:${verseOnly}`;
-
-      return passages;
+    // Check for context-only references (e.g., "chapter 3 verse 5", "verses 2 and 3")
+    if (!hasBook) {
+      const contextual = parseContextualVerseReferences(textToProcess);
+      if (contextual && contextual.length > 0) {
+        updateContextFromPassages(contextual, reference);
+        return contextual;
+      }
     }
 
     // Check for chapter-only reference (e.g., "Matthew chapter 5")
@@ -724,19 +1006,14 @@ export function parseVerseReference(reference: string): ParsedBibleReference[] |
           book: mappedBook,
           fullBookName: fullBookName,
           chapter: chapterOnly.chapter,
+          endChapter: chapterOnly.chapter,
           startVerse: 1,
           endVerse: 1,
           translation: 'default',
           displayRef: createDisplayRef(fullBookName, chapterOnly.chapter, 1),
         },
       ];
-
-      // Update context
-      lastParsedContext.book = fullBookName;
-      lastParsedContext.chapter = chapterOnly.chapter;
-      lastParsedContext.verse = 1;
-      lastParsedContext.fullReference = `${mappedBook} ${chapterOnly.chapter}:1`;
-
+      updateContextFromPassages(passages, reference);
       return passages;
     }
 
@@ -766,16 +1043,24 @@ export function parseVerseReference(reference: string): ParsedBibleReference[] |
         const book = mapBookName(start.b);
         const chapter = start.c;
         const startVerse = start.v || 1;
+        const endChapter = end.c || chapter;
         const endVerse = end.v || startVerse;
 
         passages.push({
           book,
           fullBookName: start.b,
           chapter,
+          endChapter,
           startVerse,
           endVerse,
           translation: 'default',
-          displayRef: createDisplayRef(start.b, chapter, startVerse, endVerse !== startVerse ? endVerse : undefined),
+          displayRef: createDisplayRef(
+            start.b,
+            chapter,
+            startVerse,
+            endVerse !== startVerse ? endVerse : undefined,
+            endChapter !== chapter ? endChapter : undefined
+          ),
         });
       }
     }
@@ -858,13 +1143,7 @@ export function parseVerseReference(reference: string): ParsedBibleReference[] |
 
   // If we successfully parsed a reference, update the context variables
   if (passages && passages.length > 0) {
-    legacyContext = reference;
-
-    const firstPassage = passages[0];
-    lastParsedContext.book = firstPassage.fullBookName || firstPassage.book;
-    lastParsedContext.chapter = firstPassage.chapter;
-    lastParsedContext.verse = firstPassage.startVerse;
-    lastParsedContext.fullReference = `${firstPassage.book} ${firstPassage.chapter}:${firstPassage.startVerse}`;
+    updateContextFromPassages(passages, reference);
   }
 
   return passages && passages.length > 0 ? passages : null;
@@ -897,6 +1176,18 @@ export async function lookupVerse(reference: ParsedBibleReference): Promise<stri
   }
 }
 
+function findLastVerseInChapter(
+  verses: Record<string, string>,
+  book: string,
+  chapter: number
+): number | null {
+  for (let v = 200; v >= 1; v--) {
+    const key = `${book} ${chapter}:${v}`;
+    if (key in verses) return v;
+  }
+  return null;
+}
+
 /**
  * Look up multiple verses for a reference range
  */
@@ -909,22 +1200,35 @@ export async function lookupVerses(reference: ParsedBibleReference): Promise<Arr
   
   try {
     const verses = await loadVerses();
-    
-    for (let v = reference.startVerse; v <= reference.endVerse; v++) {
-      const key = `${reference.book} ${reference.chapter}:${v}`;
-      let text = verses[key];
-      
-      if (text) {
-        // Clean up the verse text
-        text = text
-          .replace(/^#\s*/, "")
-          .replace(/\[([^\]]+)\]/g, "$1");
-        
-        results.push({
-          verse: v,
-          text,
-          displayRef: `${reference.book} ${reference.chapter}:${v}`,
-        });
+
+    const endChapter = reference.endChapter ?? reference.chapter;
+    const startChapter = reference.chapter;
+
+    for (let c = startChapter; c <= endChapter; c++) {
+      const startVerse = c === startChapter ? reference.startVerse : 1;
+      const endVerse =
+        c === endChapter
+          ? reference.endVerse
+          : findLastVerseInChapter(verses, reference.book, c);
+
+      if (!endVerse || endVerse < startVerse) continue;
+
+      for (let v = startVerse; v <= endVerse; v++) {
+        const key = `${reference.book} ${c}:${v}`;
+        let text = verses[key];
+
+        if (text) {
+          // Clean up the verse text
+          text = text
+            .replace(/^#\s*/, "")
+            .replace(/\[([^\]]+)\]/g, "$1");
+
+          results.push({
+            verse: v,
+            text,
+            displayRef: `${reference.book} ${c}:${v}`,
+          });
+        }
       }
     }
   } catch (error) {
@@ -947,9 +1251,82 @@ export async function detectAndLookupReferences(
 ): Promise<DetectedBibleReference[]> {
   const results: DetectedBibleReference[] = [];
 
+  const navCommand = isNavigationCommand(text);
+  if (navCommand && lastParsedContext.book && lastParsedContext.chapter) {
+    const mappedBook = mapBookName(lastParsedContext.book);
+    let target: { book: string; chapter: number; verse: number } | null = null;
+
+    if (navCommand === "next" && lastParsedContext.verse) {
+      const next = await getNextVerse(
+        mappedBook,
+        lastParsedContext.chapter,
+        lastParsedContext.verse
+      );
+      if (next) target = { book: next.book, chapter: next.chapter, verse: next.verse };
+    } else if (navCommand === "previous" && lastParsedContext.verse) {
+      const prev = await getPreviousVerse(
+        mappedBook,
+        lastParsedContext.chapter,
+        lastParsedContext.verse
+      );
+      if (prev) target = { book: prev.book, chapter: prev.chapter, verse: prev.verse };
+    } else if (navCommand === "next_chapter") {
+      target = {
+        book: mappedBook,
+        chapter: lastParsedContext.chapter + 1,
+        verse: 1,
+      };
+    } else if (navCommand === "previous_chapter" && lastParsedContext.chapter > 1) {
+      target = {
+        book: mappedBook,
+        chapter: lastParsedContext.chapter - 1,
+        verse: 1,
+      };
+    }
+
+    if (target) {
+      const verseData = await loadVerseByComponents(
+        target.book,
+        target.chapter,
+        target.verse
+      );
+      if (verseData) {
+        const passage: ParsedBibleReference = {
+          book: target.book,
+          fullBookName: target.book,
+          chapter: target.chapter,
+          endChapter: target.chapter,
+          startVerse: target.verse,
+          endVerse: target.verse,
+          translation: "default",
+          displayRef: verseData.displayRef,
+        };
+        updateContextFromPassages([passage], text);
+        return [
+          {
+            id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            reference: verseData.displayRef,
+            displayRef: verseData.displayRef,
+            verseText: verseData.verseText,
+            source: "direct",
+            transcriptText: text,
+            timestamp: Date.now(),
+            book: target.book,
+            chapter: target.chapter,
+            verse: target.verse,
+            isNavigationResult: true,
+          },
+        ];
+      }
+    }
+  }
+
   // Normalize common speech/typo patterns before parsing
   const preprocessed = preprocessBibleReference(text);
   let numericText = wordsToNumbers(preprocessed);
+  numericText = normalizeOrdinalIndicators(numericText);
+  numericText = normalizeRomanNumeralsForBooks(numericText);
+  numericText = normalizeRomanNumeralsForChapterVerse(numericText);
   numericText = normalizeCommaBetweenChapterAndVerse(numericText);
 
   // Guardrail: only apply the more aggressive/heuristic transforms if we actually
@@ -960,9 +1337,11 @@ export async function detectAndLookupReferences(
   // Always handle the common "Book <chapter> ... verse <n>" pattern (even for typed queries),
   // but only when a Bible book is present.
   const phraseNormalized = hasBook
-    ? normalizeBookChapterThenVerseLater(
-        normalizeBookChapterVersePhrase(
-          normalizeBookChapterColonVerse(numericText)
+    ? normalizeTrailingVerseListAfterFullReference(
+        normalizeBookChapterThenVerseLater(
+          normalizeBookChapterVersePhrase(
+            normalizeBookChapterColonVerse(normalizeBookChapterVerseList(numericText))
+          )
         )
       )
     : numericText;

@@ -27,6 +27,8 @@ const getNotepadStyles = (isDark: boolean) => {
   const buttonBorder = isDark ? "#3a3a3a" : "#d0d0d0";
   const keyPointBorder = isDark ? "#f59e0b" : "#d97706";
   const keyPointBg = isDark ? "rgba(245, 158, 11, 0.12)" : "rgba(245, 158, 11, 0.08)";
+  const scriptureBorder = isDark ? "#22c55e" : "#16a34a";
+  const scriptureBg = isDark ? "rgba(34, 197, 94, 0.12)" : "rgba(34, 197, 94, 0.08)";
 
   return {
     container: {
@@ -374,6 +376,36 @@ const getNotepadStyles = (isDark: boolean) => {
       gap: "6px",
       whiteSpace: "nowrap" as const,
     },
+    scriptureCard: {
+      border: `1px solid ${scriptureBorder}`,
+      borderLeft: `4px solid ${scriptureBorder}`,
+      borderRadius: "8px",
+      padding: "8px 10px",
+      backgroundColor: scriptureBg,
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: "10px",
+    },
+    scriptureText: {
+      color: scriptureBorder,
+      fontSize: "0.85rem",
+      fontWeight: 600,
+      lineHeight: "1.4",
+    },
+    scriptureAddButton: {
+      backgroundColor: buttonBg,
+      color: text,
+      border: `1px solid ${buttonBorder}`,
+      padding: "4px 8px",
+      borderRadius: "6px",
+      cursor: "pointer",
+      fontSize: "0.75rem",
+      display: "inline-flex",
+      alignItems: "center",
+      gap: "6px",
+      whiteSpace: "nowrap" as const,
+    },
     footer: {
       padding: "8px 20px",
       backgroundColor: bgSecondary,
@@ -427,11 +459,15 @@ const LiveSlidesNotepad: React.FC = () => {
   const [filterReferences, setFilterReferences] = useState(false);
   const [filterKeyPoints, setFilterKeyPoints] = useState(false);
   const [transcriptSearchQuery, setTranscriptSearchQuery] = useState("");
+  const [autoScrollTranscript, setAutoScrollTranscript] = useState(true);
+  const [autoScrollPaused, setAutoScrollPaused] = useState(false);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const lineNumbersRef = useRef<HTMLDivElement>(null);
   const colorIndicatorsRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<LiveSlidesWebSocket | null>(null);
+  const transcriptScrollRef = useRef<HTMLDivElement>(null);
+  const transcriptEndRef = useRef<HTMLDivElement>(null);
   // Avoid stale closures in WS handlers (we intentionally do NOT re-bind on every keystroke).
   const textRef = useRef<string>("");
   const lastLocalEditAtRef = useRef<number>(0);
@@ -453,6 +489,43 @@ const LiveSlidesNotepad: React.FC = () => {
   );
 
   const normalizedTranscriptQuery = transcriptSearchQuery.trim().toLowerCase();
+
+  // Auto-scroll to bottom when new transcription chunks arrive
+  useEffect(() => {
+    if (autoScrollTranscript && !autoScrollPaused && transcriptEndRef.current) {
+      transcriptEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [liveTranscriptChunks, liveInterimTranscript, autoScrollTranscript, autoScrollPaused]);
+
+  // Handle scroll in transcript panel - pause auto-scroll if user scrolls up
+  const handleTranscriptPanelScroll = useCallback(() => {
+    const el = transcriptScrollRef.current;
+    if (!el) return;
+
+    const { scrollTop, scrollHeight, clientHeight } = el;
+    const distanceFromBottom = scrollHeight - (scrollTop + clientHeight);
+    const atBottom = distanceFromBottom < 60;
+
+    if (!atBottom && autoScrollTranscript) {
+      setAutoScrollPaused(true);
+      return;
+    }
+
+    if (atBottom && autoScrollPaused) {
+      setAutoScrollPaused(false);
+    }
+  }, [autoScrollTranscript, autoScrollPaused]);
+
+  // Set auto-scroll from checkbox (also resets pause)
+  const setAutoScrollFromCheckbox = useCallback((enabled: boolean) => {
+    setAutoScrollTranscript(enabled);
+    setAutoScrollPaused(false);
+    if (enabled) {
+      requestAnimationFrame(() => {
+        transcriptEndRef.current?.scrollIntoView({ behavior: "smooth" });
+      });
+    }
+  }, []);
 
   // Toggle theme
   const toggleTheme = useCallback(() => {
@@ -570,7 +643,9 @@ const LiveSlidesNotepad: React.FC = () => {
 
   const insertTranscriptChunkIntoNotepad = useCallback(
     (chunkText: string) => {
-      const cleaned = (chunkText || "").trim();
+      // Strip leading [bracket tags] like [quote], [main point], etc.
+      let cleaned = (chunkText || "").trim();
+      cleaned = cleaned.replace(/^\[[^\]]*\]\s*/g, "");
       if (!cleaned) return;
 
       const el = textareaRef.current;
@@ -582,11 +657,45 @@ const LiveSlidesNotepad: React.FC = () => {
       const before = current.slice(0, safeStart);
       const after = current.slice(safeEnd);
 
-      const prefix = before.length > 0 && !before.endsWith("\n\n") ? "\n\n" : "";
-      const suffix = after.length > 0 && !after.startsWith("\n") ? "\n\n" : "";
+      // Find current line's indentation to preserve context
+      // Look backwards from cursor to find start of current line
+      const lastNewlineIdx = before.lastIndexOf("\n");
+      const currentLineStart = lastNewlineIdx === -1 ? 0 : lastNewlineIdx + 1;
+      const currentLine = before.slice(currentLineStart);
+      
+      // Extract leading whitespace (tabs/spaces) from current line
+      const indentMatch = currentLine.match(/^(\s*)/);
+      const currentIndent = indentMatch ? indentMatch[1] : "";
 
-      const nextValue = before + prefix + cleaned + suffix + after;
-      const nextPos = (before + prefix + cleaned).length;
+      // Determine insertion behavior:
+      // - If we're at end of an indented line or on an empty indented line, 
+      //   add text on a new line with the same indent
+      // - If cursor is at end of document or after blank lines, just add normally
+      const isOnIndentedLine = currentIndent.length > 0;
+      const isAtEndOfLine = after.length === 0 || after.startsWith("\n");
+      const lineHasContent = currentLine.trim().length > 0;
+
+      let prefix: string;
+      let textToInsert: string;
+
+      if (isOnIndentedLine && isAtEndOfLine) {
+        // Preserve indentation: add newline + same indent + text
+        prefix = lineHasContent ? "\n" : "";
+        textToInsert = currentIndent + cleaned;
+      } else if (before.length > 0 && !before.endsWith("\n")) {
+        // Not indented, mid-line or end without newline - add newline before
+        prefix = "\n";
+        textToInsert = cleaned;
+      } else {
+        // At start or already has newline
+        prefix = "";
+        textToInsert = cleaned;
+      }
+
+      const suffix = after.length > 0 && !after.startsWith("\n") ? "\n" : "";
+
+      const nextValue = before + prefix + textToInsert + suffix + after;
+      const nextPos = (before + prefix + textToInsert).length;
 
       applyTextUpdate(nextValue, nextPos, nextPos);
       el?.focus();
@@ -951,8 +1060,27 @@ Result: Slide 1 = Title, Slide 2 = Title + Sub-item 1, Slide 3 = Title + Sub-ite
                   <FaMicrophone />
                   Live Transcriptions
                 </div>
-                <div style={{ fontSize: "0.75rem", color: notepadStyles.footer.color }}>
-                  {isConnected ? "WS connected" : "WS disconnected"}
+                <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                  <label
+                    style={{
+                      ...notepadStyles.transcriptionFilterLabel,
+                      cursor: "pointer",
+                    }}
+                    title="When enabled, the transcript will stay scrolled to the latest line. Scrolling up pauses it."
+                  >
+                    <input
+                      type="checkbox"
+                      checked={autoScrollTranscript}
+                      onChange={(e) => setAutoScrollFromCheckbox(e.target.checked)}
+                    />
+                    Auto-scroll
+                    {autoScrollTranscript && autoScrollPaused && (
+                      <span style={{ color: "#f59e0b", fontWeight: 700, marginLeft: "4px" }}>(paused)</span>
+                    )}
+                  </label>
+                  <div style={{ fontSize: "0.75rem", color: notepadStyles.footer.color }}>
+                    {isConnected ? "WS connected" : "WS disconnected"}
+                  </div>
                 </div>
               </div>
 
@@ -1001,16 +1129,11 @@ Result: Slide 1 = Title, Slide 2 = Title + Sub-item 1, Slide 3 = Title + Sub-ite
               </div>
             </div>
 
-            <div style={notepadStyles.transcriptionScroll}>
-              {filterTranscript &&
-                liveInterimTranscript.trim().length > 0 &&
-                (!normalizedTranscriptQuery ||
-                  liveInterimTranscript.toLowerCase().includes(normalizedTranscriptQuery)) && (
-                <div style={notepadStyles.transcriptionInterim}>
-                  {liveInterimTranscript}
-                </div>
-              )}
-
+            <div
+              ref={transcriptScrollRef}
+              onScroll={handleTranscriptPanelScroll}
+              style={notepadStyles.transcriptionScroll}
+            >
               {liveTranscriptChunks.length === 0 ? (
                 <div style={{ color: notepadStyles.footer.color, fontSize: "0.85rem" }}>
                   Waiting for transcription stream…
@@ -1019,10 +1142,7 @@ Result: Slide 1 = Title, Slide 2 = Title + Sub-item 1, Slide 3 = Title + Sub-ite
                   </div>
                 </div>
               ) : (
-                liveTranscriptChunks
-                  .slice()
-                  .reverse()
-                  .map((m) => {
+                liveTranscriptChunks.map((m) => {
                     const showAny =
                       filterTranscript ||
                       (filterReferences && (m.scripture_references?.length || 0) > 0) ||
@@ -1073,7 +1193,26 @@ Result: Slide 1 = Title, Slide 2 = Title + Sub-item 1, Slide 3 = Title + Sub-ite
                               >
                                 Scripture refs
                               </div>
-                              <div>{m.scripture_references?.join(", ")}</div>
+                              <div
+                                style={{
+                                  display: "flex",
+                                  flexDirection: "column",
+                                  gap: "6px",
+                                }}
+                              >
+                                {m.scripture_references?.map((ref, i) => (
+                                  <div key={`${m.timestamp}-ref-${i}`} style={notepadStyles.scriptureCard}>
+                                    <span style={notepadStyles.scriptureText}>{ref}</span>
+                                    <button
+                                      style={notepadStyles.scriptureAddButton}
+                                      onClick={() => insertTranscriptChunkIntoNotepad(ref)}
+                                      title="Add this scripture reference to the notepad"
+                                    >
+                                      <FaPlus size={10} /> Add
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
                             </div>
                           )}
 
@@ -1096,9 +1235,6 @@ Result: Slide 1 = Title, Slide 2 = Title + Sub-item 1, Slide 3 = Title + Sub-ite
                             >
                               {m.key_points?.map((kp, i) => {
                                 const category = kp.category?.trim();
-                                const keyPointText = category
-                                  ? `[${category}] ${kp.text}`
-                                  : kp.text;
                                 return (
                                   <div key={`${m.timestamp}-kp-${i}`} style={notepadStyles.keyPointCard}>
                                     <div style={{ display: "flex", flexDirection: "column", gap: "4px", flex: 1 }}>
@@ -1109,8 +1245,8 @@ Result: Slide 1 = Title, Slide 2 = Title + Sub-item 1, Slide 3 = Title + Sub-ite
                                     </div>
                                     <button
                                       style={notepadStyles.keyPointAddButton}
-                                      onClick={() => insertTranscriptChunkIntoNotepad(keyPointText)}
-                                      title="Add this key point to the notepad as a new slide"
+                                      onClick={() => insertTranscriptChunkIntoNotepad(kp.text)}
+                                      title="Add this key point to the notepad"
                                     >
                                       <FaPlus size={10} /> Add
                                     </button>
@@ -1124,6 +1260,19 @@ Result: Slide 1 = Title, Slide 2 = Title + Sub-item 1, Slide 3 = Title + Sub-ite
                     );
                   })
               )}
+
+              {/* Interim transcript - shown at bottom for real-time updates */}
+              {filterTranscript &&
+                liveInterimTranscript.trim().length > 0 &&
+                (!normalizedTranscriptQuery ||
+                  liveInterimTranscript.toLowerCase().includes(normalizedTranscriptQuery)) && (
+                <div style={notepadStyles.transcriptionInterim}>
+                  {liveInterimTranscript}
+                </div>
+              )}
+
+              {/* Scroll anchor for auto-scroll */}
+              <div ref={transcriptEndRef} />
             </div>
           </div>
         )}

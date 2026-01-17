@@ -44,6 +44,7 @@ export interface ParsedBibleReference {
   book: string;
   fullBookName: string;
   chapter: number;
+  endChapter?: number;
   startVerse: number;
   endVerse: number;
   translation: string;
@@ -54,6 +55,8 @@ export interface BibleParseContext {
   book: string | null;
   chapter: number | null;
   verse: number | null;
+  endChapter?: number | null;
+  endVerse?: number | null;
   fullReference: string | null;
 }
 

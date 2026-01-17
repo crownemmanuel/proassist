@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef } from "react";
-import { FaSearch, FaBook, FaRocket, FaCog, FaDesktop, FaExclamationTriangle, FaGlobe, FaClock, FaBible, FaMicrophone, FaNetworkWired, FaRobot, FaMagic, FaFileImport, FaEdit, FaBug, FaCheckCircle, FaInfoCircle } from "react-icons/fa";
+import { FaSearch, FaBook, FaRocket, FaCog, FaDesktop, FaExclamationTriangle, FaGlobe, FaClock, FaBible, FaStickyNote, FaNetworkWired, FaRobot, FaMagic, FaFileImport, FaEdit, FaBug, FaCheckCircle, FaInfoCircle } from "react-icons/fa";
 import "../App.css";
 
 interface SectionData {
@@ -74,7 +74,7 @@ const HelpPage: React.FC = () => {
     { id: "liveslides", title: "Live Slides", icon: <FaGlobe />, keywords: ["live", "slides", "websocket", "collaboration", "notepad", "real-time", "browser"] },
     { id: "timer", title: "Stage Assist - Timer", icon: <FaClock />, keywords: ["timer", "schedule", "countdown", "stage", "assist", "automation"] },
     { id: "smartverses", title: "SmartVerses", icon: <FaBible />, keywords: ["smartverses", "bible", "search", "transcription", "verse", "assemblyai"] },
-    { id: "testimonies", title: "Live Testimonies", icon: <FaMicrophone />, keywords: ["testimonies", "firebase", "live", "testimony"] },
+    { id: "testimonies", title: "Live Testimonies", icon: <FaStickyNote />, keywords: ["testimonies", "firebase", "live", "testimony"] },
     { id: "network", title: "Network Sync", icon: <FaNetworkWired />, keywords: ["network", "sync", "master", "slave", "peer", "synchronize"] },
     { id: "aiassistant", title: "Global AI Assistant", icon: <FaRobot />, keywords: ["ai", "assistant", "chat", "global", "help"] },
     { id: "automation", title: "AI Automation", icon: <FaMagic />, keywords: ["automation", "proofread", "ai", "spell", "check"] },
@@ -483,7 +483,7 @@ const HelpPage: React.FC = () => {
           </ol>
         </Section>
 
-        <Section id="testimonies" title="Live Testimonies" icon={<FaMicrophone />} searchQuery={searchQuery} ref={(el) => (sectionRefs.current["testimonies"] = el)}>
+        <Section id="testimonies" title="Live Testimonies" icon={<FaStickyNote />} searchQuery={searchQuery} ref={(el) => (sectionRefs.current["testimonies"] = el)}>
           <p>
             Manage testimonies from Firebase with real-time updates and ProPresenter integration.
           </p>

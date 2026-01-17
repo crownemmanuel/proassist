@@ -13,7 +13,7 @@ import {
   FaQuestionCircle,
   FaSun,
   FaMoon,
-  FaMicrophone,
+  FaStickyNote,
   FaClock,
   FaBible,
 } from "react-icons/fa";
@@ -97,7 +97,7 @@ function Navigation({
           isActive("/live-testimonies") ? "active" : ""
         }`}
       >
-        <FaMicrophone />
+        <FaStickyNote />
         <span>Live Testimonies</span>
       </Link>
       <Link

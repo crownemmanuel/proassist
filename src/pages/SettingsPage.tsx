@@ -8,7 +8,7 @@ import NetworkSettings from "../components/NetworkSettings";
 import ProPresenterSettings from "../components/ProPresenterSettings";
 import VersionSettings from "../components/VersionSettings";
 import SmartVersesSettings from "../components/SmartVersesSettings";
-import { FaList, FaRobot, FaMicrophone, FaNetworkWired, FaClock, FaInfoCircle, FaBible, FaGlobe } from "react-icons/fa";
+import { FaList, FaRobot, FaStickyNote, FaNetworkWired, FaClock, FaInfoCircle, FaBible, FaGlobe } from "react-icons/fa";
 import "../App.css"; // Ensure global styles are applied
 import {
   exportAllTemplatesToFile,
@@ -240,7 +240,7 @@ const SettingsPage: React.FC = () => {
             onClick={() => setCurrentView("liveTestimonies")}
             className={currentView === "liveTestimonies" ? "active" : ""}
           >
-            <FaMicrophone />
+            <FaStickyNote />
             Live Testimonies
           </button>
           <button
