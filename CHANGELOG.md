@@ -2,6 +2,15 @@
 
 All notable changes to ProAssist will be documented in this file.
 
+## [0.6.0] - 2026-01-16
+
+### Changed
+- **Network Sync**: Updated network synchronization service and components
+- **Schedule Automation**: Enhanced schedule automation modal functionality
+- **Stage Assist**: Improved stage assist context and page components
+- **Recorder Page**: Updated recorder page with latest improvements
+- **Type Definitions**: Updated network sync and ProPresenter type definitions
+
 ## [0.5.6] - 2026-01-16
 
 ### Added
