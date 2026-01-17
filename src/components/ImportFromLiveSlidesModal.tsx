@@ -13,6 +13,7 @@ import {
   LiveSlide,
 } from "../types/liveSlides";
 import { Slide, Template, LayoutType } from "../types";
+import { stripBulletPrefix } from "../utils/liveSlideParser";
 import "../App.css";
 
 interface ImportFromLiveSlidesModalProps {
@@ -95,8 +96,10 @@ const ImportFromLiveSlidesModal: React.FC<ImportFromLiveSlidesModalProps> = ({
     liveSlides: LiveSlide[]
   ): Pick<Slide, "text" | "layout" | "isAutoScripture">[] => {
     return liveSlides.map((liveSlide) => {
-      // Combine items into text lines
-      const text = liveSlide.items.map((item) => item.text).join("\n");
+      // Combine items into text lines, stripping bullet characters (visual-only in notepad)
+      const text = liveSlide.items
+        .map((item) => stripBulletPrefix(item.text))
+        .join("\n");
 
       // Determine layout based on number of items
       const itemCount = liveSlide.items.length;

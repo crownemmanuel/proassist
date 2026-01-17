@@ -51,7 +51,7 @@ import {
   WsTranscriptionStream,
 } from "../types/liveSlides";
 import { TranscriptionStatus } from "../types/smartVerses";
-import { calculateSlideBoundaries } from "../utils/liveSlideParser";
+import { calculateSlideBoundaries, stripBulletPrefix } from "../utils/liveSlideParser";
 import { triggerPresentationOnConnections } from "../services/propresenterService";
 import { useNetworkSync } from "../hooks/useNetworkSync";
 import { loadNetworkSyncSettings } from "../services/networkSyncService";
@@ -1839,7 +1839,10 @@ const MainApplicationPage: React.FC = () => {
       liveSlides: LiveSlide[]
     ): Slide[] => {
       return liveSlides.map((liveSlide, idx) => {
-        const text = liveSlide.items.map((item) => item.text).join("\n");
+        // Strip bullet characters (visual-only in notepad) when converting
+        const text = liveSlide.items
+          .map((item) => stripBulletPrefix(item.text))
+          .join("\n");
 
         const itemCount = liveSlide.items.length;
         const candidate = `${getLayoutName(itemCount)}-line` as LayoutType;

@@ -6,7 +6,7 @@ import React, {
   useMemo,
 } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
-import { FaSun, FaMoon, FaQuestionCircle, FaMicrophone, FaPlus } from "react-icons/fa";
+import { FaSun, FaMoon, FaQuestionCircle, FaMicrophone, FaPlus, FaListUl, FaGripLines } from "react-icons/fa";
 import { LiveSlidesWebSocket } from "../services/liveSlideService";
 import {
   calculateSlideBoundaries,
@@ -14,6 +14,10 @@ import {
 } from "../utils/liveSlideParser";
 import { LiveSlide, WsTranscriptionStream } from "../types/liveSlides";
 import "../App.css";
+
+// Bullet point character for visual display (stripped when importing)
+const BULLET_CHAR = "•";
+const BULLET_PREFIX = `\t${BULLET_CHAR} `; // Tab + bullet + space
 
 // Theme-aware styles factory
 const getNotepadStyles = (isDark: boolean) => {
@@ -461,10 +465,13 @@ const LiveSlidesNotepad: React.FC = () => {
   const [transcriptSearchQuery, setTranscriptSearchQuery] = useState("");
   const [autoScrollTranscript, setAutoScrollTranscript] = useState(true);
   const [autoScrollPaused, setAutoScrollPaused] = useState(false);
+  const [cursorLineIndex, setCursorLineIndex] = useState(0);
+  const [showSlideDividers, setShowSlideDividers] = useState(true);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const lineNumbersRef = useRef<HTMLDivElement>(null);
   const colorIndicatorsRef = useRef<HTMLDivElement>(null);
+  const slideDividersRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<LiveSlidesWebSocket | null>(null);
   const transcriptScrollRef = useRef<HTMLDivElement>(null);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
@@ -533,6 +540,21 @@ const LiveSlidesNotepad: React.FC = () => {
     setIsDarkMode(newTheme);
     localStorage.setItem("liveSlidesNotepadTheme", newTheme ? "dark" : "light");
   }, [isDarkMode]);
+
+  // Set favicon to ProAssist icon
+  useEffect(() => {
+    const link = document.querySelector("link[rel*='icon']") as HTMLLinkElement;
+    if (link) {
+      link.href = "/ProAssist.png";
+      link.type = "image/png";
+    } else {
+      const newLink = document.createElement("link");
+      newLink.rel = "icon";
+      newLink.type = "image/png";
+      newLink.href = "/ProAssist.png";
+      document.head.appendChild(newLink);
+    }
+  }, []);
 
   // Connect to WebSocket
   useEffect(() => {
@@ -703,65 +725,226 @@ const LiveSlidesNotepad: React.FC = () => {
     [applyTextUpdate, text]
   );
 
+  // Helper to check if a line is a bullet line
+  const isBulletLine = useCallback((line: string) => {
+    return line.startsWith(BULLET_PREFIX) || line.startsWith(`\t${BULLET_CHAR}`) || line.startsWith(`    ${BULLET_CHAR}`);
+  }, []);
+
+  // Helper to get line start index
+  const getLineStartIdx = useCallback((value: string, idx: number) => {
+    const i = value.lastIndexOf("\n", Math.max(0, idx - 1));
+    return i === -1 ? 0 : i + 1;
+  }, []);
+
+  // Helper to get current line
+  const getCurrentLine = useCallback((value: string, cursorPos: number) => {
+    const lineStart = getLineStartIdx(value, cursorPos);
+    const lineEndIdx = value.indexOf("\n", cursorPos);
+    const lineEnd = lineEndIdx === -1 ? value.length : lineEndIdx;
+    return value.slice(lineStart, lineEnd);
+  }, [getLineStartIdx]);
+
+  // Toggle bullet list for current line or selection
+  const toggleBulletList = useCallback(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+
+    const value = el.value;
+    const start = el.selectionStart ?? 0;
+    const end = el.selectionEnd ?? 0;
+
+    const lineStart = getLineStartIdx(value, start);
+    const lineEndIdx = value.indexOf("\n", end);
+    const lineEnd = lineEndIdx === -1 ? value.length : lineEndIdx;
+
+    const block = value.slice(lineStart, lineEnd);
+    const lines = block.split("\n");
+
+    // Check if all selected lines are already bulleted
+    const allBulleted = lines.every((line) => line.trim() === "" || isBulletLine(line));
+
+    const newLines = lines.map((line) => {
+      if (line.trim() === "") return line;
+      
+      if (allBulleted) {
+        // Remove bullet
+        if (line.startsWith(BULLET_PREFIX)) {
+          return line.slice(BULLET_PREFIX.length);
+        }
+        if (line.startsWith(`\t${BULLET_CHAR} `)) {
+          return line.slice(3);
+        }
+        if (line.startsWith(`    ${BULLET_CHAR} `)) {
+          return line.slice(6);
+        }
+        // Just has tab/indent without bullet
+        if (line.startsWith("\t")) return line.slice(1);
+        if (line.startsWith("    ")) return line.slice(4);
+        return line;
+      } else {
+        // Add bullet (only if not already bulleted)
+        if (isBulletLine(line)) return line;
+        return BULLET_PREFIX + line;
+      }
+    });
+
+    const newBlock = newLines.join("\n");
+    const newValue = value.slice(0, lineStart) + newBlock + value.slice(lineEnd);
+    const newPos = lineStart + newBlock.length;
+    
+    applyTextUpdate(newValue, newPos, newPos);
+    el.focus();
+  }, [applyTextUpdate, getLineStartIdx, isBulletLine]);
+
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      // Browsers use Tab for focus navigation. Intercept it so users can create
-      // sub-items (lines starting with Tab) inside the notepad.
-      if (e.key !== "Tab" || e.altKey || e.ctrlKey || e.metaKey) return;
-
-      e.preventDefault();
-
       const el = e.currentTarget;
       const value = el.value;
       const start = el.selectionStart ?? 0;
       const end = el.selectionEnd ?? 0;
 
-      const TAB = "\t"; // matches parsing rules (also supports 4 spaces)
+      const lineStart = getLineStartIdx(value, start);
+      const currentLine = getCurrentLine(value, start);
 
-      const lineStartIdx = (idx: number) => {
-        const i = value.lastIndexOf("\n", Math.max(0, idx - 1));
-        return i === -1 ? 0 : i + 1;
-      };
+      // Handle Enter key - continue bullet list
+      if (e.key === "Enter" && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey) {
+        if (isBulletLine(currentLine)) {
+          e.preventDefault();
+          
+          // If cursor is on an empty bullet line, remove the bullet instead
+          const contentAfterBullet = currentLine.replace(/^(\t|    )• ?/, "").trim();
+          if (contentAfterBullet === "") {
+            // Remove the bullet line prefix and stay on regular line
+            const lineEndIdx = value.indexOf("\n", start);
+            const lineEnd = lineEndIdx === -1 ? value.length : lineEndIdx;
+            const newValue = value.slice(0, lineStart) + value.slice(lineEnd);
+            const newPos = lineStart;
+            applyTextUpdate(newValue, newPos, newPos);
+            return;
+          }
 
-      // Multi-line selection: indent/outdent whole lines.
+          // Continue with bullet on new line
+          const newValue = value.slice(0, start) + "\n" + BULLET_PREFIX + value.slice(end);
+          const newPos = start + 1 + BULLET_PREFIX.length;
+          applyTextUpdate(newValue, newPos, newPos);
+          return;
+        }
+      }
+
+      // Handle Backspace - remove bullet if at start of bullet line
+      if (e.key === "Backspace" && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey) {
+        if (isBulletLine(currentLine)) {
+          const posInLine = start - lineStart;
+          // If cursor is right after the bullet prefix, remove the bullet
+          if (posInLine <= BULLET_PREFIX.length) {
+            e.preventDefault();
+            // Remove just the bullet prefix, keep the content
+            const content = currentLine.replace(/^(\t|    )• ?/, "");
+            const lineEndIdx = value.indexOf("\n", start);
+            const lineEnd = lineEndIdx === -1 ? value.length : lineEndIdx;
+            const newValue = value.slice(0, lineStart) + content + value.slice(lineEnd);
+            const newPos = lineStart;
+            applyTextUpdate(newValue, newPos, newPos);
+            return;
+          }
+        }
+      }
+
+      // Handle Tab key - create bullet list or indent
+      if (e.key !== "Tab" || e.altKey || e.ctrlKey || e.metaKey) return;
+
+      e.preventDefault();
+
+      // Multi-line selection: indent/outdent whole lines with bullets
       const hasMultilineSelection =
         start !== end && value.slice(start, end).includes("\n");
 
       const outdentLine = (line: string) => {
+        // Remove bullet prefix
+        if (line.startsWith(BULLET_PREFIX)) {
+          return line.slice(BULLET_PREFIX.length);
+        }
+        if (line.startsWith(`\t${BULLET_CHAR} `)) {
+          return line.slice(3);
+        }
+        if (line.startsWith(`    ${BULLET_CHAR} `)) {
+          return line.slice(6);
+        }
+        // Regular indent removal
         if (line.startsWith("\t")) return line.slice(1);
         if (line.startsWith("    ")) return line.slice(4);
         return line;
       };
 
+      const indentLine = (line: string) => {
+        if (line.length === 0) return line;
+        // If already bulleted, just return as is
+        if (isBulletLine(line)) return line;
+        // Add bullet prefix
+        return BULLET_PREFIX + line;
+      };
+
       if (hasMultilineSelection || e.shiftKey) {
-        const blockStart = lineStartIdx(start);
+        const blockStart = getLineStartIdx(value, start);
         const blockEndNewline = value.indexOf("\n", end);
-        const blockEnd =
-          blockEndNewline === -1 ? value.length : blockEndNewline;
+        const blockEnd = blockEndNewline === -1 ? value.length : blockEndNewline;
 
         const block = value.slice(blockStart, blockEnd);
         const lines = block.split("\n");
 
         const nextLines = e.shiftKey
           ? lines.map(outdentLine)
-          : lines.map((l) => (l.length === 0 ? l : `${TAB}${l}`));
+          : lines.map(indentLine);
 
         const newBlock = nextLines.join("\n");
-        const newValue =
-          value.slice(0, blockStart) + newBlock + value.slice(blockEnd);
+        const newValue = value.slice(0, blockStart) + newBlock + value.slice(blockEnd);
 
-        // Keep selection spanning the full modified block (simple + predictable).
+        // Keep selection spanning the full modified block
         applyTextUpdate(newValue, blockStart, blockStart + newBlock.length);
         return;
       }
 
-      // Single cursor: insert a tab at the caret (common editing behavior).
-      const newValue = value.slice(0, start) + TAB + value.slice(end);
-      const newPos = start + TAB.length;
+      // If not already a bullet line, convert to bullet (even if empty)
+      if (!isBulletLine(currentLine)) {
+        const lineEndIdx = value.indexOf("\n", start);
+        const lineEnd = lineEndIdx === -1 ? value.length : lineEndIdx;
+        const newLine = BULLET_PREFIX + currentLine;
+        const newValue = value.slice(0, lineStart) + newLine + value.slice(lineEnd);
+        const newPos = start + BULLET_PREFIX.length;
+        applyTextUpdate(newValue, newPos, newPos);
+        return;
+      }
+
+      // Already a bullet line: just insert tab at cursor for additional indentation
+      const newValue = value.slice(0, start) + "\t" + value.slice(end);
+      const newPos = start + 1;
       applyTextUpdate(newValue, newPos, newPos);
     },
-    [applyTextUpdate]
+    [applyTextUpdate, getLineStartIdx, getCurrentLine, isBulletLine]
   );
+
+  // Track cursor position to detect if on bullet line
+  const handleSelectionChange = useCallback(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    
+    const value = el.value;
+    const cursorPos = el.selectionStart ?? 0;
+    
+    // Calculate line index
+    const textBeforeCursor = value.slice(0, cursorPos);
+    const lineIndex = textBeforeCursor.split("\n").length - 1;
+    setCursorLineIndex(lineIndex);
+  }, []);
+
+  // Check if current line is a bullet line
+  const isCurrentLineBulleted = useMemo(() => {
+    const lines = text.split("\n");
+    if (cursorLineIndex >= 0 && cursorLineIndex < lines.length) {
+      return isBulletLine(lines[cursorLineIndex]);
+    }
+    return false;
+  }, [text, cursorLineIndex, isBulletLine]);
 
   // Sync scroll between textarea and line numbers
   const handleScroll = useCallback((e: React.UIEvent<HTMLTextAreaElement>) => {
@@ -773,6 +956,9 @@ const LiveSlidesNotepad: React.FC = () => {
     if (colorIndicatorsRef.current) {
       colorIndicatorsRef.current.scrollTop = target.scrollTop;
     }
+    if (slideDividersRef.current) {
+      slideDividersRef.current.scrollTop = target.scrollTop;
+    }
   }, []);
 
   // Generate line numbers
@@ -780,6 +966,19 @@ const LiveSlidesNotepad: React.FC = () => {
     const lines = text.split("\n");
     return lines.map((_, i) => i + 1);
   }, [text]);
+
+  // Calculate slide divider positions (line indices where slides end)
+  const slideDividerLines = useMemo(() => {
+    if (boundaries.length === 0) return [];
+    
+    // Get unique end lines for each slide boundary (excluding the last one)
+    const endLines = new Set<number>();
+    for (let i = 0; i < boundaries.length - 1; i++) {
+      endLines.add(boundaries[i].endLine);
+    }
+    
+    return Array.from(endLines).sort((a, b) => a - b);
+  }, [boundaries]);
 
   // Copy URL to clipboard
   const handleCopyUrl = useCallback(async () => {
@@ -974,6 +1173,112 @@ This is the title of all the slide below
         </div>
       </div>
 
+      {/* Formatting Toolbar */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "8px",
+          padding: "8px 16px",
+          backgroundColor: notepadStyles.header.backgroundColor,
+          borderBottom: `1px solid ${notepadStyles.border}`,
+        }}
+      >
+        <button
+          onClick={toggleBulletList}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "6px",
+            padding: "6px 12px",
+            borderRadius: "6px",
+            border: isCurrentLineBulleted
+              ? "1px solid #3B82F6"
+              : `1px solid ${notepadStyles.border}`,
+            backgroundColor: isCurrentLineBulleted
+              ? "#3B82F6"
+              : notepadStyles.helpButton.backgroundColor,
+            color: isCurrentLineBulleted
+              ? "white"
+              : notepadStyles.helpButton.color,
+            cursor: "pointer",
+            fontSize: "0.8rem",
+            fontWeight: 500,
+            transition: "all 0.15s ease",
+          }}
+          title="Toggle bullet list (Tab)"
+          onMouseEnter={(e) => {
+            if (!isCurrentLineBulleted) {
+              e.currentTarget.style.backgroundColor = isDarkMode
+                ? "#3a3a3a"
+                : "#d8d8d8";
+            }
+          }}
+          onMouseLeave={(e) => {
+            if (!isCurrentLineBulleted) {
+              e.currentTarget.style.backgroundColor = isDarkMode
+                ? "#2a2a2a"
+                : "#e8e8e8";
+            }
+          }}
+        >
+          <FaListUl />
+          Bullet List
+        </button>
+        
+        <button
+          onClick={() => setShowSlideDividers(!showSlideDividers)}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "6px",
+            padding: "6px 12px",
+            borderRadius: "6px",
+            border: showSlideDividers
+              ? "1px solid #3B82F6"
+              : `1px solid ${notepadStyles.border}`,
+            backgroundColor: showSlideDividers
+              ? "#3B82F6"
+              : notepadStyles.helpButton.backgroundColor,
+            color: showSlideDividers
+              ? "white"
+              : notepadStyles.helpButton.color,
+            cursor: "pointer",
+            fontSize: "0.8rem",
+            fontWeight: 500,
+            transition: "all 0.15s ease",
+          }}
+          title="Show horizontal lines between slides"
+          onMouseEnter={(e) => {
+            if (!showSlideDividers) {
+              e.currentTarget.style.backgroundColor = isDarkMode
+                ? "#3a3a3a"
+                : "#d8d8d8";
+            }
+          }}
+          onMouseLeave={(e) => {
+            if (!showSlideDividers) {
+              e.currentTarget.style.backgroundColor = isDarkMode
+                ? "#2a2a2a"
+                : "#e8e8e8";
+            }
+          }}
+        >
+          <FaGripLines />
+          Slide Dividers
+        </button>
+        
+        <span
+          style={{
+            fontSize: "0.7rem",
+            color: notepadStyles.footer.color,
+            marginLeft: "4px",
+          }}
+        >
+          Press Tab to bullet • Enter to continue • Backspace to remove
+        </span>
+      </div>
+
       {/* Editor */}
       <div style={notepadStyles.editorWrapper}>
         {/* Color indicators */}
@@ -1019,11 +1324,46 @@ This is the title of all the slide below
 
         {/* Textarea */}
         <div style={notepadStyles.textareaWrapper}>
+          {/* Slide dividers overlay */}
+          {showSlideDividers && (
+            <div
+              ref={slideDividersRef}
+              style={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                pointerEvents: "none",
+                overflow: "hidden",
+                paddingTop: "16px",
+              }}
+            >
+              {lineNumbers.map((_, idx) => {
+                const isDividerLine = slideDividerLines.includes(idx);
+                return (
+                  <div
+                    key={idx}
+                    style={{
+                      height: `${lineHeight}px`,
+                      borderBottom: isDividerLine
+                        ? `1px solid ${isDarkMode ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.12)"}`
+                        : "none",
+                      boxSizing: "border-box",
+                    }}
+                  />
+                );
+              })}
+            </div>
+          )}
           <textarea
             ref={textareaRef}
             value={text}
             onChange={handleTextChange}
             onKeyDown={handleKeyDown}
+            onKeyUp={handleSelectionChange}
+            onClick={handleSelectionChange}
+            onSelect={handleSelectionChange}
             onScroll={handleScroll}
             style={notepadStyles.textarea}
             placeholder={`Start typing your slides here...

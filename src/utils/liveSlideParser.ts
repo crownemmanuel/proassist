@@ -13,20 +13,30 @@ const SLIDE_COLORS = [
 ];
 
 /**
+ * Strip bullet character from text when importing
+ * The bullet (•) is just for visual display in the notepad
+ */
+export function stripBulletPrefix(text: string): string {
+  // Remove bullet character and any surrounding whitespace at the start
+  // Handle both "• text" and just "•" patterns
+  return text.replace(/^•\s*/, "").trim();
+}
+
+/**
  * Parse notepad text into slides
  *
  * Parsing Rules:
  * - Empty line = New slide boundary
+ * - Consecutive non-empty, non-indented lines = One slide with multiple items
  * - Tab or 4 spaces at start = Indented child item
- * - Regular text = Parent line
  *
  * When a parent line has indented children:
  * - First slide: Parent only
  * - Then: One slide per child, each with parent + that child
  *
  * Example:
- * "Line A\nLine B" → Slide 1: [Line A], Slide 2: [Line B]
- * "Line A\n\nLine B" → Slide 1: [Line A], Slide 2: [Line B]
+ * "Line A\nLine B" → Slide 1: [Line A, Line B] (same slide, consecutive lines)
+ * "Line A\n\nLine B" → Slide 1: [Line A], Slide 2: [Line B] (different slides, separated by empty line)
  * "Parent\n\tChild1\n\tChild2" → Slide 1: [Parent], Slide 2: [Parent, ↳Child1], Slide 3: [Parent, ↳Child2]
  */
 export function parseNotepadText(text: string): LiveSlide[] {
@@ -47,7 +57,7 @@ export function parseNotepadText(text: string): LiveSlide[] {
 
     if (line.startsWith("\t") || line.startsWith("    ")) {
       // Orphaned indented line (no parent) - treat as regular line
-      const trimmed = line.replace(/^(\t|    )/, "").trimStart();
+      const trimmed = stripBulletPrefix(line.replace(/^(\t|    )/, "").trimStart());
       slides.push({
         items: [
           {
@@ -60,10 +70,10 @@ export function parseNotepadText(text: string): LiveSlide[] {
       colorIndex++;
       i++;
     } else {
-      // Regular line - this is a parent
+      // Regular line - check what follows
       const parentText = line;
 
-      // Collect all immediately following indented lines
+      // First, check for indented children
       const children: string[] = [];
       let j = i + 1;
       while (j < lines.length) {
@@ -72,28 +82,16 @@ export function parseNotepadText(text: string): LiveSlide[] {
           break; // Empty line stops the group
         }
         if (nextLine.startsWith("\t") || nextLine.startsWith("    ")) {
-          const trimmed = nextLine.replace(/^(\t|    )/, "").trimStart();
+          const trimmed = stripBulletPrefix(nextLine.replace(/^(\t|    )/, "").trimStart());
           children.push(trimmed);
           j++;
         } else {
-          break; // Non-indented line stops the group
+          break; // Non-indented line stops collecting children
         }
       }
 
-      if (children.length === 0) {
-        // No children - create single slide with just parent
-        slides.push({
-          items: [
-            {
-              text: parentText,
-              is_sub_item: false,
-            },
-          ],
-          color: SLIDE_COLORS[colorIndex % SLIDE_COLORS.length],
-        });
-        colorIndex++;
-      } else {
-        // Has children - create parent-only slide first, then one slide per child
+      if (children.length > 0) {
+        // Has indented children - create parent-only slide first, then one slide per child
         // First: parent-only slide
         slides.push({
           items: [
@@ -123,9 +121,36 @@ export function parseNotepadText(text: string): LiveSlide[] {
           });
           colorIndex++;
         }
+        
+        i = j; // Move past all processed lines
+      } else {
+        // No indented children - collect consecutive non-indented lines as ONE slide
+        const slideItems: { text: string; is_sub_item: boolean }[] = [
+          { text: parentText, is_sub_item: false },
+        ];
+        
+        j = i + 1;
+        while (j < lines.length) {
+          const nextLine = lines[j];
+          if (nextLine.trim() === "") {
+            break; // Empty line stops the group
+          }
+          if (nextLine.startsWith("\t") || nextLine.startsWith("    ")) {
+            break; // Indented line stops this group
+          }
+          // Non-indented, non-empty line - part of same slide
+          slideItems.push({ text: nextLine, is_sub_item: false });
+          j++;
+        }
+        
+        slides.push({
+          items: slideItems,
+          color: SLIDE_COLORS[colorIndex % SLIDE_COLORS.length],
+        });
+        colorIndex++;
+        
+        i = j; // Move past all processed lines
       }
-
-      i = j; // Move past all processed lines
     }
   }
 
@@ -172,36 +197,29 @@ export function calculateSlideBoundaries(text: string): SlideBoundary[] {
       slideIndex++;
       i++;
     } else {
-      // Regular line - this is a parent
-      // Collect all immediately following indented lines
+      // Regular line - check what follows
+      // Collect all immediately following lines (both indented and non-indented)
       let j = i + 1;
+      let hasIndentedChildren = false;
+      
+      // First, check if there are any indented children immediately after
       while (j < lines.length) {
         const nextLine = lines[j];
         if (nextLine.trim() === "") {
           break; // Empty line stops the group
         }
         if (nextLine.startsWith("\t") || nextLine.startsWith("    ")) {
+          hasIndentedChildren = true;
           j++;
         } else {
-          break; // Non-indented line stops the group
+          break; // Non-indented line stops collecting children
         }
       }
 
-      const lastChildLine = j - 1;
-      const hasChildren = lastChildLine >= i + 1;
-
-      if (!hasChildren) {
-        // No children - single slide with just parent
-        boundaries.push({
-          startLine: i,
-          endLine: i,
-          color: SLIDE_COLORS[colorIndex % SLIDE_COLORS.length],
-          slideIndex: slideIndex,
-        });
-        colorIndex++;
-        slideIndex++;
-      } else {
-        // Has children - parent-only slide first
+      if (hasIndentedChildren) {
+        // Has indented children - parent-only slide first
+        const lastChildLine = j - 1;
+        
         boundaries.push({
           startLine: i,
           endLine: i,
@@ -222,9 +240,35 @@ export function calculateSlideBoundaries(text: string): SlideBoundary[] {
           colorIndex++;
           slideIndex++;
         }
+        
+        i = j; // Move past all processed lines
+      } else {
+        // No indented children - collect consecutive non-indented, non-empty lines as ONE slide
+        j = i + 1;
+        while (j < lines.length) {
+          const nextLine = lines[j];
+          if (nextLine.trim() === "") {
+            break; // Empty line stops the group
+          }
+          if (nextLine.startsWith("\t") || nextLine.startsWith("    ")) {
+            break; // Indented line stops this group (will be handled as orphan or next parent's child)
+          }
+          // Non-indented, non-empty line - part of same slide
+          j++;
+        }
+        
+        // All lines from i to j-1 are one slide
+        boundaries.push({
+          startLine: i,
+          endLine: j - 1,
+          color: SLIDE_COLORS[colorIndex % SLIDE_COLORS.length],
+          slideIndex: slideIndex,
+        });
+        colorIndex++;
+        slideIndex++;
+        
+        i = j; // Move past all processed lines
       }
-
-      i = j; // Move past all processed lines
     }
   }
 
