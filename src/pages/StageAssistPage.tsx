@@ -36,6 +36,16 @@ import ScheduleAutomationModal from "../components/ScheduleAutomationModal";
 import { findMatchingAutomation } from "../utils/testimoniesStorage";
 import "../App.css";
 
+// Recording automation types
+const RECORDING_AUTOMATION_TYPES = [
+  "startVideoRecording",
+  "stopVideoRecording",
+  "startAudioRecording",
+  "stopAudioRecording",
+  "startBothRecording",
+  "stopBothRecording",
+] as const;
+
 function normalizeAutomations(item: ScheduleItem): ScheduleItemAutomation[] {
   const rawList = Array.isArray(item.automations)
     ? item.automations
@@ -43,7 +53,7 @@ function normalizeAutomations(item: ScheduleItem): ScheduleItemAutomation[] {
     ? [item.automation]
     : [];
 
-  // unique by type (slide + stageLayout)
+  // unique by type (slide + stageLayout + recording types)
   const byType = new Map<
     ScheduleItemAutomation["type"],
     ScheduleItemAutomation
@@ -51,7 +61,9 @@ function normalizeAutomations(item: ScheduleItem): ScheduleItemAutomation[] {
   for (const a of rawList) {
     // tolerate legacy slide automations missing `type` (older saved schedules)
     const normalized =
-      (a as any)?.type === "slide" || (a as any)?.type === "stageLayout"
+      (a as any)?.type === "slide" || 
+      (a as any)?.type === "stageLayout" ||
+      RECORDING_AUTOMATION_TYPES.includes((a as any)?.type)
         ? (a as ScheduleItemAutomation)
         : (a as any)?.presentationUuid &&
           typeof (a as any)?.slideIndex === "number"
@@ -448,6 +460,21 @@ const StageAssistPage: React.FC = () => {
                 `Session automation: Slide trigger failed on ${automationResult.failed} instance(s):`,
                 automationResult.errors
               );
+            }
+          } else {
+            // Recording automations - dispatch events
+            const eventMap: Record<string, string> = {
+              startVideoRecording: "automation-start-video-recording",
+              stopVideoRecording: "automation-stop-video-recording",
+              startAudioRecording: "automation-start-audio-recording",
+              stopAudioRecording: "automation-stop-audio-recording",
+              startBothRecording: "automation-start-both-recording",
+              stopBothRecording: "automation-stop-both-recording",
+            };
+            const eventName = eventMap[automation.type];
+            if (eventName) {
+              console.log(`Session automation: Dispatching ${eventName}`);
+              window.dispatchEvent(new CustomEvent(eventName));
             }
           }
         }
@@ -1748,9 +1775,13 @@ const StageAssistPage: React.FC = () => {
                         (item.automations && item.automations.length > 0) ||
                         item.automation
                           ? `Automation: ${normalizeAutomations(item)
-                              .map((a) =>
-                                a.type === "slide" ? "Slide" : "Stage Layout"
-                              )
+                              .map((a) => {
+                                if (a.type === "slide") return "Slide";
+                                if (a.type === "stageLayout") return "Stage Layout";
+                                if (a.type.startsWith("start")) return "▶ Recording";
+                                if (a.type.startsWith("stop")) return "⏹ Recording";
+                                return a.type;
+                              })
                               .join(" + ")}`
                           : "Configure automation"
                       }

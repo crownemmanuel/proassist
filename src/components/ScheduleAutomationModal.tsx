@@ -7,6 +7,10 @@ import {
   FaMagic,
   FaSave,
   FaLayerGroup,
+  FaVideo,
+  FaMicrophone,
+  FaPlay,
+  FaStop,
 } from "react-icons/fa";
 import {
   getEnabledConnections,
@@ -28,6 +32,15 @@ import {
 } from "../utils/testimoniesStorage";
 import "../App.css";
 
+// Recording automation types
+type RecordingAutomationType = 
+  | "startVideoRecording"
+  | "stopVideoRecording"
+  | "startAudioRecording"
+  | "stopAudioRecording"
+  | "startBothRecording"
+  | "stopBothRecording";
+
 interface ScheduleAutomationModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -36,7 +49,7 @@ interface ScheduleAutomationModalProps {
   sessionName: string;
 }
 
-type AutomationType = "slide" | "stageLayout";
+type AutomationType = "slide" | "stageLayout" | "recording";
 
 const ScheduleAutomationModal: React.FC<ScheduleAutomationModalProps> = ({
   isOpen,
@@ -80,6 +93,9 @@ const ScheduleAutomationModal: React.FC<ScheduleAutomationModalProps> = ({
   // ProPresenter connection selection
   const [enabledConnections, setEnabledConnections] = useState<ProPresenterConnection[]>([]);
   const [selectedConnectionId, setSelectedConnectionId] = useState<string>("");
+
+  // Recording automation state
+  const [selectedRecordingAction, setSelectedRecordingAction] = useState<RecordingAutomationType | null>(null);
 
   // Track if modal was just opened to prevent re-initialization
   const [hasInitialized, setHasInitialized] = useState(false);
@@ -133,13 +149,26 @@ const ScheduleAutomationModal: React.FC<ScheduleAutomationModalProps> = ({
       const initialAutomations = currentAutomations || [];
       setSavedAutomations(initialAutomations);
 
-      // default to slide tab unless only stageLayout exists
+      // Recording automation types
+      const recordingTypes: RecordingAutomationType[] = [
+        "startVideoRecording",
+        "stopVideoRecording",
+        "startAudioRecording",
+        "stopAudioRecording",
+        "startBothRecording",
+        "stopBothRecording",
+      ];
+
+      // default to slide tab unless only stageLayout or recording exists
       const hasSlide = initialAutomations.some((a) => a.type === "slide");
       const hasStage = initialAutomations.some((a) => a.type === "stageLayout");
+      const hasRecording = initialAutomations.some((a) => recordingTypes.includes(a.type as RecordingAutomationType));
       const initialType: AutomationType = hasSlide
         ? "slide"
         : hasStage
         ? "stageLayout"
+        : hasRecording
+        ? "recording"
         : "slide";
       setAutomationType(initialType);
 
@@ -160,6 +189,12 @@ const ScheduleAutomationModal: React.FC<ScheduleAutomationModalProps> = ({
         setSelectedScreenIndex(null);
         setSelectedLayoutIndex(null);
       }
+
+      // Initialize recording automation state
+      const existingRecording = initialAutomations.find((a) => 
+        recordingTypes.includes(a.type as RecordingAutomationType)
+      );
+      setSelectedRecordingAction(existingRecording?.type as RecordingAutomationType || null);
 
       setSuccess(false);
       setError(null);
@@ -324,10 +359,14 @@ const ScheduleAutomationModal: React.FC<ScheduleAutomationModalProps> = ({
   };
 
   const handleRemoveCurrentType = () => {
-    setSavedAutomations((prev) =>
-      prev.filter((a) => a.type !== automationType)
-    );
-    setSuccess(false);
+    if (automationType === "recording") {
+      handleRemoveRecordingAutomation();
+    } else {
+      setSavedAutomations((prev) =>
+        prev.filter((a) => a.type !== automationType)
+      );
+      setSuccess(false);
+    }
   };
 
   const handleApplyMatchingRule = () => {
@@ -346,16 +385,36 @@ const ScheduleAutomationModal: React.FC<ScheduleAutomationModalProps> = ({
         setSelectedLayoutIndex(ruleStage.layoutIndex);
       }
 
-      // keep current selected tab, but if it has nothing, switch to something that exists
-      const hasSelectedType = ruleAutomations.some(
-        (a) => a.type === automationType
+      // Recording automation types
+      const recordingTypes: RecordingAutomationType[] = [
+        "startVideoRecording",
+        "stopVideoRecording",
+        "startAudioRecording",
+        "stopAudioRecording",
+        "startBothRecording",
+        "stopBothRecording",
+      ];
+
+      const ruleRecording = ruleAutomations.find((a) => 
+        recordingTypes.includes(a.type as RecordingAutomationType)
       );
+      if (ruleRecording) {
+        setSelectedRecordingAction(ruleRecording.type as RecordingAutomationType);
+      }
+
+      // keep current selected tab, but if it has nothing, switch to something that exists
+      const hasSelectedType = automationType === "recording" 
+        ? ruleAutomations.some((a) => recordingTypes.includes(a.type as RecordingAutomationType))
+        : ruleAutomations.some((a) => a.type === automationType);
+      
       if (!hasSelectedType) {
-        const nextType: AutomationType = ruleAutomations.some(
-          (a) => a.type === "slide"
-        )
+        const nextType: AutomationType = ruleAutomations.some((a) => a.type === "slide")
           ? "slide"
-          : "stageLayout";
+          : ruleAutomations.some((a) => a.type === "stageLayout")
+          ? "stageLayout"
+          : ruleAutomations.some((a) => recordingTypes.includes(a.type as RecordingAutomationType))
+          ? "recording"
+          : "slide";
         setAutomationType(nextType);
       }
       setSuccess(true);
@@ -387,6 +446,44 @@ const ScheduleAutomationModal: React.FC<ScheduleAutomationModalProps> = ({
     }
   };
 
+  const handleRecordingActionChange = (action: RecordingAutomationType) => {
+    setSelectedRecordingAction(action);
+    
+    // Recording automation types to filter out
+    const recordingTypes: RecordingAutomationType[] = [
+      "startVideoRecording",
+      "stopVideoRecording",
+      "startAudioRecording",
+      "stopAudioRecording",
+      "startBothRecording",
+      "stopBothRecording",
+    ];
+
+    // Add the new recording automation
+    const automation: ScheduleItemAutomation = { type: action };
+    setSavedAutomations((prev) => {
+      // Remove any existing recording automations
+      const others = prev.filter((a) => !recordingTypes.includes(a.type as RecordingAutomationType));
+      return [...others, automation];
+    });
+    setSuccess(true);
+    setError(null);
+  };
+
+  const handleRemoveRecordingAutomation = () => {
+    const recordingTypes: RecordingAutomationType[] = [
+      "startVideoRecording",
+      "stopVideoRecording",
+      "startAudioRecording",
+      "stopAudioRecording",
+      "startBothRecording",
+      "stopBothRecording",
+    ];
+    setSavedAutomations((prev) => prev.filter((a) => !recordingTypes.includes(a.type as RecordingAutomationType)));
+    setSelectedRecordingAction(null);
+    setSuccess(false);
+  };
+
   if (!isOpen) return null;
 
   const getAutomationTypeLabel = (automation: ScheduleItemAutomation) => {
@@ -394,10 +491,21 @@ const ScheduleAutomationModal: React.FC<ScheduleAutomationModalProps> = ({
       return `Slide: ${
         automation.presentationName || automation.presentationUuid
       } (Index: ${automation.slideIndex})`;
-    } else {
+    } else if (automation.type === "stageLayout") {
       return `Stage Layout: ${
         automation.screenName || `Screen ${automation.screenIndex}`
       } → ${automation.layoutName || `Layout ${automation.layoutIndex}`}`;
+    } else {
+      // Recording automations
+      const recordingLabels: Record<string, string> = {
+        startVideoRecording: "▶ Start Video Recording",
+        stopVideoRecording: "⏹ Stop Video Recording",
+        startAudioRecording: "▶ Start Audio Recording",
+        stopAudioRecording: "⏹ Stop Audio Recording",
+        startBothRecording: "▶ Start Video & Audio Recording",
+        stopBothRecording: "⏹ Stop Video & Audio Recording",
+      };
+      return recordingLabels[automation.type] || automation.type;
     }
   };
 
@@ -443,10 +551,11 @@ const ScheduleAutomationModal: React.FC<ScheduleAutomationModalProps> = ({
           >
             Automation Type:
           </label>
-          <div style={{ display: "flex", gap: "12px" }}>
+          <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
             <label
               style={{
                 flex: 1,
+                minWidth: "140px",
                 padding: "10px",
                 border: `2px solid ${
                   automationType === "slide"
@@ -479,6 +588,7 @@ const ScheduleAutomationModal: React.FC<ScheduleAutomationModalProps> = ({
             <label
               style={{
                 flex: 1,
+                minWidth: "140px",
                 padding: "10px",
                 border: `2px solid ${
                   automationType === "stageLayout"
@@ -506,7 +616,40 @@ const ScheduleAutomationModal: React.FC<ScheduleAutomationModalProps> = ({
                 style={{ width: "16px", height: "16px" }}
               />
               <FaLayerGroup />
-              <span>Change Stage Layout</span>
+              <span>Stage Layout</span>
+            </label>
+            <label
+              style={{
+                flex: 1,
+                minWidth: "140px",
+                padding: "10px",
+                border: `2px solid ${
+                  automationType === "recording"
+                    ? "var(--app-primary-color)"
+                    : "var(--app-border-color)"
+                }`,
+                borderRadius: "6px",
+                cursor: "pointer",
+                backgroundColor:
+                  automationType === "recording"
+                    ? "rgba(59, 130, 246, 0.1)"
+                    : "transparent",
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+                fontSize: "0.9em",
+              }}
+            >
+              <input
+                type="radio"
+                name="automationType"
+                value="recording"
+                checked={automationType === "recording"}
+                onChange={() => handleTypeChange("recording")}
+                style={{ width: "16px", height: "16px" }}
+              />
+              <FaVideo />
+              <span>Recording</span>
             </label>
           </div>
         </div>
@@ -605,7 +748,7 @@ const ScheduleAutomationModal: React.FC<ScheduleAutomationModalProps> = ({
                 Optionally save as a smart rule to auto-apply to future sessions
               </li>
             </ol>
-          ) : (
+          ) : automationType === "stageLayout" ? (
             <ol
               style={{
                 margin: "0",
@@ -618,6 +761,20 @@ const ScheduleAutomationModal: React.FC<ScheduleAutomationModalProps> = ({
               <li>Click "Set Layout" to save the configuration</li>
               <li>
                 Optionally save as a smart rule to auto-apply to future sessions
+              </li>
+            </ol>
+          ) : (
+            <ol
+              style={{
+                margin: "0",
+                paddingLeft: "20px",
+                color: "var(--app-text-color-secondary)",
+              }}
+            >
+              <li>Select a recording action to trigger when this session starts</li>
+              <li>Use "Start" actions to begin recording, "Stop" to end recording</li>
+              <li>
+                <strong>Tip:</strong> Use with "Follow Master Timer" in Network Settings to remotely control recording
               </li>
             </ol>
           )}
@@ -897,6 +1054,201 @@ const ScheduleAutomationModal: React.FC<ScheduleAutomationModalProps> = ({
               >
                 <FaTimes />
                 Remove Stage Layout Automation
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Recording Configuration */}
+        {automationType === "recording" && (
+          <div
+            style={{
+              marginBottom: "12px",
+              padding: "10px",
+              backgroundColor: "var(--app-header-bg)",
+              border: "1px solid var(--app-border-color)",
+              borderRadius: "6px",
+            }}
+          >
+            <div style={{ marginBottom: "12px" }}>
+              <label
+                style={{
+                  fontSize: "0.85em",
+                  display: "block",
+                  marginBottom: "8px",
+                  color: "var(--app-text-color-secondary)",
+                }}
+              >
+                Recording Action:
+              </label>
+              
+              {/* Start Actions */}
+              <div style={{ marginBottom: "12px" }}>
+                <div style={{ fontSize: "0.8em", color: "var(--app-text-color-secondary)", marginBottom: "6px", fontWeight: 600 }}>
+                  <FaPlay size={10} style={{ marginRight: "4px" }} />
+                  Start Recording
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                  <label
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
+                      padding: "8px 12px",
+                      border: `2px solid ${selectedRecordingAction === "startVideoRecording" ? "#22c55e" : "var(--app-border-color)"}`,
+                      borderRadius: "6px",
+                      cursor: "pointer",
+                      backgroundColor: selectedRecordingAction === "startVideoRecording" ? "rgba(34, 197, 94, 0.1)" : "transparent",
+                    }}
+                  >
+                    <input
+                      type="radio"
+                      name="recordingAction"
+                      checked={selectedRecordingAction === "startVideoRecording"}
+                      onChange={() => handleRecordingActionChange("startVideoRecording")}
+                      style={{ width: "16px", height: "16px" }}
+                    />
+                    <FaVideo style={{ color: "#8b5cf6" }} />
+                    <span>Start Video Recording</span>
+                  </label>
+                  <label
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
+                      padding: "8px 12px",
+                      border: `2px solid ${selectedRecordingAction === "startAudioRecording" ? "#22c55e" : "var(--app-border-color)"}`,
+                      borderRadius: "6px",
+                      cursor: "pointer",
+                      backgroundColor: selectedRecordingAction === "startAudioRecording" ? "rgba(34, 197, 94, 0.1)" : "transparent",
+                    }}
+                  >
+                    <input
+                      type="radio"
+                      name="recordingAction"
+                      checked={selectedRecordingAction === "startAudioRecording"}
+                      onChange={() => handleRecordingActionChange("startAudioRecording")}
+                      style={{ width: "16px", height: "16px" }}
+                    />
+                    <FaMicrophone style={{ color: "#3b82f6" }} />
+                    <span>Start Audio Recording</span>
+                  </label>
+                  <label
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
+                      padding: "8px 12px",
+                      border: `2px solid ${selectedRecordingAction === "startBothRecording" ? "#22c55e" : "var(--app-border-color)"}`,
+                      borderRadius: "6px",
+                      cursor: "pointer",
+                      backgroundColor: selectedRecordingAction === "startBothRecording" ? "rgba(34, 197, 94, 0.1)" : "transparent",
+                    }}
+                  >
+                    <input
+                      type="radio"
+                      name="recordingAction"
+                      checked={selectedRecordingAction === "startBothRecording"}
+                      onChange={() => handleRecordingActionChange("startBothRecording")}
+                      style={{ width: "16px", height: "16px" }}
+                    />
+                    <span style={{ display: "flex", gap: "4px" }}>
+                      <FaVideo style={{ color: "#8b5cf6" }} />
+                      <FaMicrophone style={{ color: "#3b82f6" }} />
+                    </span>
+                    <span>Start Video & Audio Recording</span>
+                  </label>
+                </div>
+              </div>
+
+              {/* Stop Actions */}
+              <div>
+                <div style={{ fontSize: "0.8em", color: "var(--app-text-color-secondary)", marginBottom: "6px", fontWeight: 600 }}>
+                  <FaStop size={10} style={{ marginRight: "4px" }} />
+                  Stop Recording
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                  <label
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
+                      padding: "8px 12px",
+                      border: `2px solid ${selectedRecordingAction === "stopVideoRecording" ? "#ef4444" : "var(--app-border-color)"}`,
+                      borderRadius: "6px",
+                      cursor: "pointer",
+                      backgroundColor: selectedRecordingAction === "stopVideoRecording" ? "rgba(239, 68, 68, 0.1)" : "transparent",
+                    }}
+                  >
+                    <input
+                      type="radio"
+                      name="recordingAction"
+                      checked={selectedRecordingAction === "stopVideoRecording"}
+                      onChange={() => handleRecordingActionChange("stopVideoRecording")}
+                      style={{ width: "16px", height: "16px" }}
+                    />
+                    <FaVideo style={{ color: "#8b5cf6" }} />
+                    <span>Stop Video Recording</span>
+                  </label>
+                  <label
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
+                      padding: "8px 12px",
+                      border: `2px solid ${selectedRecordingAction === "stopAudioRecording" ? "#ef4444" : "var(--app-border-color)"}`,
+                      borderRadius: "6px",
+                      cursor: "pointer",
+                      backgroundColor: selectedRecordingAction === "stopAudioRecording" ? "rgba(239, 68, 68, 0.1)" : "transparent",
+                    }}
+                  >
+                    <input
+                      type="radio"
+                      name="recordingAction"
+                      checked={selectedRecordingAction === "stopAudioRecording"}
+                      onChange={() => handleRecordingActionChange("stopAudioRecording")}
+                      style={{ width: "16px", height: "16px" }}
+                    />
+                    <FaMicrophone style={{ color: "#3b82f6" }} />
+                    <span>Stop Audio Recording</span>
+                  </label>
+                  <label
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
+                      padding: "8px 12px",
+                      border: `2px solid ${selectedRecordingAction === "stopBothRecording" ? "#ef4444" : "var(--app-border-color)"}`,
+                      borderRadius: "6px",
+                      cursor: "pointer",
+                      backgroundColor: selectedRecordingAction === "stopBothRecording" ? "rgba(239, 68, 68, 0.1)" : "transparent",
+                    }}
+                  >
+                    <input
+                      type="radio"
+                      name="recordingAction"
+                      checked={selectedRecordingAction === "stopBothRecording"}
+                      onChange={() => handleRecordingActionChange("stopBothRecording")}
+                      style={{ width: "16px", height: "16px" }}
+                    />
+                    <span style={{ display: "flex", gap: "4px" }}>
+                      <FaVideo style={{ color: "#8b5cf6" }} />
+                      <FaMicrophone style={{ color: "#3b82f6" }} />
+                    </span>
+                    <span>Stop Video & Audio Recording</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            {selectedRecordingAction && (
+              <button
+                onClick={handleRemoveRecordingAutomation}
+                className="secondary"
+                style={{ width: "100%", marginTop: "8px", color: "#ef4444" }}
+              >
+                <FaTimes />
+                Remove Recording Automation
               </button>
             )}
           </div>

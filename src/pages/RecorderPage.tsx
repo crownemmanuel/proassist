@@ -924,6 +924,103 @@ const RecorderPage: React.FC = () => {
   }, [revokeAudioPreviewObjectUrl]);
 
   // ============================================================================
+  // Automation Event Handlers (for Follow Master Timer feature)
+  // ============================================================================
+
+  // Refs for automation handlers (to avoid stale closures)
+  const startVideoRecordingRef = useRef(startVideoRecording);
+  const stopVideoRecordingRef = useRef(stopVideoRecording);
+  const startAudioRecordingRef = useRef(startAudioRecording);
+  const stopAudioRecordingRef = useRef(stopAudioRecording);
+  const videoStatusRef = useRef(videoStatus);
+  const audioStatusRef = useRef(audioStatus);
+
+  // Keep refs updated
+  useEffect(() => {
+    startVideoRecordingRef.current = startVideoRecording;
+    stopVideoRecordingRef.current = stopVideoRecording;
+    startAudioRecordingRef.current = startAudioRecording;
+    stopAudioRecordingRef.current = stopAudioRecording;
+    videoStatusRef.current = videoStatus;
+    audioStatusRef.current = audioStatus;
+  }, [startVideoRecording, stopVideoRecording, startAudioRecording, stopAudioRecording, videoStatus, audioStatus]);
+
+  // Listen for recording automation events
+  useEffect(() => {
+    const handleStartVideo = () => {
+      console.log("[Automation] Received start video recording event");
+      if (videoStatusRef.current === "idle") {
+        startVideoRecordingRef.current();
+      } else {
+        console.log("[Automation] Video already recording or stopped, skipping start");
+      }
+    };
+
+    const handleStopVideo = () => {
+      console.log("[Automation] Received stop video recording event");
+      if (videoStatusRef.current === "recording" || videoStatusRef.current === "paused") {
+        stopVideoRecordingRef.current();
+      } else {
+        console.log("[Automation] Video not recording, skipping stop");
+      }
+    };
+
+    const handleStartAudio = () => {
+      console.log("[Automation] Received start audio recording event");
+      if (audioStatusRef.current === "idle") {
+        startAudioRecordingRef.current();
+      } else {
+        console.log("[Automation] Audio already recording or stopped, skipping start");
+      }
+    };
+
+    const handleStopAudio = () => {
+      console.log("[Automation] Received stop audio recording event");
+      if (audioStatusRef.current === "recording") {
+        stopAudioRecordingRef.current();
+      } else {
+        console.log("[Automation] Audio not recording, skipping stop");
+      }
+    };
+
+    const handleStartBoth = () => {
+      console.log("[Automation] Received start both recording event");
+      if (videoStatusRef.current === "idle") {
+        startVideoRecordingRef.current();
+      }
+      if (audioStatusRef.current === "idle") {
+        startAudioRecordingRef.current();
+      }
+    };
+
+    const handleStopBoth = () => {
+      console.log("[Automation] Received stop both recording event");
+      if (videoStatusRef.current === "recording" || videoStatusRef.current === "paused") {
+        stopVideoRecordingRef.current();
+      }
+      if (audioStatusRef.current === "recording") {
+        stopAudioRecordingRef.current();
+      }
+    };
+
+    window.addEventListener("automation-start-video-recording", handleStartVideo);
+    window.addEventListener("automation-stop-video-recording", handleStopVideo);
+    window.addEventListener("automation-start-audio-recording", handleStartAudio);
+    window.addEventListener("automation-stop-audio-recording", handleStopAudio);
+    window.addEventListener("automation-start-both-recording", handleStartBoth);
+    window.addEventListener("automation-stop-both-recording", handleStopBoth);
+
+    return () => {
+      window.removeEventListener("automation-start-video-recording", handleStartVideo);
+      window.removeEventListener("automation-stop-video-recording", handleStopVideo);
+      window.removeEventListener("automation-start-audio-recording", handleStartAudio);
+      window.removeEventListener("automation-stop-audio-recording", handleStopAudio);
+      window.removeEventListener("automation-start-both-recording", handleStartBoth);
+      window.removeEventListener("automation-stop-both-recording", handleStopBoth);
+    };
+  }, []);
+
+  // ============================================================================
   // Helper Functions
   // ============================================================================
 

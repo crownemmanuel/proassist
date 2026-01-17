@@ -137,7 +137,14 @@ export type ScheduleItemAutomation =
       layoutUuid: string;
       layoutName?: string;
       layoutIndex: number;
-    };
+    }
+  // Recording automations
+  | { type: "startVideoRecording" }
+  | { type: "stopVideoRecording" }
+  | { type: "startAudioRecording" }
+  | { type: "stopAudioRecording" }
+  | { type: "startBothRecording" }  // Start both video and audio
+  | { type: "stopBothRecording" };  // Stop both video and audio
 
 // Smart automation rule - trigger based on session name matching
 export interface SmartAutomationRule {

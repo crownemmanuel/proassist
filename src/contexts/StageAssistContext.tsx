@@ -8,12 +8,27 @@ const SCHEDULE_STORAGE_KEY = "proassist-stage-assist-schedule";
 const SETTINGS_STORAGE_KEY = "proassist-stage-assist-settings";
 const RUNTIME_STORAGE_KEY = "proassist-stage-assist-runtime";
 
+// Recording automation types
+const RECORDING_AUTOMATION_TYPES = [
+  "startVideoRecording",
+  "stopVideoRecording",
+  "startAudioRecording",
+  "stopAudioRecording",
+  "startBothRecording",
+  "stopBothRecording",
+] as const;
+
 function normalizeAutomation(raw: any): ScheduleItemAutomation | null {
   if (!raw || typeof raw !== "object") return null;
 
   // already in the new shape
   if (raw.type === "slide" || raw.type === "stageLayout") {
     return raw as ScheduleItemAutomation;
+  }
+
+  // Recording automation types
+  if (RECORDING_AUTOMATION_TYPES.includes(raw.type)) {
+    return { type: raw.type } as ScheduleItemAutomation;
   }
 
   // legacy slide automation (no `type`)
@@ -56,10 +71,28 @@ function normalizeItemAutomations(item: any): ScheduleItemAutomation[] {
     if (normalized) list.push(normalized);
   }
 
-  // ensure unique by type (one slide + one stageLayout max for now)
+  // ensure unique by type (one of each type max)
   const byType = new Map<ScheduleItemAutomation["type"], ScheduleItemAutomation>();
   for (const a of list) byType.set(a.type, a);
   return Array.from(byType.values());
+}
+
+// Helper to dispatch recording automation events
+function dispatchRecordingAutomation(automationType: ScheduleItemAutomation["type"]): void {
+  const eventMap: Record<string, string> = {
+    startVideoRecording: "automation-start-video-recording",
+    stopVideoRecording: "automation-stop-video-recording",
+    startAudioRecording: "automation-start-audio-recording",
+    stopAudioRecording: "automation-stop-audio-recording",
+    startBothRecording: "automation-start-both-recording",
+    stopBothRecording: "automation-stop-both-recording",
+  };
+
+  const eventName = eventMap[automationType];
+  if (eventName) {
+    console.log(`[Automation] Dispatching ${eventName}`);
+    window.dispatchEvent(new CustomEvent(eventName));
+  }
 }
 
 function normalizeSchedule(rawSchedule: any): ScheduleItem[] {
@@ -291,6 +324,61 @@ export const StageAssistProvider: React.FC<{ children: React.ReactNode }> = ({ c
     });
   }, [schedule, currentSessionIndex]);
 
+  // Track the last session index we triggered automations for (to avoid duplicate triggers)
+  const lastTriggeredSessionIndexRef = useRef<number | null>(null);
+
+  // Function to run local automations for a session (used by Follow Master Timer)
+  const runLocalAutomations = useCallback(async (sessionIndex: number, sessionSchedule: ScheduleItem[]) => {
+    const session = sessionSchedule[sessionIndex];
+    if (!session) return;
+
+    const automations = session.automations || [];
+    if (automations.length === 0) return;
+
+    console.log(`[FollowMaster] Running local automations for session: ${session.session}`);
+
+    // Import propresenter service dynamically to avoid circular dependencies
+    const { triggerPresentationOnConnections, changeStageLayoutOnAllEnabled } = await import("../services/propresenterService");
+
+    // Sort automations: stageLayout first, then slides, then recording
+    const ordered = [...automations].sort((a, b) => {
+      const order = (x: ScheduleItemAutomation) => {
+        if (x.type === "stageLayout") return 0;
+        if (x.type === "slide") return 1;
+        return 2; // recording automations last
+      };
+      return order(a) - order(b);
+    });
+
+    for (const automation of ordered) {
+      try {
+        if (automation.type === "stageLayout") {
+          const result = await changeStageLayoutOnAllEnabled(
+            automation.screenIndex,
+            automation.layoutIndex
+          );
+          console.log(`[FollowMaster] Stage layout automation: ${result.success} success, ${result.failed} failed`);
+        } else if (automation.type === "slide") {
+          const result = await triggerPresentationOnConnections(
+            {
+              presentationUuid: automation.presentationUuid,
+              slideIndex: automation.slideIndex,
+            },
+            undefined,
+            automation.activationClicks || 1,
+            100
+          );
+          console.log(`[FollowMaster] Slide automation: ${result.success} success, ${result.failed} failed`);
+        } else {
+          // Recording automations
+          dispatchRecordingAutomation(automation.type);
+        }
+      } catch (err) {
+        console.error(`[FollowMaster] Automation error:`, err);
+      }
+    }
+  }, []);
+
   // Listen for incoming schedule sync updates
   useEffect(() => {
     const syncSettings = loadNetworkSyncSettings();
@@ -305,6 +393,20 @@ export const StageAssistProvider: React.FC<{ children: React.ReactNode }> = ({ c
         const newKey = JSON.stringify({ schedule: syncedSchedule, currentSessionIndex: syncedCurrentSessionIndex });
         if (newKey !== lastBroadcastRef.current) {
           lastBroadcastRef.current = newKey;
+          
+          // Check if we should run local automations (Follow Master Timer)
+          const currentSyncSettings = loadNetworkSyncSettings();
+          if (
+            currentSyncSettings.followMasterTimer &&
+            syncedCurrentSessionIndex !== null &&
+            syncedCurrentSessionIndex !== lastTriggeredSessionIndexRef.current
+          ) {
+            // Master started a new session - run our local automations
+            lastTriggeredSessionIndexRef.current = syncedCurrentSessionIndex;
+            // Use the synced schedule to get the session with its automations
+            runLocalAutomations(syncedCurrentSessionIndex, syncedSchedule);
+          }
+          
           setSchedule(syncedSchedule);
           setCurrentSessionIndex(syncedCurrentSessionIndex);
         }
@@ -323,7 +425,7 @@ export const StageAssistProvider: React.FC<{ children: React.ReactNode }> = ({ c
         }
       },
     });
-  }, []);
+  }, [runLocalAutomations]);
 
   // Persist settings only after initial load (to avoid overwriting saved settings)
   useEffect(() => {

@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { Playlist, PlaylistItem } from "../types";
 import { ScheduleItem } from "../types/propresenter";
 import {
+  NetworkSyncMode,
   NetworkSyncSettings,
   NetworkSyncConnectionState,
   NetworkSyncCallbacks,
@@ -512,7 +513,44 @@ class NetworkSyncManager {
   isClientConnected(): boolean {
     return this.wsClient?.isConnected ?? false;
   }
+
+  getClientConnectionState(): NetworkSyncConnectionState {
+    return this.wsClient?.getConnectionState() ?? { ...DEFAULT_NETWORK_SYNC_CONNECTION_STATE };
+  }
 }
 
 // Export singleton instance
 export const networkSyncManager = NetworkSyncManager.getInstance();
+
+// Helper function to get comprehensive sync status
+export interface SyncStatus {
+  mode: NetworkSyncMode;
+  serverRunning: boolean;
+  serverConnectedClients: number;
+  clientConnected: boolean;
+  clientError: string | null;
+}
+
+export async function getSyncStatus(): Promise<SyncStatus> {
+  const settings = loadNetworkSyncSettings();
+  let serverInfo: SyncServerInfo = { 
+    running: false, 
+    connected_clients: 0,
+    port: settings.serverPort,
+    local_ip: ""
+  };
+  
+  try {
+    serverInfo = await getSyncServerInfo();
+  } catch {
+    // Server might not be running
+  }
+
+  return {
+    mode: settings.mode,
+    serverRunning: serverInfo.running,
+    serverConnectedClients: serverInfo.connected_clients,
+    clientConnected: networkSyncManager.isClientConnected(),
+    clientError: networkSyncManager.getClientConnectionState().error,
+  };
+}

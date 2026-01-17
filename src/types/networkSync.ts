@@ -21,6 +21,7 @@ export interface NetworkSyncSettings {
   syncPlaylists: boolean;
   syncSchedule: boolean;
   autoConnect: boolean;
+  followMasterTimer: boolean; // When true, run local automations when master starts a session
 }
 
 export const DEFAULT_NETWORK_SYNC_SETTINGS: NetworkSyncSettings = {
@@ -31,6 +32,7 @@ export const DEFAULT_NETWORK_SYNC_SETTINGS: NetworkSyncSettings = {
   syncPlaylists: true,
   syncSchedule: true,
   autoConnect: false,
+  followMasterTimer: false,
 };
 
 // ============================================================================

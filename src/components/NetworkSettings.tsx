@@ -5,11 +5,10 @@ import {
   DEFAULT_NETWORK_SYNC_SETTINGS,
 } from "../types/networkSync";
 import {
-  getSyncServerInfo,
+  getSyncStatus,
   loadNetworkSyncSettings,
+  networkSyncManager,
   saveNetworkSyncSettings,
-  startSyncServer,
-  stopSyncServer,
 } from "../services/networkSyncService";
 import { getLocalIp } from "../services/liveSlideService";
 import { useDebouncedEffect } from "../hooks/useDebouncedEffect";
@@ -22,6 +21,8 @@ const NetworkSettings: React.FC = () => {
   );
   const [syncServerRunning, setSyncServerRunning] = useState(false);
   const [syncConnectedClients, setSyncConnectedClients] = useState(0);
+  const [clientConnected, setClientConnected] = useState(false);
+  const [clientError, setClientError] = useState<string | null>(null);
   const [isTogglingSyncServer, setIsTogglingSyncServer] = useState(false);
   const [syncMessage, setSyncMessage] = useState<{
     text: string;
@@ -29,6 +30,13 @@ const NetworkSettings: React.FC = () => {
   }>({ text: "", type: "" });
   const [localIp, setLocalIp] = useState<string>("Loading...");
   const [settingsLoaded, setSettingsLoaded] = useState(false);
+  
+  // Connection test state
+  const [isTestingConnection, setIsTestingConnection] = useState(false);
+  const [connectionTestResult, setConnectionTestResult] = useState<{
+    status: "idle" | "success" | "error";
+    message: string;
+  }>({ status: "idle", message: "" });
 
   useEffect(() => {
     setSyncSettings(loadNetworkSyncSettings());
@@ -73,12 +81,16 @@ const NetworkSettings: React.FC = () => {
 
   const refreshSyncServerStatus = async () => {
     try {
-      const info = await getSyncServerInfo();
-      setSyncServerRunning(info.running);
-      setSyncConnectedClients(info.connected_clients);
+      const status = await getSyncStatus();
+      setSyncServerRunning(status.serverRunning);
+      setSyncConnectedClients(status.serverConnectedClients);
+      setClientConnected(status.clientConnected);
+      setClientError(status.clientError);
     } catch {
       setSyncServerRunning(false);
       setSyncConnectedClients(0);
+      setClientConnected(false);
+      setClientError(null);
     }
   };
 
@@ -104,9 +116,24 @@ const NetworkSettings: React.FC = () => {
     setSyncMessage({ text: "", type: "" });
 
     try {
-      if (syncServerRunning) {
-        await stopSyncServer();
-        setSyncMessage({ text: "Sync server stopped", type: "success" });
+      const isActive =
+        syncSettings.mode === "master"
+          ? syncServerRunning
+          : syncSettings.mode === "slave"
+            ? clientConnected
+            : syncSettings.mode === "peer"
+              ? syncServerRunning || clientConnected
+              : false;
+
+      if (isActive) {
+        await networkSyncManager.stop();
+        setSyncMessage({
+          text:
+            syncSettings.mode === "slave"
+              ? "Disconnected from master"
+              : "Sync stopped",
+          type: "success",
+        });
       } else {
         if (syncSettings.mode === "off") {
           throw new Error("Please select a sync mode first");
@@ -120,8 +147,16 @@ const NetworkSettings: React.FC = () => {
 
         // Ensure the latest settings are persisted before starting
         saveNetworkSyncSettings(syncSettings);
-        await startSyncServer(syncSettings.serverPort, syncSettings.mode);
-        setSyncMessage({ text: "Sync server started", type: "success" });
+        await networkSyncManager.start();
+        setSyncMessage({
+          text:
+            syncSettings.mode === "master"
+              ? "Sync server started"
+              : syncSettings.mode === "slave"
+                ? "Connected to master"
+                : "Sync started",
+          type: "success",
+        });
       }
       await refreshSyncServerStatus();
       setTimeout(() => setSyncMessage({ text: "", type: "" }), 3000);
@@ -131,6 +166,104 @@ const NetworkSettings: React.FC = () => {
       setTimeout(() => setSyncMessage({ text: "", type: "" }), 5000);
     } finally {
       setIsTogglingSyncServer(false);
+    }
+  };
+
+  // Test connection to remote master/peer
+  const handleTestConnection = async () => {
+    if (!syncSettings.remoteHost.trim()) {
+      setConnectionTestResult({
+        status: "error",
+        message: "Please enter a remote host IP address",
+      });
+      return;
+    }
+
+    setIsTestingConnection(true);
+    setConnectionTestResult({ status: "idle", message: "" });
+
+    const wsUrl = `ws://${syncSettings.remoteHost}:${syncSettings.remotePort}/sync`;
+    let testWs: WebSocket | null = null;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+    const cleanup = () => {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+        timeoutId = null;
+      }
+      if (testWs) {
+        try {
+          testWs.close();
+        } catch {
+          // Ignore close errors
+        }
+        testWs = null;
+      }
+    };
+
+    try {
+      await new Promise<void>((resolve, reject) => {
+        // Set a timeout for the connection attempt
+        timeoutId = setTimeout(() => {
+          cleanup();
+          reject(new Error("Connection timed out after 5 seconds"));
+        }, 5000);
+
+        testWs = new WebSocket(wsUrl);
+
+        testWs.onopen = () => {
+          // Send a test message
+          testWs?.send(JSON.stringify({
+            type: "sync_join",
+            clientMode: "test",
+            clientId: `test-${Date.now()}`,
+          }));
+        };
+
+        testWs.onmessage = (event) => {
+          try {
+            const message = JSON.parse(event.data);
+            if (message.type === "sync_welcome") {
+              // Successfully received welcome from server
+              setConnectionTestResult({
+                status: "success",
+                message: `Connected! Server has ${message.connectedClients} client(s) connected.`,
+              });
+              cleanup();
+              resolve();
+            }
+          } catch {
+            // Ignore parse errors
+          }
+        };
+
+        testWs.onerror = () => {
+          cleanup();
+          reject(new Error("Failed to connect - check IP address and ensure master is running"));
+        };
+
+        testWs.onclose = (event) => {
+          if (event.code !== 1000 && event.code !== 1005) {
+            // Not a normal close
+            cleanup();
+            reject(new Error(`Connection closed: ${event.reason || "Connection refused"}`));
+          }
+        };
+      });
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      setConnectionTestResult({
+        status: "error",
+        message: msg,
+      });
+    } finally {
+      cleanup();
+      setIsTestingConnection(false);
+      
+      // Clear result after 5 seconds
+      setTimeout(() => {
+        setConnectionTestResult({ status: "idle", message: "" });
+      }, 5000);
     }
   };
 
@@ -239,8 +372,8 @@ const NetworkSettings: React.FC = () => {
           </div>
         </div>
 
-        {/* Sync Server Status */}
-        {syncSettings.mode !== "off" && (
+        {/* Sync Server Status - Only for Master mode */}
+        {syncSettings.mode === "master" && (
           <div style={{ marginBottom: "var(--spacing-4)" }}>
             <h4 style={{ marginBottom: "var(--spacing-2)", fontSize: "1rem" }}>
               Sync Server Status
@@ -287,10 +420,10 @@ const NetworkSettings: React.FC = () => {
                   {syncServerRunning
                     ? isTogglingSyncServer
                       ? "Stopping..."
-                      : "Stop Sync"
+                      : "Stop Server"
                     : isTogglingSyncServer
                     ? "Starting..."
-                    : "Start Sync"}
+                    : "Start Server"}
                 </button>
                 <button
                   onClick={refreshSyncServerStatus}
@@ -304,11 +437,11 @@ const NetworkSettings: React.FC = () => {
           </div>
         )}
 
-        {/* Connection Settings (for slave/peer) */}
-        {(syncSettings.mode === "slave" || syncSettings.mode === "peer") && (
+        {/* Connection Settings (for slave mode) - Shows first, before connect button */}
+        {syncSettings.mode === "slave" && (
           <div style={{ marginBottom: "var(--spacing-4)" }}>
             <h4 style={{ marginBottom: "var(--spacing-2)", fontSize: "1rem" }}>
-              Remote Connection
+              Master Connection
             </h4>
             <p
               style={{
@@ -317,9 +450,7 @@ const NetworkSettings: React.FC = () => {
                 color: "var(--app-text-color-secondary)",
               }}
             >
-              Enter the IP address and port of the{" "}
-              {syncSettings.mode === "slave" ? "master" : "peer"} device to
-              connect to.
+              Enter the IP address and port of the master device to connect to.
             </p>
             <div
               style={{
@@ -336,7 +467,7 @@ const NetworkSettings: React.FC = () => {
                     fontWeight: 500,
                   }}
                 >
-                  Remote Host IP
+                  Master IP Address
                 </label>
                 <input
                   type="text"
@@ -345,7 +476,7 @@ const NetworkSettings: React.FC = () => {
                     handleSyncSettingChange("remoteHost", e.target.value)
                   }
                   placeholder="192.168.1.100"
-                  disabled={syncServerRunning}
+                  disabled={clientConnected || isTogglingSyncServer}
                   style={{ width: "100%", padding: "var(--spacing-2)" }}
                 />
               </div>
@@ -357,7 +488,7 @@ const NetworkSettings: React.FC = () => {
                     fontWeight: 500,
                   }}
                 >
-                  Remote Port
+                  Port
                 </label>
                 <input
                   type="number"
@@ -370,16 +501,350 @@ const NetworkSettings: React.FC = () => {
                   }
                   min={1024}
                   max={65535}
-                  disabled={syncServerRunning}
+                  disabled={clientConnected || isTogglingSyncServer}
                   style={{ width: "100%", padding: "var(--spacing-2)" }}
                 />
               </div>
+              <button
+                onClick={handleTestConnection}
+                disabled={
+                  isTestingConnection ||
+                  isTogglingSyncServer ||
+                  clientConnected ||
+                  !syncSettings.remoteHost.trim()
+                }
+                className="secondary"
+                style={{ 
+                  minWidth: "120px",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {isTestingConnection ? "Testing..." : "Test Connection"}
+              </button>
             </div>
+            
+            {/* Connection Test Result */}
+            {connectionTestResult.status !== "idle" && (
+              <div
+                style={{
+                  marginTop: "var(--spacing-2)",
+                  padding: "var(--spacing-2) var(--spacing-3)",
+                  backgroundColor:
+                    connectionTestResult.status === "success"
+                      ? "rgba(34, 197, 94, 0.1)"
+                      : "rgba(239, 68, 68, 0.1)",
+                  border: `1px solid ${
+                    connectionTestResult.status === "success"
+                      ? "rgba(34, 197, 94, 0.3)"
+                      : "rgba(239, 68, 68, 0.3)"
+                  }`,
+                  borderRadius: "6px",
+                  fontSize: "0.9em",
+                  color:
+                    connectionTestResult.status === "success"
+                      ? "#22c55e"
+                      : "#ef4444",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                }}
+              >
+                <span>
+                  {connectionTestResult.status === "success" ? "✓" : "✗"}
+                </span>
+                <span>{connectionTestResult.message}</span>
+              </div>
+            )}
+
+            {/* Connection Status - Only show after IP is entered */}
+            {syncSettings.remoteHost.trim() && (
+              <div
+                style={{
+                  marginTop: "var(--spacing-3)",
+                  padding: "var(--spacing-3)",
+                  backgroundColor: "var(--app-input-bg-color)",
+                  borderRadius: "8px",
+                  border: "1px solid var(--app-border-color)",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  gap: "var(--spacing-3)",
+                }}
+              >
+                <div>
+                  <div style={{ fontWeight: 600, marginBottom: "4px" }}>
+                    Status:{" "}
+                    <span
+                      style={{ 
+                        color: clientConnected 
+                          ? "#22c55e" 
+                          : isTogglingSyncServer
+                            ? "#f59e0b" 
+                            : "#9ca3af" 
+                      }}
+                    >
+                      {clientConnected 
+                        ? "Connected" 
+                        : isTogglingSyncServer 
+                          ? "Connecting..." 
+                          : "Disconnected"}
+                    </span>
+                  </div>
+                  <div
+                    style={{
+                      fontSize: "0.9em",
+                      color: clientError ? "#ef4444" : "var(--app-text-color-secondary)",
+                    }}
+                  >
+                    {clientConnected
+                      ? `Connected to ${syncSettings.remoteHost}:${syncSettings.remotePort}`
+                      : clientError
+                        ? clientError
+                        : isTogglingSyncServer
+                          ? `Attempting to connect to ${syncSettings.remoteHost}:${syncSettings.remotePort}...`
+                          : "Not connected to master"}
+                  </div>
+                </div>
+                <button
+                  onClick={handleToggleSyncServer}
+                  disabled={isTogglingSyncServer}
+                  className={clientConnected ? "secondary" : "primary"}
+                  style={{ minWidth: "160px" }}
+                >
+                  {isTogglingSyncServer
+                    ? clientConnected
+                      ? "Disconnecting..."
+                      : "Connecting..."
+                    : clientConnected
+                      ? "Disconnect"
+                      : "Connect to Master"}
+                </button>
+              </div>
+            )}
           </div>
         )}
 
-        {/* Sync Port Configuration */}
-        {syncSettings.mode !== "off" && (
+        {/* Peer mode - Shows both server status and remote connection */}
+        {syncSettings.mode === "peer" && (
+          <>
+            {/* Server Status for Peer */}
+            <div style={{ marginBottom: "var(--spacing-4)" }}>
+              <h4 style={{ marginBottom: "var(--spacing-2)", fontSize: "1rem" }}>
+                Local Server Status
+              </h4>
+              <div
+                style={{
+                  padding: "var(--spacing-3)",
+                  backgroundColor: "var(--app-input-bg-color)",
+                  borderRadius: "8px",
+                  border: "1px solid var(--app-border-color)",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  gap: "var(--spacing-3)",
+                }}
+              >
+                <div>
+                  <div style={{ fontWeight: 600, marginBottom: "4px" }}>
+                    Status:{" "}
+                    <span
+                      style={{ color: syncServerRunning ? "#22c55e" : "#9ca3af" }}
+                    >
+                      {syncServerRunning ? "Running" : "Stopped"}
+                    </span>
+                  </div>
+                  <div
+                    style={{
+                      fontSize: "0.9em",
+                      color: "var(--app-text-color-secondary)",
+                    }}
+                  >
+                    {syncServerRunning
+                      ? `${localIp}:${syncSettings.serverPort} • ${syncConnectedClients} client${syncConnectedClients !== 1 ? "s" : ""} connected`
+                      : "Not running"}
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: "var(--spacing-2)" }}>
+                  <button
+                    onClick={handleToggleSyncServer}
+                    disabled={isTogglingSyncServer}
+                    className={syncServerRunning ? "secondary" : "primary"}
+                    style={{ minWidth: "140px" }}
+                  >
+                    {syncServerRunning
+                      ? isTogglingSyncServer
+                        ? "Stopping..."
+                        : "Stop Sync"
+                      : isTogglingSyncServer
+                      ? "Starting..."
+                      : "Start Sync"}
+                  </button>
+                  <button
+                    onClick={refreshSyncServerStatus}
+                    disabled={isTogglingSyncServer}
+                    className="secondary"
+                  >
+                    Refresh
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Remote Connection for Peer */}
+            <div style={{ marginBottom: "var(--spacing-4)" }}>
+              <h4 style={{ marginBottom: "var(--spacing-2)", fontSize: "1rem" }}>
+                Remote Peer Connection
+              </h4>
+              <p
+                style={{
+                  marginBottom: "var(--spacing-3)",
+                  fontSize: "0.9em",
+                  color: "var(--app-text-color-secondary)",
+                }}
+              >
+                Enter the IP address and port of another peer to sync with.
+              </p>
+              <div
+                style={{
+                  display: "flex",
+                  gap: "var(--spacing-3)",
+                  alignItems: "flex-end",
+                }}
+              >
+                <div style={{ flex: 1 }}>
+                  <label
+                    style={{
+                      display: "block",
+                      marginBottom: "var(--spacing-1)",
+                      fontWeight: 500,
+                    }}
+                  >
+                    Peer IP Address
+                  </label>
+                  <input
+                    type="text"
+                    value={syncSettings.remoteHost}
+                    onChange={(e) =>
+                      handleSyncSettingChange("remoteHost", e.target.value)
+                    }
+                    placeholder="192.168.1.100"
+                    disabled={syncServerRunning}
+                    style={{ width: "100%", padding: "var(--spacing-2)" }}
+                  />
+                </div>
+                <div style={{ width: "120px" }}>
+                  <label
+                    style={{
+                      display: "block",
+                      marginBottom: "var(--spacing-1)",
+                      fontWeight: 500,
+                    }}
+                  >
+                    Port
+                  </label>
+                  <input
+                    type="number"
+                    value={syncSettings.remotePort}
+                    onChange={(e) =>
+                      handleSyncSettingChange(
+                        "remotePort",
+                        parseInt(e.target.value, 10) || 9877
+                      )
+                    }
+                    min={1024}
+                    max={65535}
+                    disabled={syncServerRunning}
+                    style={{ width: "100%", padding: "var(--spacing-2)" }}
+                  />
+                </div>
+                <button
+                  onClick={handleTestConnection}
+                  disabled={isTestingConnection || syncServerRunning || !syncSettings.remoteHost.trim()}
+                  className="secondary"
+                  style={{ 
+                    minWidth: "120px",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {isTestingConnection ? "Testing..." : "Test Connection"}
+                </button>
+              </div>
+              
+              {/* Connection Test Result */}
+              {connectionTestResult.status !== "idle" && (
+                <div
+                  style={{
+                    marginTop: "var(--spacing-2)",
+                    padding: "var(--spacing-2) var(--spacing-3)",
+                    backgroundColor:
+                      connectionTestResult.status === "success"
+                        ? "rgba(34, 197, 94, 0.1)"
+                        : "rgba(239, 68, 68, 0.1)",
+                    border: `1px solid ${
+                      connectionTestResult.status === "success"
+                        ? "rgba(34, 197, 94, 0.3)"
+                        : "rgba(239, 68, 68, 0.3)"
+                    }`,
+                    borderRadius: "6px",
+                    fontSize: "0.9em",
+                    color:
+                      connectionTestResult.status === "success"
+                        ? "#22c55e"
+                        : "#ef4444",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px",
+                  }}
+                >
+                  <span>
+                    {connectionTestResult.status === "success" ? "✓" : "✗"}
+                  </span>
+                  <span>{connectionTestResult.message}</span>
+                </div>
+              )}
+
+              {/* Remote Peer Connection Status */}
+              {syncServerRunning && syncSettings.remoteHost.trim() && (
+                <div
+                  style={{
+                    marginTop: "var(--spacing-3)",
+                    padding: "var(--spacing-2) var(--spacing-3)",
+                    backgroundColor: "var(--app-input-bg-color)",
+                    borderRadius: "6px",
+                    border: "1px solid var(--app-border-color)",
+                    fontSize: "0.9em",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px",
+                  }}
+                >
+                  <span
+                    style={{
+                      width: "8px",
+                      height: "8px",
+                      borderRadius: "50%",
+                      backgroundColor: clientConnected ? "#22c55e" : "#f59e0b",
+                    }}
+                  />
+                  <span style={{ color: "var(--app-text-color-secondary)" }}>
+                    Remote peer:{" "}
+                    <span style={{ color: clientConnected ? "#22c55e" : "#f59e0b" }}>
+                      {clientConnected ? "Connected" : "Connecting..."}
+                    </span>
+                    {clientError && (
+                      <span style={{ color: "#ef4444", marginLeft: "8px" }}>
+                        ({clientError})
+                      </span>
+                    )}
+                  </span>
+                </div>
+              )}
+            </div>
+          </>
+        )}
+
+        {/* Sync Port Configuration - Only for Master and Peer (they run servers) */}
+        {(syncSettings.mode === "master" || syncSettings.mode === "peer") && (
           <div style={{ marginBottom: "var(--spacing-4)" }}>
             <h4 style={{ marginBottom: "var(--spacing-2)", fontSize: "1rem" }}>
               Server Configuration
@@ -509,6 +974,72 @@ const NetworkSettings: React.FC = () => {
                 </label>
               </div>
             </div>
+          </div>
+        )}
+
+        {/* Follow Master Timer (for slave/peer mode) */}
+        {(syncSettings.mode === "slave" || syncSettings.mode === "peer") && (
+          <div style={{ marginBottom: "var(--spacing-4)" }}>
+            <h4 style={{ marginBottom: "var(--spacing-2)", fontSize: "1rem" }}>
+              Remote Control
+            </h4>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "var(--spacing-2)",
+                padding: "var(--spacing-3)",
+                backgroundColor: syncSettings.followMasterTimer 
+                  ? "rgba(34, 197, 94, 0.1)" 
+                  : "var(--app-bg-color)",
+                borderRadius: "8px",
+                border: syncSettings.followMasterTimer 
+                  ? "1px solid rgba(34, 197, 94, 0.3)" 
+                  : "1px solid transparent",
+              }}
+            >
+              <input
+                type="checkbox"
+                id="followMasterTimer"
+                checked={syncSettings.followMasterTimer}
+                onChange={(e) =>
+                  handleSyncSettingChange("followMasterTimer", e.target.checked)
+                }
+                style={{ width: "auto", margin: 0 }}
+              />
+              <label
+                htmlFor="followMasterTimer"
+                style={{ margin: 0, cursor: "pointer", flex: 1 }}
+              >
+                <span style={{ fontWeight: 500 }}>Follow Master Timer</span>
+                <span
+                  style={{
+                    display: "block",
+                    fontSize: "0.85em",
+                    color: "var(--app-text-color-secondary)",
+                  }}
+                >
+                  When the master starts a session, run local automations for that session.
+                  Use this to remotely trigger recordings or other actions.
+                </span>
+              </label>
+            </div>
+            {syncSettings.followMasterTimer && (
+              <div
+                style={{
+                  marginTop: "var(--spacing-2)",
+                  padding: "var(--spacing-2) var(--spacing-3)",
+                  backgroundColor: "rgba(59, 130, 246, 0.1)",
+                  borderRadius: "6px",
+                  fontSize: "0.85em",
+                  color: "#3b82f6",
+                }}
+              >
+                <strong>Tip:</strong> Set up recording automations in the Timer page 
+                (click the ⚡ icon on a schedule item). When the master starts that session, 
+                this device will automatically start/stop recording based on your automations.
+              </div>
+            )}
           </div>
         )}
 
