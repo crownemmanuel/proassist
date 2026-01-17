@@ -1244,6 +1244,350 @@ fn start_native_audio_stream(app: tauri::AppHandle, device_id: Option<String>) -
 }
 
 // ============================================================================
+// Native Audio Recording to WAV File (High Quality)
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize)]
+pub struct RecordingInfo {
+    pub file_path: String,
+    pub duration_seconds: f64,
+    pub sample_rate: u32,
+    pub channels: u16,
+}
+
+lazy_static::lazy_static! {
+    static ref AUDIO_RECORDING_RUNNING: AtomicBool = AtomicBool::new(false);
+    static ref AUDIO_RECORDING_STOP_FLAG: Mutex<Option<std::sync::Arc<AtomicBool>>> = Mutex::new(None);
+    static ref AUDIO_RECORDING_START_TIME: Mutex<Option<std::time::Instant>> = Mutex::new(None);
+    static ref AUDIO_RECORDING_FILE_PATH: Mutex<Option<String>> = Mutex::new(None);
+}
+
+#[tauri::command]
+fn start_native_audio_recording(
+    device_id: Option<String>,
+    file_path: String,
+    sample_rate: Option<u32>,
+    warmup_ms: Option<u32>,
+) -> Result<(), String> {
+    // Stop any existing recording first
+    let _ = stop_native_audio_recording();
+
+    // Normalize file path (expand ~)
+    let mut normalized_path = file_path.trim().to_string();
+    if normalized_path.starts_with("~/") {
+        let home = std::env::var("HOME")
+            .or_else(|_| std::env::var("USERPROFILE"))
+            .map_err(|_| "home_dir_unavailable".to_string())?;
+        normalized_path = format!("{}/{}", home.trim_end_matches('/'), &normalized_path[2..]);
+    }
+
+    // Create parent directories if needed
+    if let Some(parent) = std::path::Path::new(&normalized_path).parent() {
+        if !parent.exists() {
+            std::fs::create_dir_all(parent).map_err(|e| format!("create_dir_failed:{}", e))?;
+        }
+    }
+
+    let host = cpal::default_host();
+    let default_device = host
+        .default_input_device()
+        .ok_or_else(|| "no_default_input_device".to_string())?;
+
+    let mut selected: cpal::Device = default_device;
+    if let Some(id) = device_id {
+        if let Ok(iter) = host.input_devices() {
+            for dev in iter {
+                if let Ok(name) = dev.name() {
+                    if name == id {
+                        selected = dev;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    // Get supported config - prefer high sample rate for quality
+    let supported_config = selected
+        .default_input_config()
+        .map_err(|e| format!("default_config_failed:{}", e))?;
+
+    let channels = supported_config.channels();
+    let device_sample_rate = supported_config.sample_rate().0;
+    let target_sample_rate = sample_rate.unwrap_or(48000).min(device_sample_rate);
+    let warmup_ms = warmup_ms.unwrap_or(800) as u64;
+    let warmup_frames_device = ((device_sample_rate as u64) * warmup_ms / 1000) as usize;
+
+    // Create WAV writer spec
+    let wav_spec = hound::WavSpec {
+        // Force mono output to avoid "left-only" playback in some players.
+        channels: 1,
+        sample_rate: target_sample_rate,
+        bits_per_sample: 16,
+        sample_format: hound::SampleFormat::Int,
+    };
+
+    let wav_writer = hound::WavWriter::create(&normalized_path, wav_spec)
+        .map_err(|e| format!("wav_create_failed:{}", e))?;
+    let wav_writer = std::sync::Arc::new(Mutex::new(Some(wav_writer)));
+
+    let stop_flag = std::sync::Arc::new(AtomicBool::new(false));
+    {
+        let mut guard = AUDIO_RECORDING_STOP_FLAG.lock().map_err(|_| "lock_failed")?;
+        *guard = Some(stop_flag.clone());
+    }
+    {
+        let mut guard = AUDIO_RECORDING_START_TIME.lock().map_err(|_| "lock_failed")?;
+        *guard = Some(std::time::Instant::now());
+    }
+    {
+        let mut guard = AUDIO_RECORDING_FILE_PATH.lock().map_err(|_| "lock_failed")?;
+        *guard = Some(normalized_path.clone());
+    }
+
+    AUDIO_RECORDING_RUNNING.store(true, Ordering::SeqCst);
+
+    // Spawn recording thread
+    let wav_writer_clone = wav_writer.clone();
+    let stop_flag_clone = stop_flag.clone();
+
+    std::thread::spawn(move || {
+        let stream_config: cpal::StreamConfig = supported_config.clone().into();
+
+        // Simple linear resampler for matching sample rates
+        let need_resample = device_sample_rate != target_sample_rate;
+        let resample_ratio = target_sample_rate as f64 / device_sample_rate as f64;
+
+        let stream = match supported_config.sample_format() {
+            cpal::SampleFormat::F32 => {
+                let stop_flag = stop_flag_clone.clone();
+                let wav_writer = wav_writer_clone.clone();
+                let mut resample_buffer: Vec<f32> = Vec::new();
+                let mut resample_pos: f64 = 0.0;
+                let mut skipped_frames: usize = 0;
+
+                selected.build_input_stream(
+                    &stream_config,
+                    move |data: &[f32], _| {
+                        if stop_flag.load(Ordering::SeqCst) {
+                            return;
+                        }
+
+                        // Discard initial frames to avoid device/AGC ramp-in.
+                        let mut start_idx = 0usize;
+                        let frames_in = data.len() / channels as usize;
+                        if skipped_frames < warmup_frames_device {
+                            let remaining = warmup_frames_device - skipped_frames;
+                            let to_skip = remaining.min(frames_in);
+                            skipped_frames += to_skip;
+                            start_idx = to_skip * channels as usize;
+                            if start_idx >= data.len() {
+                                return;
+                            }
+                            // reset resampler position after warmup boundary
+                            if skipped_frames == warmup_frames_device {
+                                resample_pos = 0.0;
+                            }
+                        }
+
+                        if let Ok(mut guard) = wav_writer.lock() {
+                            if let Some(ref mut writer) = *guard {
+                                if need_resample {
+                                    // Simple linear resampling
+                                    resample_buffer.clear();
+                                    let data = &data[start_idx..];
+                                    let samples_per_channel = data.len() / channels as usize;
+                                    while resample_pos < samples_per_channel as f64 {
+                                        let idx = resample_pos as usize;
+                                        let frac = resample_pos - idx as f64;
+                                        // Downmix to mono by averaging channels at each frame
+                                        let mut sum = 0.0f32;
+                                        for ch in 0..channels as usize {
+                                            let pos = idx * channels as usize + ch;
+                                            let next_pos = ((idx + 1) * channels as usize + ch).min(data.len() - 1);
+                                            let sample = data[pos] * (1.0 - frac as f32) + data[next_pos] * frac as f32;
+                                            sum += sample;
+                                        }
+                                        resample_buffer.push(sum / channels as f32);
+                                        resample_pos += 1.0 / resample_ratio;
+                                    }
+                                    resample_pos -= samples_per_channel as f64;
+                                    
+                                    for sample in &resample_buffer {
+                                        let i16_sample = (*sample * i16::MAX as f32).clamp(i16::MIN as f32, i16::MAX as f32) as i16;
+                                        let _ = writer.write_sample(i16_sample);
+                                    }
+                                } else {
+                                    let data = &data[start_idx..];
+                                    // Downmix interleaved frames to mono
+                                    let mut i = 0usize;
+                                    while i + (channels as usize) <= data.len() {
+                                        let mut sum = 0.0f32;
+                                        for ch in 0..channels as usize {
+                                            sum += data[i + ch];
+                                        }
+                                        let mono = (sum / channels as f32)
+                                            .clamp(-1.0, 1.0);
+                                        let i16_sample = (mono * i16::MAX as f32).clamp(i16::MIN as f32, i16::MAX as f32) as i16;
+                                        let _ = writer.write_sample(i16_sample);
+                                        i += channels as usize;
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    |err| eprintln!("[audio_recording] stream error: {}", err),
+                    None,
+                )
+            }
+            cpal::SampleFormat::I16 => {
+                let stop_flag = stop_flag_clone.clone();
+                let wav_writer = wav_writer_clone.clone();
+                let mut skipped_frames: usize = 0;
+
+                selected.build_input_stream(
+                    &stream_config,
+                    move |data: &[i16], _| {
+                        if stop_flag.load(Ordering::SeqCst) {
+                            return;
+                        }
+
+                        let mut start_idx = 0usize;
+                        let frames_in = data.len() / channels as usize;
+                        if skipped_frames < warmup_frames_device {
+                            let remaining = warmup_frames_device - skipped_frames;
+                            let to_skip = remaining.min(frames_in);
+                            skipped_frames += to_skip;
+                            start_idx = to_skip * channels as usize;
+                            if start_idx >= data.len() {
+                                return;
+                            }
+                        }
+
+                        if let Ok(mut guard) = wav_writer.lock() {
+                            if let Some(ref mut writer) = *guard {
+                                let data = &data[start_idx..];
+                                let mut i = 0usize;
+                                while i + (channels as usize) <= data.len() {
+                                    let mut sum: i32 = 0;
+                                    for ch in 0..channels as usize {
+                                        sum += data[i + ch] as i32;
+                                    }
+                                    let mono = (sum / channels as i32) as i16;
+                                    let _ = writer.write_sample(mono);
+                                    i += channels as usize;
+                                }
+                            }
+                        }
+                    },
+                    |err| eprintln!("[audio_recording] stream error: {}", err),
+                    None,
+                )
+            }
+            _ => {
+                return;
+            }
+        };
+
+        let stream = match stream {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("[audio_recording] build_stream_failed: {}", e);
+                AUDIO_RECORDING_RUNNING.store(false, Ordering::SeqCst);
+                return;
+            }
+        };
+
+        if let Err(e) = stream.play() {
+            eprintln!("[audio_recording] play_failed: {}", e);
+            AUDIO_RECORDING_RUNNING.store(false, Ordering::SeqCst);
+            return;
+        }
+
+        // Wait for stop signal
+        while !stop_flag_clone.load(Ordering::SeqCst) {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+
+        // Finalize WAV file
+        drop(stream);
+        if let Ok(mut guard) = wav_writer_clone.lock() {
+            if let Some(writer) = guard.take() {
+                let _ = writer.finalize();
+            }
+        }
+
+        AUDIO_RECORDING_RUNNING.store(false, Ordering::SeqCst);
+    });
+
+    Ok(())
+}
+
+#[tauri::command]
+fn stop_native_audio_recording() -> Result<RecordingInfo, String> {
+    if !AUDIO_RECORDING_RUNNING.load(Ordering::SeqCst) {
+        return Err("not_recording".to_string());
+    }
+
+    // Get duration
+    let duration_seconds = {
+        let guard = AUDIO_RECORDING_START_TIME.lock().map_err(|_| "lock_failed")?;
+        guard.map(|t| t.elapsed().as_secs_f64()).unwrap_or(0.0)
+    };
+
+    // Get file path
+    let file_path = {
+        let guard = AUDIO_RECORDING_FILE_PATH.lock().map_err(|_| "lock_failed")?;
+        guard.clone().unwrap_or_default()
+    };
+
+    // Signal stop
+    if let Ok(mut guard) = AUDIO_RECORDING_STOP_FLAG.lock() {
+        if let Some(flag) = guard.take() {
+            flag.store(true, Ordering::SeqCst);
+        }
+    }
+
+    // Wait a moment for the thread to finalize
+    std::thread::sleep(std::time::Duration::from_millis(200));
+
+    AUDIO_RECORDING_RUNNING.store(false, Ordering::SeqCst);
+
+    // Clear stored data
+    {
+        let mut guard = AUDIO_RECORDING_START_TIME.lock().map_err(|_| "lock_failed")?;
+        *guard = None;
+    }
+    {
+        let mut guard = AUDIO_RECORDING_FILE_PATH.lock().map_err(|_| "lock_failed")?;
+        *guard = None;
+    }
+
+    Ok(RecordingInfo {
+        file_path,
+        duration_seconds,
+        sample_rate: 48000,
+        channels: 2,
+    })
+}
+
+#[tauri::command]
+fn is_audio_recording() -> bool {
+    AUDIO_RECORDING_RUNNING.load(Ordering::SeqCst)
+}
+
+#[tauri::command]
+fn get_audio_recording_duration() -> f64 {
+    if !AUDIO_RECORDING_RUNNING.load(Ordering::SeqCst) {
+        return 0.0;
+    }
+    if let Ok(guard) = AUDIO_RECORDING_START_TIME.lock() {
+        return guard.map(|t| t.elapsed().as_secs_f64()).unwrap_or(0.0);
+    }
+    0.0
+}
+
+// ============================================================================
 // AssemblyAI Token Generation (Tauri Backend)
 // ============================================================================
 
@@ -1322,6 +1666,70 @@ fn write_text_to_file(file_path: String, content: String) -> Result<(), String> 
     file
         .write_all(content.as_bytes())
         .map_err(|e| format!("write_failed:{}:{}", normalized, e))?;
+    Ok(())
+}
+
+#[tauri::command]
+fn write_binary_to_file(file_path: String, data_base64: String) -> Result<(), String> {
+    use std::fs::{create_dir_all, File};
+    use std::io::Write;
+    use std::path::Path;
+
+    // Normalize path (same as write_text_to_file)
+    let mut normalized = file_path.trim().to_string();
+    if normalized.starts_with("~/") || normalized == "~" {
+        let home = std::env::var("HOME")
+            .or_else(|_| std::env::var("USERPROFILE"))
+            .map_err(|_| "home_dir_unavailable".to_string())?;
+        if normalized == "~" {
+            normalized = home;
+        } else {
+            normalized = format!("{}/{}", home.trim_end_matches('/'), &normalized[2..]);
+        }
+    }
+
+    // Decode base64 data
+    let data = base64::engine::general_purpose::STANDARD
+        .decode(&data_base64)
+        .map_err(|e| format!("base64_decode_failed:{}", e))?;
+
+    let path = Path::new(&normalized);
+    if let Some(parent_dir) = path.parent() {
+        if !parent_dir.exists() {
+            create_dir_all(parent_dir).map_err(|e| e.to_string())?;
+        }
+    }
+    
+    let mut file = File::create(&normalized).map_err(|e| {
+        format!("create_failed:{}:{}", normalized, e)
+    })?;
+    file
+        .write_all(&data)
+        .map_err(|e| format!("write_failed:{}:{}", normalized, e))?;
+    Ok(())
+}
+
+#[tauri::command]
+fn ensure_output_folder(path: String) -> Result<(), String> {
+    use std::fs::create_dir_all;
+    use std::path::Path;
+
+    let mut normalized = path.trim().to_string();
+    if normalized.starts_with("~/") || normalized == "~" {
+        let home = std::env::var("HOME")
+            .or_else(|_| std::env::var("USERPROFILE"))
+            .map_err(|_| "home_dir_unavailable".to_string())?;
+        if normalized == "~" {
+            normalized = home;
+        } else {
+            normalized = format!("{}/{}", home.trim_end_matches('/'), &normalized[2..]);
+        }
+    }
+
+    let dir_path = Path::new(&normalized);
+    if !dir_path.exists() {
+        create_dir_all(dir_path).map_err(|e| format!("create_dir_failed:{}:{}", normalized, e))?;
+    }
     Ok(())
 }
 
@@ -1674,8 +2082,15 @@ pub fn run() {
             list_native_audio_input_devices,
             start_native_audio_stream,
             stop_native_audio_stream,
+            // Native audio recording commands
+            start_native_audio_recording,
+            stop_native_audio_recording,
+            is_audio_recording,
+            get_audio_recording_duration,
             assemblyai_create_realtime_token,
             write_text_to_file,
+            write_binary_to_file,
+            ensure_output_folder,
             start_live_slides_server,
             stop_live_slides_server,
             create_live_slide_session,

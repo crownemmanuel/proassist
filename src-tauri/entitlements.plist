@@ -6,8 +6,12 @@
     <key>com.apple.security.app-sandbox</key>
     <true/>
     
-    <!-- Microphone access for SmartVerses transcription -->
+    <!-- Microphone access for SmartVerses transcription and Recorder -->
     <key>com.apple.security.device.audio-input</key>
+    <true/>
+    
+    <!-- Camera access for video recording -->
+    <key>com.apple.security.device.camera</key>
     <true/>
     
     <!-- Network access for API calls -->
@@ -20,6 +24,10 @@
     
     <!-- File access for user-selected files -->
     <key>com.apple.security.files.user-selected.read-write</key>
+    <true/>
+    
+    <!-- Downloads folder access for recordings -->
+    <key>com.apple.security.files.downloads.read-write</key>
     <true/>
 </dict>
 </plist>

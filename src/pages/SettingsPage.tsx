@@ -8,7 +8,9 @@ import NetworkSettings from "../components/NetworkSettings";
 import ProPresenterSettings from "../components/ProPresenterSettings";
 import VersionSettings from "../components/VersionSettings";
 import SmartVersesSettings from "../components/SmartVersesSettings";
-import { FaList, FaRobot, FaStickyNote, FaNetworkWired, FaClock, FaInfoCircle, FaBible, FaGlobe } from "react-icons/fa";
+import RecorderSettings from "../components/RecorderSettings";
+import FeaturesSettings from "../components/FeaturesSettings";
+import { FaList, FaRobot, FaStickyNote, FaNetworkWired, FaClock, FaInfoCircle, FaBible, FaGlobe, FaCircle, FaToggleOn } from "react-icons/fa";
 import "../App.css"; // Ensure global styles are applied
 import {
   exportAllTemplatesToFile,
@@ -18,7 +20,7 @@ import {
 import TemplateListView from "../components/TemplateListView";
 import ConfirmDialog from "../components/ConfirmDialog";
 
-type SettingsView = "templates" | "aiConfiguration" | "liveTestimonies" | "liveSlides" | "smartVerses" | "network" | "proPresenter" | "version";
+type SettingsView = "templates" | "aiConfiguration" | "liveTestimonies" | "liveSlides" | "smartVerses" | "recorder" | "network" | "proPresenter" | "features" | "version";
 
 const SettingsPage: React.FC = () => {
   const [templates, setTemplates] = useState<Template[]>(() => {
@@ -40,7 +42,7 @@ const SettingsPage: React.FC = () => {
   const [currentView, setCurrentView] = useState<SettingsView>(() => {
     try {
       const saved = localStorage.getItem("proassist-settings-current-view");
-      if (saved && ["templates", "aiConfiguration", "liveTestimonies", "liveSlides", "smartVerses", "network", "proPresenter", "version"].includes(saved)) {
+      if (saved && ["templates", "aiConfiguration", "liveTestimonies", "liveSlides", "smartVerses", "recorder", "network", "proPresenter", "features", "version"].includes(saved)) {
         return saved as SettingsView;
       }
     } catch {
@@ -48,6 +50,19 @@ const SettingsPage: React.FC = () => {
     }
     return "templates";
   });
+
+  // Listen for navigation to recorder settings
+  useEffect(() => {
+    const handleNavigateToSettings = (event: CustomEvent<string>) => {
+      if (event.detail === "recorder") {
+        setCurrentView("recorder");
+      }
+    };
+    window.addEventListener("navigate-to-settings", handleNavigateToSettings as EventListener);
+    return () => {
+      window.removeEventListener("navigate-to-settings", handleNavigateToSettings as EventListener);
+    };
+  }, []);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -258,6 +273,13 @@ const SettingsPage: React.FC = () => {
             SmartVerses
           </button>
           <button
+            onClick={() => setCurrentView("recorder")}
+            className={currentView === "recorder" ? "active" : ""}
+          >
+            <FaCircle />
+            Recorder
+          </button>
+          <button
             onClick={() => setCurrentView("network")}
             className={currentView === "network" ? "active" : ""}
           >
@@ -270,6 +292,13 @@ const SettingsPage: React.FC = () => {
           >
             <FaClock />
             ProPresenter
+          </button>
+          <button
+            onClick={() => setCurrentView("features")}
+            className={currentView === "features" ? "active" : ""}
+          >
+            <FaToggleOn />
+            Features
           </button>
           <button
             onClick={() => setCurrentView("version")}
@@ -339,8 +368,10 @@ const SettingsPage: React.FC = () => {
         {currentView === "liveTestimonies" && <LiveTestimoniesSettings />}
         {currentView === "liveSlides" && <LiveSlidesSettings />}
         {currentView === "smartVerses" && <SmartVersesSettings />}
+        {currentView === "recorder" && <RecorderSettings />}
         {currentView === "network" && <NetworkSettings />}
         {currentView === "proPresenter" && <ProPresenterSettings />}
+        {currentView === "features" && <FeaturesSettings />}
         {currentView === "version" && <VersionSettings />}
       </div>
       {deletingTemplateId && (

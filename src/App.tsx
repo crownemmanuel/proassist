@@ -16,11 +16,9 @@ import {
   FaStickyNote,
   FaClock,
   FaBible,
+  FaCircle,
 } from "react-icons/fa";
 import "./App.css";
-// import { invoke } from "@tauri-apps/api/tauri"; // We will use this later
-// import { checkUpdate, installUpdate } from '@tauri-apps/api/updater'; // Removed as it was causing a lint error and not used yet
-// import { relaunch } from '@tauri-apps/api/process'; // Removed as it was causing a lint error and not used yet
 
 // Import actual page components
 import MainApplicationPage from "./pages/MainApplicationPage";
@@ -30,6 +28,9 @@ import MediaView from "./pages/MediaView";
 import LiveSlidesNotepad from "./pages/LiveSlidesNotepad";
 import StageAssistPage from "./pages/StageAssistPage";
 import SmartVersesPage from "./pages/SmartVersesPage";
+import RecorderPage from "./pages/RecorderPage";
+import { loadEnabledFeatures } from "./services/recorderService";
+import { EnabledFeatures } from "./types/recorder";
 import {
   StageAssistProvider,
   useStageAssist,
@@ -52,9 +53,11 @@ import { SetTimerParams } from "./types/globalChat";
 function Navigation({
   theme,
   toggleTheme,
+  enabledFeatures,
 }: {
   theme: string;
   toggleTheme: () => void;
+  enabledFeatures: EnabledFeatures;
 }) {
   const location = useLocation();
   const navigate = useNavigate();
@@ -75,40 +78,57 @@ function Navigation({
 
   return (
     <nav className="app-nav">
-      <Link
-        to="/"
-        className={`nav-action-button ${isActive("/") ? "active" : ""}`}
-      >
-        <FaHome />
-        <span>Slides</span>
-      </Link>
-      <Link
-        to="/stage-assist"
-        className={`nav-action-button ${
-          isActive("/stage-assist") ? "active" : ""
-        }`}
-      >
-        <FaClock />
-        <span>Timer</span>
-      </Link>
-      <Link
-        to="/live-testimonies"
-        className={`nav-action-button ${
-          isActive("/live-testimonies") ? "active" : ""
-        }`}
-      >
-        <FaStickyNote />
-        <span>Live Testimonies</span>
-      </Link>
-      <Link
-        to="/smartverses"
-        className={`nav-action-button ${
-          isActive("/smartverses") ? "active" : ""
-        }`}
-      >
-        <FaBible />
-        <span>SmartVerses</span>
-      </Link>
+      {enabledFeatures.slides && (
+        <Link
+          to="/"
+          className={`nav-action-button ${isActive("/") ? "active" : ""}`}
+        >
+          <FaHome />
+          <span>Slides</span>
+        </Link>
+      )}
+      {enabledFeatures.timer && (
+        <Link
+          to="/stage-assist"
+          className={`nav-action-button ${
+            isActive("/stage-assist") ? "active" : ""
+          }`}
+        >
+          <FaClock />
+          <span>Timer</span>
+        </Link>
+      )}
+      {enabledFeatures.liveTestimonies && (
+        <Link
+          to="/live-testimonies"
+          className={`nav-action-button ${
+            isActive("/live-testimonies") ? "active" : ""
+          }`}
+        >
+          <FaStickyNote />
+          <span>Live Testimonies</span>
+        </Link>
+      )}
+      {enabledFeatures.smartVerses && (
+        <Link
+          to="/smartverses"
+          className={`nav-action-button ${
+            isActive("/smartverses") ? "active" : ""
+          }`}
+        >
+          <FaBible />
+          <span>SmartVerses</span>
+        </Link>
+      )}
+      {enabledFeatures.recorder && (
+        <Link
+          to="/recorder"
+          className={`nav-action-button ${isActive("/recorder") ? "active" : ""}`}
+        >
+          <FaCircle />
+          <span>Recorder</span>
+        </Link>
+      )}
       <Link
         to="/settings"
         className={`nav-action-button ${isActive("/settings") ? "active" : ""}`}
@@ -214,6 +234,20 @@ function AppContent({
   const location = useLocation();
   const { schedule, startCountdown, startCountdownToTime, stopTimer: _stopStageTimer } = useStageAssist();
   const isNotepadPage = location.pathname.includes("/live-slides/notepad/");
+
+  // Enabled features state
+  const [enabledFeatures, setEnabledFeatures] = useState<EnabledFeatures>(() => loadEnabledFeatures());
+
+  // Listen for features-updated events
+  useEffect(() => {
+    const handleFeaturesUpdated = (event: CustomEvent<EnabledFeatures>) => {
+      setEnabledFeatures(event.detail);
+    };
+    window.addEventListener("features-updated", handleFeaturesUpdated as EventListener);
+    return () => {
+      window.removeEventListener("features-updated", handleFeaturesUpdated as EventListener);
+    };
+  }, []);
 
   // Global Chat State
   const [isChatOpen, setIsChatOpen] = useState(false);
@@ -355,12 +389,13 @@ function AppContent({
   const isLiveTestimoniesPage = location.pathname === "/live-testimonies";
   const isSmartVersesPage = location.pathname === "/smartverses";
   const isStageAssistPage = location.pathname === "/stage-assist";
+  const isRecorderPage = location.pathname === "/recorder";
   const isHelpPage = location.pathname === "/help";
 
   return (
     <>
       <div className="container">
-        <Navigation theme={theme} toggleTheme={toggleTheme} />
+        <Navigation theme={theme} toggleTheme={toggleTheme} enabledFeatures={enabledFeatures} />
         {/* Keep all components mounted but show/hide based on route */}
         <div style={{ display: isMainPage ? "block" : "none" }}>
           <MainApplicationPage />
@@ -376,6 +411,9 @@ function AppContent({
         </div>
         <div style={{ display: isStageAssistPage ? "block" : "none" }}>
           <StageAssistPage />
+        </div>
+        <div style={{ display: isRecorderPage ? "block" : "none" }}>
+          <RecorderPage />
         </div>
         <div style={{ display: isHelpPage ? "block" : "none" }}>
           <HelpPage />
