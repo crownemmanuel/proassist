@@ -2,6 +2,11 @@
 
 All notable changes to ProAssist will be documented in this file.
 
+## [0.5.5] - 2026-01-16
+
+### Changed
+- Version bump to 0.5.5
+
 ## [0.5.4] - 2026-01-16
 
 ### Fixed
