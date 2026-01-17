@@ -1060,48 +1060,38 @@ Result: Slide 1 = Title, Slide 2 = Title + Sub-item 1, Slide 3 = Title + Sub-ite
                   <FaMicrophone />
                   Live Transcriptions
                 </div>
-                <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                  <label
-                    style={{
-                      ...notepadStyles.transcriptionFilterLabel,
-                      cursor: "pointer",
-                    }}
-                    title="When enabled, the transcript will stay scrolled to the latest line. Scrolling up pauses it."
-                  >
-                    <input
-                      type="checkbox"
-                      checked={autoScrollTranscript}
-                      onChange={(e) => setAutoScrollFromCheckbox(e.target.checked)}
-                    />
-                    Auto-scroll
-                    {autoScrollTranscript && autoScrollPaused && (
-                      <span style={{ color: "#f59e0b", fontWeight: 700, marginLeft: "4px" }}>(paused)</span>
-                    )}
-                  </label>
-                  <div style={{ fontSize: "0.75rem", color: notepadStyles.footer.color }}>
-                    {isConnected ? "WS connected" : "WS disconnected"}
-                  </div>
+                <div style={{ fontSize: "0.75rem", color: notepadStyles.footer.color }}>
+                  {isConnected ? "WS connected" : "WS disconnected"}
                 </div>
               </div>
 
-              <div style={notepadStyles.transcriptionFilters}>
-                <div style={{ flex: 1, minWidth: "180px" }}>
-                  <input
-                    type="text"
-                    value={transcriptSearchQuery}
-                    onChange={(e) => setTranscriptSearchQuery(e.target.value)}
-                    placeholder="Search transcript..."
-                    style={{
-                      width: "100%",
-                      padding: "6px 10px",
-                      borderRadius: "6px",
-                      border: `1px solid ${notepadStyles.border}`,
-                      background: notepadStyles.input.background,
-                      color: notepadStyles.input.color,
-                      fontSize: "0.8rem",
-                    }}
-                  />
-                </div>
+              <div>
+                <input
+                  type="text"
+                  value={transcriptSearchQuery}
+                  onChange={(e) => setTranscriptSearchQuery(e.target.value)}
+                  placeholder="Search transcript..."
+                  style={{
+                    width: "100%",
+                    padding: "6px 10px",
+                    borderRadius: "6px",
+                    border: `1px solid ${notepadStyles.border}`,
+                    background: notepadStyles.input.background,
+                    color: notepadStyles.input.color,
+                    fontSize: "0.8rem",
+                  }}
+                />
+              </div>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "10px",
+                  flexWrap: "nowrap",
+                  fontSize: "0.8rem",
+                  color: notepadStyles.transcriptionFilterLabel.color,
+                }}
+              >
                 <label style={notepadStyles.transcriptionFilterLabel}>
                   <input
                     type="checkbox"
@@ -1132,10 +1122,47 @@ Result: Slide 1 = Title, Slide 2 = Title + Sub-item 1, Slide 3 = Title + Sub-ite
             <div
               ref={transcriptScrollRef}
               onScroll={handleTranscriptPanelScroll}
-              style={notepadStyles.transcriptionScroll}
+              style={{ ...notepadStyles.transcriptionScroll, position: "relative" }}
             >
+              {/* Auto-scroll checkbox - positioned at top right */}
+              <div
+                style={{
+                  position: "sticky",
+                  top: 0,
+                  right: 0,
+                  zIndex: 10,
+                  display: "flex",
+                  justifyContent: "flex-end",
+                  padding: "8px 12px",
+                  pointerEvents: "none",
+                }}
+              >
+                <label
+                  style={{
+                    ...notepadStyles.transcriptionFilterLabel,
+                    cursor: "pointer",
+                    whiteSpace: "nowrap",
+                    backgroundColor: notepadStyles.input.background,
+                    padding: "4px 8px",
+                    borderRadius: "4px",
+                    border: `1px solid ${notepadStyles.border}`,
+                    pointerEvents: "auto",
+                  }}
+                  title="When enabled, the transcript will stay scrolled to the latest line. Scrolling up pauses it."
+                >
+                  <input
+                    type="checkbox"
+                    checked={autoScrollTranscript}
+                    onChange={(e) => setAutoScrollFromCheckbox(e.target.checked)}
+                  />
+                  Auto-scroll
+                  {autoScrollTranscript && autoScrollPaused && (
+                    <span style={{ color: "#f59e0b", fontWeight: 700, marginLeft: "4px" }}>(paused)</span>
+                  )}
+                </label>
+              </div>
               {liveTranscriptChunks.length === 0 ? (
-                <div style={{ color: notepadStyles.footer.color, fontSize: "0.85rem" }}>
+                <div style={{ color: notepadStyles.footer.color, fontSize: "0.85rem", padding: "8px 12px" }}>
                   Waiting for transcription stream…
                   <div style={{ marginTop: "6px", fontSize: "0.78rem", opacity: 0.9 }}>
                     Enable streaming in SmartVerses Settings → Transcription Settings.

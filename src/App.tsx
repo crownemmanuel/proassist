@@ -80,7 +80,7 @@ function Navigation({
         className={`nav-action-button ${isActive("/") ? "active" : ""}`}
       >
         <FaHome />
-        <span>Main</span>
+        <span>Slides</span>
       </Link>
       <Link
         to="/stage-assist"

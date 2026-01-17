@@ -150,6 +150,49 @@ const SmartVersesPage: React.FC = () => {
   const inputRef = useRef<HTMLInputElement>(null);
 
   // =============================================================================
+  // TRANSCRIPTION EVENT BRIDGE (for Slides page)
+  // =============================================================================
+  const emitTranscriptionStream = useCallback((message: WsTranscriptionStream) => {
+    window.dispatchEvent(
+      new CustomEvent("transcription-stream", {
+        detail: message,
+      })
+    );
+  }, []);
+
+  const emitTranscriptionStatus = useCallback(
+    (status: TranscriptionStatus, stopping: boolean) => {
+      window.dispatchEvent(
+        new CustomEvent("transcription-status-changed", {
+          detail: { status, isStopping: stopping },
+        })
+      );
+    },
+    []
+  );
+
+  useEffect(() => {
+    emitTranscriptionStatus(transcriptionStatus, isStopping);
+  }, [emitTranscriptionStatus, transcriptionStatus, isStopping]);
+
+  useEffect(() => {
+    const handleStatusRequest = () => {
+      emitTranscriptionStatus(transcriptionStatus, isStopping);
+    };
+
+    window.addEventListener(
+      "transcription-status-request",
+      handleStatusRequest
+    );
+    return () => {
+      window.removeEventListener(
+        "transcription-status-request",
+        handleStatusRequest
+      );
+    };
+  }, [emitTranscriptionStatus, transcriptionStatus, isStopping]);
+
+  // =============================================================================
   // INITIALIZATION
   // =============================================================================
 
@@ -809,8 +852,22 @@ const SmartVersesPage: React.FC = () => {
       ws.onMessage((message) => {
         if (message.type !== "transcription_stream") return;
 
-      const m = message as WsTranscriptionStream;
-        
+        const m = message as WsTranscriptionStream;
+        const normalized: WsTranscriptionStream = {
+          ...m,
+          type: "transcription_stream",
+          kind: m.kind,
+          timestamp: m.timestamp || Date.now(),
+          engine: m.engine || settings.transcriptionEngine,
+          text: m.text || "",
+        };
+        if (
+          normalized.kind === "interim" ||
+          (normalized.kind === "final" && normalized.text)
+        ) {
+          emitTranscriptionStream(normalized);
+        }
+
         if (m.kind === "interim") {
           setInterimTranscript(m.text || "");
           scheduleInterimDirectParse(m.text || "");
@@ -872,7 +929,14 @@ const SmartVersesPage: React.FC = () => {
     } catch (error) {
       console.error("[SmartVerses] Failed to connect to browser transcription WebSocket:", error);
     }
-  }, [settings.autoAddDetectedToHistory, settings.autoTriggerOnDetection, handleGoLive]);
+  }, [
+    emitTranscriptionStream,
+    handleGoLive,
+    scheduleInterimDirectParse,
+    settings.autoAddDetectedToHistory,
+    settings.autoTriggerOnDetection,
+    settings.transcriptionEngine,
+  ]);
 
   const connectToRemoteTranscriptionWs = useCallback(async () => {
     const host = (settings.remoteTranscriptionHost || "").trim();
@@ -906,6 +970,20 @@ const SmartVersesPage: React.FC = () => {
         if (message.type !== "transcription_stream") return;
 
         const m = message as WsTranscriptionStream;
+        const normalized: WsTranscriptionStream = {
+          ...m,
+          type: "transcription_stream",
+          kind: m.kind,
+          timestamp: m.timestamp || Date.now(),
+          engine: m.engine || settings.transcriptionEngine,
+          text: m.text || "",
+        };
+        if (
+          normalized.kind === "interim" ||
+          (normalized.kind === "final" && normalized.text)
+        ) {
+          emitTranscriptionStream(normalized);
+        }
         if (m.kind === "interim") {
           setInterimTranscript(m.text || "");
           scheduleInterimDirectParse(m.text || "");
@@ -985,6 +1063,7 @@ const SmartVersesPage: React.FC = () => {
       setTranscriptionStatus("error");
     }
   }, [
+    emitTranscriptionStream,
     settings.remoteTranscriptionHost,
     settings.remoteTranscriptionPort,
     settings.transcriptionEngine,
@@ -1009,10 +1088,6 @@ const SmartVersesPage: React.FC = () => {
       browserTranscriptionWsRef.current = null;
     }
   }, []);
-
-  // =============================================================================
-  // TRANSCRIPTION HANDLERS
-  // =============================================================================
 
   const handleStartTranscription = useCallback(async () => {
     if (!settings.assemblyAIApiKey) {
@@ -1050,6 +1125,14 @@ const SmartVersesPage: React.FC = () => {
             setInterimTranscript(text);
             // Fast local parsing for direct references (no AI) so refs can appear sooner.
             scheduleInterimDirectParse(text);
+
+            emitTranscriptionStream({
+              type: "transcription_stream",
+              kind: "interim",
+              timestamp: Date.now(),
+              engine: settings.transcriptionEngine,
+              text,
+            });
 
             if (settings.streamTranscriptionsToWebSocket) {
               broadcastTranscriptionStreamMessage({
@@ -1172,6 +1255,27 @@ const SmartVersesPage: React.FC = () => {
               }
             }
 
+            const wsKeyPoints =
+              keyPoints.length > 0
+                ? keyPoints.map((kp) => ({
+                    text: kp.text,
+                    category: kp.category,
+                  }))
+                : undefined;
+
+            emitTranscriptionStream({
+              type: "transcription_stream",
+              kind: "final",
+              timestamp: Date.now(),
+              engine: settings.transcriptionEngine,
+              text,
+              segment,
+              scripture_references: scriptureReferences.length
+                ? scriptureReferences
+                : undefined,
+              key_points: wsKeyPoints,
+            });
+
             if (settings.streamTranscriptionsToWebSocket) {
               broadcastTranscriptionStreamMessage({
                 type: "transcription_stream",
@@ -1217,7 +1321,7 @@ const SmartVersesPage: React.FC = () => {
       setTranscriptionStatus("error");
       alert(`Failed to start transcription: ${error instanceof Error ? error.message : "Unknown error"}`);
     }
-  }, [settings, appSettings, handleGoLive]);
+  }, [settings, appSettings, handleGoLive, emitTranscriptionStream]);
 
   const handleStopTranscription = useCallback(async () => {
     setIsStopping(true);
@@ -1239,6 +1343,30 @@ const SmartVersesPage: React.FC = () => {
       setIsStopping(false);
     }
   }, [disconnectBrowserTranscriptionWs, disconnectRemoteTranscriptionWs]);
+
+  useEffect(() => {
+    const handleStartRequest = () => {
+      if (transcriptionStatus !== "idle") return;
+      handleStartTranscription();
+    };
+    const handleStopRequest = () => {
+      if (transcriptionStatus === "idle") return;
+      handleStopTranscription();
+    };
+
+    window.addEventListener("transcription-start-request", handleStartRequest);
+    window.addEventListener("transcription-stop-request", handleStopRequest);
+    return () => {
+      window.removeEventListener(
+        "transcription-start-request",
+        handleStartRequest
+      );
+      window.removeEventListener(
+        "transcription-stop-request",
+        handleStopRequest
+      );
+    };
+  }, [handleStartTranscription, handleStopTranscription, transcriptionStatus]);
 
   const handleClearTranscript = () => {
     setTranscriptHistory([]);

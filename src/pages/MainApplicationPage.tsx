@@ -21,10 +21,17 @@ import {
   FaTrash,
   FaCopy,
   FaDesktop,
-  FaLink,
   FaCaretDown,
   FaCloud,
   FaFile,
+  FaEllipsisH,
+  FaMicrophone,
+  FaChevronLeft,
+  FaChevronRight,
+  FaPlus,
+  FaExternalLinkAlt,
+  FaStop,
+  FaSpinner,
 } from "react-icons/fa";
 import "../App.css"; // Ensure global styles are applied
 import { invoke } from "@tauri-apps/api/core"; // Tauri v2 core invoke
@@ -38,7 +45,12 @@ import {
   generateShareableNotepadUrl,
   generateWebSocketUrl,
 } from "../services/liveSlideService";
-import { LiveSlide, LiveSlidesProPresenterActivationRule } from "../types/liveSlides";
+import {
+  LiveSlide,
+  LiveSlidesProPresenterActivationRule,
+  WsTranscriptionStream,
+} from "../types/liveSlides";
+import { TranscriptionStatus } from "../types/smartVerses";
 import { calculateSlideBoundaries } from "../utils/liveSlideParser";
 import { triggerPresentationOnConnections } from "../services/propresenterService";
 import { useNetworkSync } from "../hooks/useNetworkSync";
@@ -102,6 +114,26 @@ const MainApplicationPage: React.FC = () => {
     | { type: "item"; playlistId: string; id: string; name: string }
     | null
   >(null);
+  const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
+  const moreMenuRef = useRef<HTMLDivElement | null>(null);
+
+  const [showTranscriptionPanel, setShowTranscriptionPanel] = useState(false);
+  const [isPlaylistCollapsed, setIsPlaylistCollapsed] = useState(false);
+  const [transcriptionStatus, setTranscriptionStatus] =
+    useState<TranscriptionStatus>("idle");
+  const [isTranscriptionStopping, setIsTranscriptionStopping] = useState(false);
+  const [liveTranscriptChunks, setLiveTranscriptChunks] = useState<
+    WsTranscriptionStream[]
+  >([]);
+  const [liveInterimTranscript, setLiveInterimTranscript] = useState("");
+  const [transcriptSearchQuery, setTranscriptSearchQuery] = useState("");
+  const [filterTranscript, setFilterTranscript] = useState(true);
+  const [filterReferences, setFilterReferences] = useState(true);
+  const [filterKeyPoints, setFilterKeyPoints] = useState(true);
+  const [autoScrollTranscript, setAutoScrollTranscript] = useState(true);
+  const [autoScrollPaused, setAutoScrollPaused] = useState(false);
+  const transcriptScrollRef = useRef<HTMLDivElement | null>(null);
+  const transcriptEndRef = useRef<HTMLDivElement | null>(null);
   // Load templates from localStorage and keep them in sync
   const [templates, setTemplates] = useState<Template[]>(() => {
     try {
@@ -972,6 +1004,63 @@ const MainApplicationPage: React.FC = () => {
     }
   };
 
+  const getLayoutForLineCount = (lineCount: number): LayoutType => {
+    const safeCount = Math.max(1, Math.min(6, Math.floor(lineCount)));
+    const layoutMap: Record<number, LayoutType> = {
+      1: "one-line",
+      2: "two-line",
+      3: "three-line",
+      4: "four-line",
+      5: "five-line",
+      6: "six-line",
+    };
+    return layoutMap[safeCount] || "one-line";
+  };
+
+  const handleToggleTranscriptionPanel = useCallback(() => {
+    setShowTranscriptionPanel((prev) => {
+      const next = !prev;
+      setIsPlaylistCollapsed(next);
+      return next;
+    });
+  }, []);
+
+  const setAutoScrollFromCheckbox = useCallback((enabled: boolean) => {
+    setAutoScrollTranscript(enabled);
+    setAutoScrollPaused(false);
+    if (enabled) {
+      requestAnimationFrame(() => {
+        transcriptEndRef.current?.scrollIntoView({ behavior: "smooth" });
+      });
+    }
+  }, []);
+
+  const handleTranscriptScroll = useCallback(() => {
+    const el = transcriptScrollRef.current;
+    if (!el) return;
+
+    const { scrollTop, scrollHeight, clientHeight } = el;
+    const distanceFromBottom = scrollHeight - (scrollTop + clientHeight);
+    const atBottom = distanceFromBottom < 60;
+
+    if (!atBottom && autoScrollTranscript) {
+      setAutoScrollPaused(true);
+      return;
+    }
+
+    if (atBottom && autoScrollPaused) {
+      setAutoScrollPaused(false);
+    }
+  }, [autoScrollTranscript, autoScrollPaused]);
+
+  const handleStartTranscriptionRequest = useCallback(() => {
+    window.dispatchEvent(new CustomEvent("transcription-start-request"));
+  }, []);
+
+  const handleStopTranscriptionRequest = useCallback(() => {
+    window.dispatchEvent(new CustomEvent("transcription-stop-request"));
+  }, []);
+
   const pickLiveSlidesProPresenterRule = (
     rules: LiveSlidesProPresenterActivationRule[] | undefined,
     slide: Slide
@@ -1093,6 +1182,62 @@ const MainApplicationPage: React.FC = () => {
       }
     }
   };
+
+  const handleAddTranscriptionSlide = useCallback(
+    (text: string) => {
+      if (!selectedPlaylistId || !selectedItemId) {
+        alert("Please select a playlist and an item to add a slide.");
+        return;
+      }
+      if (
+        currentPlaylistItem?.liveSlidesSessionId &&
+        (currentPlaylistItem.liveSlidesLinked ?? true)
+      ) {
+        alert("Detach Live Slides to add new slides.");
+        return;
+      }
+
+      const cleaned = text.trim();
+      if (!cleaned) return;
+
+      const lineCount = cleaned.split("\n").length;
+      const layout = getLayoutForLineCount(lineCount);
+
+      setPlaylists((prevPlaylists) =>
+        prevPlaylists.map((p) => {
+          if (p.id === selectedPlaylistId) {
+            return {
+              ...p,
+              items: p.items.map((item) => {
+                if (item.id === selectedItemId) {
+                  const order = item.slides.length + 1;
+                  const newSlide: Slide = {
+                    id: `slide-${Date.now()}`,
+                    text: cleaned,
+                    layout,
+                    order,
+                  };
+                  return {
+                    ...item,
+                    slides: [...item.slides, newSlide],
+                  };
+                }
+                return item;
+              }),
+            };
+          }
+          return p;
+        })
+      );
+    },
+    [
+      selectedPlaylistId,
+      selectedItemId,
+      currentPlaylistItem?.liveSlidesLinked,
+      currentPlaylistItem?.liveSlidesSessionId,
+      getLayoutForLineCount,
+    ]
+  );
 
   const handleAddSlide = (layout: LayoutType) => {
     if (!selectedPlaylistId || !selectedItemId) {
@@ -1347,39 +1492,6 @@ const MainApplicationPage: React.FC = () => {
       }
     } else {
       alert("No slides to copy.");
-    }
-  };
-
-  const handleCopyLiveSlidesTypingLink = async () => {
-    const sid = currentPlaylistItem?.liveSlidesSessionId;
-    if (!sid) return;
-
-    if (!liveSlidesServerRunning || !liveSlidesServerSessionIds.has(sid)) {
-      alert(
-        "That Live Slides session isn't running. Click Restart/Resume Session first."
-      );
-      return;
-    }
-
-    const settings = loadLiveSlidesSettings();
-    // Use the server port (which serves both HTTP and WebSocket) instead of hardcoded dev port
-    const url = generateShareableNotepadUrl(
-      liveSlidesServerIp,
-      settings.serverPort,
-      sid
-    );
-
-    // Show typing URL modal
-    setTypingUrlModal({ url });
-
-    // Try to copy to clipboard automatically (non-blocking)
-    try {
-      await navigator.clipboard.writeText(url);
-      setCopyStatusMain("Link Copied!");
-      setTimeout(() => setCopyStatusMain(""), 2000);
-    } catch (e) {
-      console.error(e);
-      // Clipboard access denied - user can copy from modal
     }
   };
 
@@ -1784,6 +1896,80 @@ const MainApplicationPage: React.FC = () => {
     }
   }, [showImportDropdown]);
 
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        moreMenuRef.current &&
+        !moreMenuRef.current.contains(event.target as Node)
+      ) {
+        setIsMoreMenuOpen(false);
+      }
+    };
+
+    if (isMoreMenuOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+      return () => {
+        document.removeEventListener("mousedown", handleClickOutside);
+      };
+    }
+  }, [isMoreMenuOpen]);
+
+  useEffect(() => {
+    const handleStatusChange = (
+      event: CustomEvent<{ status: TranscriptionStatus; isStopping: boolean }>
+    ) => {
+      setTranscriptionStatus(event.detail.status);
+      setIsTranscriptionStopping(event.detail.isStopping);
+    };
+    const handleStream = (event: CustomEvent<WsTranscriptionStream>) => {
+      const message = event.detail;
+      if (!message) return;
+      if (message.kind === "interim") {
+        setLiveInterimTranscript(message.text || "");
+        return;
+      }
+      if (message.kind === "final") {
+        setLiveInterimTranscript("");
+        setLiveTranscriptChunks((prev) => {
+          const next = [...prev, message].slice(-150);
+          return next;
+        });
+      }
+    };
+
+    window.addEventListener(
+      "transcription-status-changed",
+      handleStatusChange as EventListener
+    );
+    window.addEventListener(
+      "transcription-stream",
+      handleStream as EventListener
+    );
+    window.dispatchEvent(new CustomEvent("transcription-status-request"));
+
+    return () => {
+      window.removeEventListener(
+        "transcription-status-changed",
+        handleStatusChange as EventListener
+      );
+      window.removeEventListener(
+        "transcription-stream",
+        handleStream as EventListener
+      );
+    };
+  }, []);
+
+  useEffect(() => {
+    if (autoScrollTranscript && !autoScrollPaused) {
+      transcriptEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [
+    liveTranscriptChunks,
+    liveInterimTranscript,
+    autoScrollTranscript,
+    autoScrollPaused,
+  ]);
+
   // Live update any live-linked playlist items while the server is running.
   useEffect(() => {
     const linkedSessionIds = new Set<string>();
@@ -1888,12 +2074,16 @@ const MainApplicationPage: React.FC = () => {
   };
 
   const leftColumnStyle: React.CSSProperties = {
-    width: "300px",
+    width: isPlaylistCollapsed ? "44px" : "300px",
     flexShrink: 0, // Add this line
     borderRight: "1px solid var(--app-border-color)",
     overflowY: "auto",
-    padding: "var(--spacing-3)",
+    padding: isPlaylistCollapsed ? "var(--spacing-2)" : "var(--spacing-3)",
     backgroundColor: "#1e1e1e",
+    transition: "width 0.2s ease",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: isPlaylistCollapsed ? "center" : "stretch",
   };
 
   const rightColumnStyle: React.CSSProperties = {
@@ -1914,17 +2104,81 @@ const MainApplicationPage: React.FC = () => {
     color: "var(--text)",
   };
 
+  const transcriptionPanelStyle: React.CSSProperties = {
+    width: "32%",
+    minWidth: "320px",
+    maxWidth: "520px",
+    borderLeft: "1px solid var(--app-border-color)",
+    backgroundColor: "var(--app-bg-color)",
+    display: "flex",
+    flexDirection: "column",
+    overflow: "hidden",
+  };
+
+  const transcriptionHeaderStyle: React.CSSProperties = {
+    padding: "var(--spacing-3) var(--spacing-4)",
+    borderBottom: "1px solid var(--app-border-color)",
+    display: "flex",
+    flexDirection: "column",
+    gap: "var(--spacing-3)",
+    backgroundColor: "var(--app-header-bg)",
+  };
+
+  const transcriptionFiltersStyle: React.CSSProperties = {
+    display: "flex",
+    gap: "var(--spacing-3)",
+    flexWrap: "wrap",
+    fontSize: "0.85rem",
+    color: "var(--app-text-color-secondary)",
+  };
+
+  const transcriptionChunkCardStyle: React.CSSProperties = {
+    padding: "var(--spacing-3)",
+    borderRadius: "10px",
+    border: "1px solid var(--app-border-color)",
+    backgroundColor: "var(--app-header-bg)",
+    display: "flex",
+    flexDirection: "column",
+    gap: "var(--spacing-2)",
+  };
+
+  const normalizedTranscriptQuery = transcriptSearchQuery.trim().toLowerCase();
+
   return (
     <div style={pageLayoutStyle}>
       <div style={leftColumnStyle}>
-        <PlaylistPane
-          playlists={playlists}
-          selectedPlaylistId={selectedPlaylistId}
-          onSelectPlaylist={handleSelectPlaylist}
-          onAddPlaylist={handleAddPlaylist}
-          selectedItemId={selectedItemId}
-          onSelectPlaylistItem={handleSelectPlaylistItem}
-        />
+        <div
+          style={{
+            display: "flex",
+            justifyContent: isPlaylistCollapsed ? "center" : "flex-end",
+            marginBottom: isPlaylistCollapsed ? "0" : "var(--spacing-2)",
+          }}
+        >
+          <button
+            className="icon-button"
+            onClick={() => setIsPlaylistCollapsed((prev) => !prev)}
+            title={isPlaylistCollapsed ? "Show playlists" : "Hide playlists"}
+            style={{
+              width: "28px",
+              height: "28px",
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            {isPlaylistCollapsed ? <FaChevronRight /> : <FaChevronLeft />}
+          </button>
+        </div>
+        {!isPlaylistCollapsed && (
+          <PlaylistPane
+            playlists={playlists}
+            selectedPlaylistId={selectedPlaylistId}
+            onSelectPlaylist={handleSelectPlaylist}
+            onAddPlaylist={handleAddPlaylist}
+            selectedItemId={selectedItemId}
+            onSelectPlaylistItem={handleSelectPlaylistItem}
+          />
+        )}
       </div>
       <div style={rightColumnStyle}>
         <div style={rightColumnHeaderStyle}>
@@ -2079,6 +2333,19 @@ const MainApplicationPage: React.FC = () => {
               Live Slides
             </button>
             <button
+              onClick={handleToggleTranscriptionPanel}
+              className={showTranscriptionPanel ? "primary" : "secondary"}
+              title="Toggle live transcription panel"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "6px",
+              }}
+            >
+              <FaMicrophone />
+              Live Transcription
+            </button>
+            <button
               onClick={() => {
                 if (currentPlaylist && currentPlaylistItem) {
                   setIsActivatePresentationModalOpen(true);
@@ -2099,61 +2366,138 @@ const MainApplicationPage: React.FC = () => {
               onSlidesUpdated={handleAIAutomationSlidesUpdated}
               disabled={!currentPlaylist || !currentPlaylistItem}
             />
-            {currentPlaylistItem && currentPlaylistItem.slides.length > 0 && (
+            <div ref={moreMenuRef} style={{ position: "relative" }}>
               <button
-                onClick={handleCopyToClipboardMain}
-                title="Copy all slides in this item to clipboard"
-                className="secondary"
+                onClick={() => setIsMoreMenuOpen((prev) => !prev)}
+                className="icon-button"
+                title="More actions"
+                disabled={!currentPlaylist}
               >
-                <FaCopy />
+                <FaEllipsisH size={12} />
               </button>
-            )}
-            {currentPlaylist && !currentPlaylistItem && (
-              <button
-                onClick={handleOpenRenameSelectedPlaylist}
-                className="secondary btn-sm"
-                title="Rename playlist"
-              >
-                <FaEdit />
-              </button>
-            )}
-            {currentPlaylist && currentPlaylistItem && (
-              <button
-                onClick={handleOpenRenameSelectedItem}
-                className="secondary btn-sm"
-                title="Rename item"
-              >
-                <FaEdit />
-              </button>
-            )}
-            {currentPlaylist && !currentPlaylistItem && (
-              <button
-                onClick={handleDeleteSelectedPlaylist}
-                className="secondary btn-sm"
-                title="Delete playlist"
-              >
-                <FaTrash />
-              </button>
-            )}
-            {currentPlaylist && currentPlaylistItem && (
-              <button
-                onClick={handleDeleteSelectedItem}
-                className="secondary btn-sm"
-                title="Delete item"
-              >
-                <FaTrash />
-              </button>
-            )}
-            {currentPlaylistItem?.liveSlidesSessionId &&
-              (currentPlaylistItem.liveSlidesLinked ?? true) && (
-                <button
-                  onClick={handleCopyLiveSlidesTypingLink}
-                  title="Copy the typing link for this Live Slides session"
-                  className="secondary"
+              {isMoreMenuOpen && (
+                <div
+                  style={{
+                    position: "absolute",
+                    top: "100%",
+                    right: 0,
+                    marginTop: "6px",
+                    backgroundColor: "var(--app-bg-color)",
+                    border: "1px solid var(--app-border-color)",
+                    borderRadius: "8px",
+                    boxShadow: "0 4px 12px rgba(0,0,0,0.2)",
+                    zIndex: 120,
+                    minWidth: "200px",
+                    overflow: "hidden",
+                  }}
                 >
-                  <FaLink />
-                </button>
+                  {currentPlaylistItem &&
+                    currentPlaylistItem.slides.length > 0 && (
+                      <button
+                        onClick={() => {
+                          setIsMoreMenuOpen(false);
+                          handleCopyToClipboardMain();
+                        }}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "8px",
+                          width: "100%",
+                          padding: "10px 14px",
+                          backgroundColor: "transparent",
+                          color: "var(--app-text-color)",
+                          border: "none",
+                          borderBottom: "1px solid var(--app-border-color)",
+                          cursor: "pointer",
+                          fontSize: "0.875rem",
+                          textAlign: "left",
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.backgroundColor =
+                            "var(--app-hover-bg-color)";
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.backgroundColor = "transparent";
+                        }}
+                      >
+                        <FaCopy style={{ opacity: 0.7 }} />
+                        Copy slides
+                      </button>
+                    )}
+                  {currentPlaylist && (
+                    <button
+                      onClick={() => {
+                        setIsMoreMenuOpen(false);
+                        if (currentPlaylistItem) {
+                          handleOpenRenameSelectedItem();
+                        } else {
+                          handleOpenRenameSelectedPlaylist();
+                        }
+                      }}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "8px",
+                        width: "100%",
+                        padding: "10px 14px",
+                        backgroundColor: "transparent",
+                        color: "var(--app-text-color)",
+                        border: "none",
+                        borderBottom: "1px solid var(--app-border-color)",
+                        cursor: "pointer",
+                        fontSize: "0.875rem",
+                        textAlign: "left",
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.backgroundColor =
+                          "var(--app-hover-bg-color)";
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.backgroundColor = "transparent";
+                      }}
+                    >
+                      <FaEdit style={{ opacity: 0.7 }} />
+                      Edit name
+                    </button>
+                  )}
+                  {currentPlaylist && (
+                    <button
+                      onClick={() => {
+                        setIsMoreMenuOpen(false);
+                        if (currentPlaylistItem) {
+                          handleDeleteSelectedItem();
+                        } else {
+                          handleDeleteSelectedPlaylist();
+                        }
+                      }}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "8px",
+                        width: "100%",
+                        padding: "10px 14px",
+                        backgroundColor: "transparent",
+                        color: "var(--app-text-color)",
+                        border: "none",
+                        cursor: "pointer",
+                        fontSize: "0.875rem",
+                        textAlign: "left",
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.backgroundColor =
+                          "var(--app-hover-bg-color)";
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.backgroundColor = "transparent";
+                      }}
+                    >
+                      <FaTrash style={{ opacity: 0.7 }} />
+                      Delete
+                    </button>
+                  )}
+                </div>
               )}
+            </div>
             {copyStatusMain && (
               <span
                 style={{
@@ -2264,6 +2608,512 @@ const MainApplicationPage: React.FC = () => {
           />
         </div>
       </div>
+      {showTranscriptionPanel && (
+        <div style={transcriptionPanelStyle}>
+          <div style={transcriptionHeaderStyle}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: "var(--spacing-2)",
+              }}
+            >
+              <h3
+                style={{
+                  margin: 0,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "var(--spacing-2)",
+                }}
+              >
+                <FaMicrophone />
+                Live Transcription
+                {transcriptionStatus === "recording" && (
+                  <span
+                    style={{
+                      width: "8px",
+                      height: "8px",
+                      borderRadius: "50%",
+                      backgroundColor: "rgb(239, 68, 68)",
+                      animation: "pulse 1s infinite",
+                    }}
+                  />
+                )}
+                {transcriptionStatus === "waiting_for_browser" && (
+                  <span
+                    style={{
+                      fontSize: "0.75rem",
+                      padding: "2px 8px",
+                      borderRadius: "4px",
+                      backgroundColor: "var(--warning)",
+                      color: "white",
+                      fontWeight: 600,
+                    }}
+                  >
+                    Browser
+                  </span>
+                )}
+              </h3>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "var(--spacing-2)",
+                }}
+              >
+                {transcriptionStatus === "idle" ? (
+                  <button
+                    onClick={handleStartTranscriptionRequest}
+                    className="primary"
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "6px",
+                    }}
+                  >
+                    <FaMicrophone />
+                    Start
+                  </button>
+                ) : transcriptionStatus === "connecting" ? (
+                  <button disabled className="secondary">
+                    Connecting...
+                  </button>
+                ) : transcriptionStatus === "waiting_for_browser" ? (
+                  <button
+                    onClick={handleStopTranscriptionRequest}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "6px",
+                      backgroundColor: "var(--warning)",
+                      color: "white",
+                      border: "none",
+                      padding: "var(--spacing-2) var(--spacing-3)",
+                      borderRadius: "8px",
+                      cursor: "pointer",
+                    }}
+                    title="Click to cancel and close the browser transcription"
+                  >
+                    <FaExternalLinkAlt />
+                    Waiting for browser...
+                  </button>
+                ) : (
+                  <button
+                    onClick={handleStopTranscriptionRequest}
+                    disabled={isTranscriptionStopping}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "6px",
+                      backgroundColor: isTranscriptionStopping
+                        ? "rgb(156, 163, 175)"
+                        : "rgb(220, 38, 38)",
+                      color: "white",
+                      border: "none",
+                      padding: "var(--spacing-2) var(--spacing-3)",
+                      borderRadius: "8px",
+                      cursor: isTranscriptionStopping ? "not-allowed" : "pointer",
+                      opacity: isTranscriptionStopping ? 0.7 : 1,
+                    }}
+                  >
+                    {isTranscriptionStopping ? (
+                      <>
+                        <FaSpinner
+                          style={{ animation: "spin 1s linear infinite" }}
+                        />
+                        Stopping...
+                      </>
+                    ) : (
+                      <>
+                        <FaStop />
+                        Stop
+                      </>
+                    )}
+                  </button>
+                )}
+              </div>
+            </div>
+            <div>
+              <input
+                type="text"
+                value={transcriptSearchQuery}
+                onChange={(e) => setTranscriptSearchQuery(e.target.value)}
+                placeholder="Search transcript..."
+                style={{
+                  width: "100%",
+                  padding: "6px 10px",
+                  borderRadius: "6px",
+                  border: "1px solid var(--app-border-color)",
+                  background: "var(--app-input-bg-color)",
+                  color: "var(--app-input-text-color)",
+                  fontSize: "0.8rem",
+                }}
+              />
+            </div>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: "var(--spacing-3)",
+                flexWrap: "nowrap",
+                color: "var(--app-text-color-secondary)",
+                fontSize: "0.85rem",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "var(--spacing-3)",
+                  flexWrap: "nowrap",
+                }}
+              >
+                <label
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "6px",
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={filterTranscript}
+                    onChange={(e) => setFilterTranscript(e.target.checked)}
+                  />
+                  Transcript
+                </label>
+                <label
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "6px",
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={filterReferences}
+                    onChange={(e) => setFilterReferences(e.target.checked)}
+                  />
+                  Scripture refs
+                </label>
+                <label
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "6px",
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={filterKeyPoints}
+                    onChange={(e) => setFilterKeyPoints(e.target.checked)}
+                  />
+                  Key points
+                </label>
+              </div>
+            </div>
+          </div>
+          <div
+            style={{
+              padding: "var(--spacing-2) var(--spacing-4)",
+              borderBottom: "1px solid var(--app-border-color)",
+              backgroundColor: "var(--app-header-bg)",
+              color: "var(--app-text-color-secondary)",
+              fontSize: "0.85rem",
+              display: "flex",
+              justifyContent: "flex-end",
+            }}
+          >
+            <label
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "6px",
+                whiteSpace: "nowrap",
+                userSelect: "none",
+              }}
+              title="When enabled, the transcript will stay scrolled to the latest line. Scrolling up pauses it."
+            >
+              <input
+                type="checkbox"
+                checked={autoScrollTranscript}
+                onChange={(e) => setAutoScrollFromCheckbox(e.target.checked)}
+              />
+              Auto-scroll
+              {autoScrollTranscript && autoScrollPaused && (
+                <span style={{ color: "var(--warning)", fontWeight: 700 }}>
+                  (paused)
+                </span>
+              )}
+            </label>
+          </div>
+          <div
+            ref={transcriptScrollRef}
+            onScroll={handleTranscriptScroll}
+            style={{
+              flex: 1,
+              overflowY: "auto",
+              padding: "var(--spacing-4)",
+              display: "flex",
+              flexDirection: "column",
+              gap: "var(--spacing-3)",
+            }}
+          >
+            {liveTranscriptChunks.length === 0 && !liveInterimTranscript ? (
+              <div
+                style={{
+                  textAlign: "center",
+                  color: "var(--app-text-color-secondary)",
+                  padding: "var(--spacing-8)",
+                }}
+              >
+                {transcriptionStatus === "waiting_for_browser" ? (
+                  <>
+                    <FaExternalLinkAlt
+                      size={32}
+                      style={{
+                        marginBottom: "var(--spacing-3)",
+                        opacity: 0.7,
+                        color: "var(--warning)",
+                      }}
+                    />
+                    <p
+                      style={{ color: "var(--warning)", fontWeight: 600 }}
+                    >
+                      Waiting for browser transcription...
+                    </p>
+                    <p style={{ fontSize: "0.85rem" }}>
+                      A browser window has been opened. Select your microphone
+                      and click "Start Transcription" there.
+                      <br />
+                      Transcriptions will appear here automatically.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <FaMicrophone
+                      size={32}
+                      style={{ marginBottom: "var(--spacing-3)", opacity: 0.5 }}
+                    />
+                    <p>Live transcription</p>
+                    <p style={{ fontSize: "0.85rem" }}>
+                      Click Start to begin transcribing. Use Add to drop text
+                      into slides.
+                    </p>
+                  </>
+                )}
+              </div>
+            ) : (
+              liveTranscriptChunks.map((m) => {
+                const showAny =
+                  filterTranscript ||
+                  (filterReferences &&
+                    (m.scripture_references?.length || 0) > 0) ||
+                  (filterKeyPoints && (m.key_points?.length || 0) > 0);
+
+                if (!showAny) return null;
+
+                const chunkText = m.segment?.text || m.text || "";
+                const matchesQuery =
+                  !normalizedTranscriptQuery ||
+                  chunkText
+                    .toLowerCase()
+                    .includes(normalizedTranscriptQuery) ||
+                  (m.scripture_references || []).some((ref) =>
+                    ref.toLowerCase().includes(normalizedTranscriptQuery)
+                  ) ||
+                  (m.key_points || []).some((kp) =>
+                    kp.text
+                      .toLowerCase()
+                      .includes(normalizedTranscriptQuery)
+                  );
+
+                if (!matchesQuery) return null;
+
+                const ts = new Date(m.timestamp).toLocaleTimeString();
+
+                return (
+                  <div
+                    key={(m.segment?.id || `${m.timestamp}`) + m.kind}
+                    style={transcriptionChunkCardStyle}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        gap: "10px",
+                      }}
+                    >
+                      <div
+                        style={{
+                          fontSize: "0.75rem",
+                          color: "var(--app-text-color-secondary)",
+                        }}
+                      >
+                        {ts} · {m.engine || "Transcription"}
+                      </div>
+                      {filterTranscript && (
+                        <button
+                          onClick={() => handleAddTranscriptionSlide(chunkText)}
+                          className="secondary btn-sm"
+                          title="Add this chunk as a new slide"
+                        >
+                          <FaPlus /> Add
+                        </button>
+                      )}
+                    </div>
+
+                    {filterTranscript && (
+                      <div style={{ fontSize: "0.9rem", lineHeight: 1.5 }}>
+                        {chunkText}
+                      </div>
+                    )}
+
+                    {filterReferences &&
+                      (m.scripture_references?.length || 0) > 0 && (
+                        <div
+                          style={{
+                            borderTop: "1px solid var(--app-border-color)",
+                            paddingTop: "var(--spacing-2)",
+                            display: "flex",
+                            flexDirection: "column",
+                            gap: "6px",
+                          }}
+                        >
+                          <div
+                            style={{
+                              fontWeight: 600,
+                              color: "var(--app-text-color-secondary)",
+                            }}
+                          >
+                            Scripture refs
+                          </div>
+                          {m.scripture_references?.map((ref, i) => (
+                            <div
+                              key={`${m.timestamp}-ref-${i}`}
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "space-between",
+                                gap: "8px",
+                                padding: "6px 10px",
+                                borderRadius: "8px",
+                                border: "1px solid #22c55e",
+                                backgroundColor: "var(--app-bg-color)",
+                              }}
+                            >
+                              <span style={{ color: "#22c55e" }}>{ref}</span>
+                              <button
+                                onClick={() => handleAddTranscriptionSlide(ref)}
+                                className="secondary btn-sm"
+                                title="Add this reference as a new slide"
+                              >
+                                <FaPlus size={10} /> Add
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                    {filterKeyPoints && (m.key_points?.length || 0) > 0 && (
+                      <div
+                        style={{
+                          borderTop: "1px solid var(--app-border-color)",
+                          paddingTop: "var(--spacing-2)",
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: "6px",
+                        }}
+                      >
+                        <div
+                          style={{
+                            fontWeight: 600,
+                            color: "var(--app-text-color-secondary)",
+                          }}
+                        >
+                          Key points
+                        </div>
+                        {m.key_points?.map((kp, i) => (
+                          <div
+                            key={`${m.timestamp}-kp-${i}`}
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "space-between",
+                              gap: "8px",
+                              padding: "6px 10px",
+                              borderRadius: "8px",
+                              border: "1px solid #f59e0b",
+                              backgroundColor: "var(--app-bg-color)",
+                            }}
+                          >
+                            <div
+                              style={{
+                                display: "flex",
+                                flexDirection: "column",
+                                gap: "4px",
+                              }}
+                            >
+                              {kp.category && (
+                                <span
+                                  style={{
+                                    fontSize: "0.7rem",
+                                    padding: "2px 6px",
+                                    borderRadius: "999px",
+                                    backgroundColor: "rgba(245, 158, 11, 0.12)",
+                                    color: "#f59e0b",
+                                    width: "fit-content",
+                                  }}
+                                >
+                                  {kp.category}
+                                </span>
+                              )}
+                              <span>{kp.text}</span>
+                            </div>
+                            <button
+                              onClick={() =>
+                                handleAddTranscriptionSlide(kp.text)
+                              }
+                              className="secondary btn-sm"
+                              title="Add this key point as a new slide"
+                            >
+                              <FaPlus size={10} /> Add
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            )}
+
+            {filterTranscript &&
+              liveInterimTranscript.trim().length > 0 &&
+              (!normalizedTranscriptQuery ||
+                liveInterimTranscript
+                  .toLowerCase()
+                  .includes(normalizedTranscriptQuery)) && (
+                <div
+                  style={{
+                    padding: "var(--spacing-3)",
+                    borderRadius: "10px",
+                    border: "1px solid var(--app-border-color)",
+                    backgroundColor: "color-mix(in srgb, var(--app-bg-color) 70%, transparent)",
+                    fontStyle: "italic",
+                  }}
+                >
+                  {liveInterimTranscript}
+                </div>
+              )}
+
+            <div ref={transcriptEndRef} />
+          </div>
+        </div>
+      )}
       <ImportModal
         isOpen={isImportModalOpen}
         onClose={() => setIsImportModalOpen(false)}
