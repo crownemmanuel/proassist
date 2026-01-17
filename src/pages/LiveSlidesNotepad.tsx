@@ -456,8 +456,8 @@ const LiveSlidesNotepad: React.FC = () => {
   const [liveInterimTranscript, setLiveInterimTranscript] = useState("");
   const [liveTranscriptChunks, setLiveTranscriptChunks] = useState<WsTranscriptionStream[]>([]);
   const [filterTranscript, setFilterTranscript] = useState(true);
-  const [filterReferences, setFilterReferences] = useState(false);
-  const [filterKeyPoints, setFilterKeyPoints] = useState(false);
+  const [filterReferences, setFilterReferences] = useState(true);
+  const [filterKeyPoints, setFilterKeyPoints] = useState(true);
   const [transcriptSearchQuery, setTranscriptSearchQuery] = useState("");
   const [autoScrollTranscript, setAutoScrollTranscript] = useState(true);
   const [autoScrollPaused, setAutoScrollPaused] = useState(false);
@@ -1089,7 +1089,7 @@ Result: Slide 1 = Title, Slide 2 = Title + Sub-item 1, Slide 3 = Title + Sub-ite
                   gap: "10px",
                   flexWrap: "nowrap",
                   fontSize: "0.8rem",
-                  color: notepadStyles.transcriptionFilterLabel.color,
+                  color: notepadStyles.footer.color,
                 }}
               >
                 <label style={notepadStyles.transcriptionFilterLabel}>
@@ -1122,19 +1122,18 @@ Result: Slide 1 = Title, Slide 2 = Title + Sub-item 1, Slide 3 = Title + Sub-ite
             <div
               ref={transcriptScrollRef}
               onScroll={handleTranscriptPanelScroll}
-              style={{ ...notepadStyles.transcriptionScroll, position: "relative" }}
+              style={notepadStyles.transcriptionScroll}
             >
-              {/* Auto-scroll checkbox - positioned at top right */}
+              {/* Auto-scroll checkbox - positioned right below separator line */}
               <div
                 style={{
-                  position: "sticky",
-                  top: 0,
-                  right: 0,
-                  zIndex: 10,
                   display: "flex",
                   justifyContent: "flex-end",
-                  padding: "8px 12px",
-                  pointerEvents: "none",
+                  paddingTop: "0px",
+                  paddingBottom: "4px",
+                  paddingRight: "0px",
+                  marginTop: "-12px",
+                  marginBottom: "0px",
                 }}
               >
                 <label
@@ -1142,11 +1141,8 @@ Result: Slide 1 = Title, Slide 2 = Title + Sub-item 1, Slide 3 = Title + Sub-ite
                     ...notepadStyles.transcriptionFilterLabel,
                     cursor: "pointer",
                     whiteSpace: "nowrap",
-                    backgroundColor: notepadStyles.input.background,
-                    padding: "4px 8px",
-                    borderRadius: "4px",
-                    border: `1px solid ${notepadStyles.border}`,
-                    pointerEvents: "auto",
+                    fontSize: "0.8rem",
+                    color: notepadStyles.footer.color,
                   }}
                   title="When enabled, the transcript will stay scrolled to the latest line. Scrolling up pauses it."
                 >

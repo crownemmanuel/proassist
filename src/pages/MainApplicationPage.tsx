@@ -276,8 +276,7 @@ const MainApplicationPage: React.FC = () => {
   const [liveSlidesServerSessionIds, setLiveSlidesServerSessionIds] = useState<
     Set<string>
   >(new Set());
-  const [liveSlidesServerIp, setLiveSlidesServerIp] =
-    useState<string>("localhost");
+  const [, setLiveSlidesServerIp] = useState<string>("localhost");
   const liveSlidesWsMapRef = useRef<Map<string, LiveSlidesWebSocket>>(
     new Map()
   );
@@ -2122,14 +2121,6 @@ const MainApplicationPage: React.FC = () => {
     flexDirection: "column",
     gap: "var(--spacing-3)",
     backgroundColor: "var(--app-header-bg)",
-  };
-
-  const transcriptionFiltersStyle: React.CSSProperties = {
-    display: "flex",
-    gap: "var(--spacing-3)",
-    flexWrap: "wrap",
-    fontSize: "0.85rem",
-    color: "var(--app-text-color-secondary)",
   };
 
   const transcriptionChunkCardStyle: React.CSSProperties = {
