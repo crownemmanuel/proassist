@@ -1476,8 +1476,8 @@
     </div>
 
     <script>
-      // Smooth scroll for navigation links
-      document.querySelectorAll('a[href^="#"]').forEach((anchor) => {
+      // Smooth scroll for navigation links (only for internal hash links, not download links)
+      document.querySelectorAll('a[href^="#"]:not([data-platform])').forEach((anchor) => {
         anchor.addEventListener("click", function (e) {
           e.preventDefault();
           const target = document.querySelector(this.getAttribute("href"));
@@ -1551,10 +1551,113 @@
       });
 
       // Close modal when download button is clicked (after starting download)
-      macDownloadBtn.addEventListener("click", function () {
+      macDownloadBtn.addEventListener("click", function (e) {
+        // Ensure download opens in new tab
+        if (macDownloadUrl) {
+          window.open(macDownloadUrl, '_blank');
+          e.preventDefault();
+        }
         // Small delay to ensure download starts before closing
         setTimeout(hideMacInstallModal, 100);
       });
+
+      // Helper function to find Mac asset in a release
+      function findMacAsset(release) {
+        const macAssets = release.assets.filter(
+          (asset) =>
+            asset.name.endsWith(".dmg") || asset.name.includes(".dmg")
+        );
+        return (
+          macAssets.find((asset) => asset.name.includes("aarch64")) ||
+          macAssets.find((asset) => asset.name.includes("universal")) ||
+          macAssets.find((asset) => asset.name.includes("x86_64")) ||
+          macAssets.find((asset) => asset.name.includes("darwin")) ||
+          macAssets[0]
+        );
+      }
+
+      // Helper function to find Windows asset in a release
+      function findWindowsAsset(release) {
+        const windowsAssets = release.assets.filter((asset) => {
+          const name = asset.name.toLowerCase();
+          // Exclude Mac and Linux assets
+          if (
+            name.includes(".dmg") ||
+            name.includes(".appimage") ||
+            name.includes(".deb") ||
+            name.includes("darwin") ||
+            name.includes("linux")
+          ) {
+            return false;
+          }
+          // Include Windows installers
+          return (
+            name.endsWith(".msi") ||
+            name.endsWith(".exe") ||
+            name.includes("windows") ||
+            name.includes("win32") ||
+            name.includes("win64") ||
+            (name.includes("x64") &&
+              (name.includes(".msi") || name.includes(".exe")))
+          );
+        });
+        return (
+          windowsAssets.find(
+            (asset) =>
+              asset.name.endsWith(".msi") ||
+              asset.name.toLowerCase().includes(".msi")
+          ) ||
+          windowsAssets.find(
+            (asset) =>
+              asset.name.endsWith(".exe") ||
+              asset.name.toLowerCase().includes(".exe")
+          ) ||
+          windowsAssets[0]
+        );
+      }
+
+      // Helper function to find Linux asset in a release
+      function findLinuxAsset(release) {
+        const linuxAssets = release.assets.filter((asset) => {
+          const name = asset.name.toLowerCase();
+          return (
+            name.endsWith(".appimage") ||
+            name.endsWith(".deb") ||
+            name.endsWith(".rpm") ||
+            name.includes("linux")
+          );
+        });
+        return (
+          linuxAssets.find((asset) =>
+            asset.name.toLowerCase().endsWith(".appimage")
+          ) ||
+          linuxAssets.find((asset) =>
+            asset.name.toLowerCase().endsWith(".deb")
+          ) ||
+          linuxAssets.find((asset) =>
+            asset.name.toLowerCase().endsWith(".rpm")
+          ) ||
+          linuxAssets[0]
+        );
+      }
+
+      // Find a release with assets for a specific platform
+      async function findReleaseWithAsset(platform, releases) {
+        for (const release of releases) {
+          let asset = null;
+          if (platform === "mac") {
+            asset = findMacAsset(release);
+          } else if (platform === "windows") {
+            asset = findWindowsAsset(release);
+          } else if (platform === "linux") {
+            asset = findLinuxAsset(release);
+          }
+          if (asset) {
+            return { release, asset };
+          }
+        }
+        return null;
+      }
 
       // Fetch latest release and update download links
       async function getLatestReleaseDownloads() {
@@ -1565,194 +1668,216 @@
         const linuxLink = document.querySelector('a[data-platform="linux"]');
 
         try {
-          const response = await fetch(
+          // First, try to fetch the latest release
+          const latestResponse = await fetch(
             "https://api.github.com/repos/crownemmanuel/proassist/releases/latest"
           );
-          if (!response.ok) {
+          if (!latestResponse.ok) {
             throw new Error("Failed to fetch latest release");
           }
-          const release = await response.json();
+          const latestRelease = await latestResponse.json();
 
-          console.log("Latest release:", release.tag_name);
+          console.log("Latest release:", latestRelease.tag_name);
           console.log(
             "All assets:",
-            release.assets.map((a) => a.name)
+            latestRelease.assets.map((a) => a.name)
           );
 
-          // Find Mac asset (prefer aarch64, fallback to x86_64 or universal)
-          // Tauri typically creates: proassist_<version>_aarch64.dmg or proassist_<version>_x86_64.dmg
-          const macAssets = release.assets.filter(
-            (asset) =>
-              asset.name.endsWith(".dmg") || asset.name.includes(".dmg")
-          );
-          console.log(
-            "Mac assets found:",
-            macAssets.map((a) => a.name)
-          );
-          const macAsset =
-            macAssets.find((asset) => asset.name.includes("aarch64")) ||
-            macAssets.find((asset) => asset.name.includes("universal")) ||
-            macAssets.find((asset) => asset.name.includes("x86_64")) ||
-            macAssets.find((asset) => asset.name.includes("darwin")) ||
-            macAssets[0];
+          // Check if latest release has assets, if not fetch previous releases
+          const macAsset = findMacAsset(latestRelease);
+          const windowsAsset = findWindowsAsset(latestRelease);
+          const linuxAsset = findLinuxAsset(latestRelease);
 
-          // Find Windows asset (prefer .msi, fallback to .exe)
-          // Tauri typically creates: proassist_<version>_x64_en-US.msi or proassist_<version>_x64_en-US.exe
-          // Filter out Mac assets (.dmg) and Linux assets (.AppImage, .deb), then find Windows installers
-          const windowsAssets = release.assets.filter((asset) => {
-            const name = asset.name.toLowerCase();
-            // Exclude Mac and Linux assets
-            if (
-              name.includes(".dmg") ||
-              name.includes(".appimage") ||
-              name.includes(".deb") ||
-              name.includes("darwin") ||
-              name.includes("linux")
-            ) {
-              return false;
+          // If any platform is missing assets, fetch previous releases
+          let allReleases = [latestRelease];
+          if (!macAsset || !windowsAsset || !linuxAsset) {
+            console.log(
+              "Some platforms missing assets, fetching previous releases..."
+            );
+            const releasesResponse = await fetch(
+              "https://api.github.com/repos/crownemmanuel/proassist/releases?per_page=10"
+            );
+            if (releasesResponse.ok) {
+              allReleases = await releasesResponse.json();
+              console.log(
+                `Fetched ${allReleases.length} releases for fallback`
+              );
             }
-            // Include Windows installers
-            return (
-              name.endsWith(".msi") ||
-              name.endsWith(".exe") ||
-              name.includes("windows") ||
-              name.includes("win32") ||
-              name.includes("win64") ||
-              (name.includes("x64") &&
-                (name.includes(".msi") || name.includes(".exe")))
-            );
-          });
-          console.log(
-            "Windows assets found:",
-            windowsAssets.map((a) => a.name)
-          );
-          const windowsAsset =
-            windowsAssets.find(
-              (asset) =>
-                asset.name.endsWith(".msi") ||
-                asset.name.toLowerCase().includes(".msi")
-            ) ||
-            windowsAssets.find(
-              (asset) =>
-                asset.name.endsWith(".exe") ||
-                asset.name.toLowerCase().includes(".exe")
-            ) ||
-            windowsAssets[0];
-
-          // Find Linux asset (prefer AppImage, fallback to DEB, then RPM)
-          // Tauri typically creates: proassist_<version>_amd64.AppImage, proassist_<version>_amd64.deb, proassist-<version>-1.x86_64.rpm
-          const linuxAssets = release.assets.filter((asset) => {
-            const name = asset.name.toLowerCase();
-            return (
-              name.endsWith(".appimage") ||
-              name.endsWith(".deb") ||
-              name.endsWith(".rpm") ||
-              name.includes("linux")
-            );
-          });
-          console.log(
-            "Linux assets found:",
-            linuxAssets.map((a) => a.name)
-          );
-          const linuxAsset =
-            linuxAssets.find((asset) =>
-              asset.name.toLowerCase().endsWith(".appimage")
-            ) ||
-            linuxAssets.find((asset) =>
-              asset.name.toLowerCase().endsWith(".deb")
-            ) ||
-            linuxAssets.find((asset) =>
-              asset.name.toLowerCase().endsWith(".rpm")
-            ) ||
-            linuxAssets[0];
-
-          // Update Mac download link - store URL and show modal on click
-          if (macAsset && macLink) {
-            macDownloadUrl = macAsset.browser_download_url;
-            macLink.textContent = `Download for Mac (${release.tag_name})`;
-            macLink.href = "#";
-            macLink.onclick = function (e) {
-              e.preventDefault();
-              showMacInstallModal();
-            };
-            // Update modal download button
-            macDownloadBtn.href = macDownloadUrl;
-            macDownloadBtn.textContent = `Download DMG (${release.tag_name})`;
-            console.log("Mac link updated:", macDownloadUrl);
-          } else if (macLink) {
-            // Fallback if no Mac asset found - scroll to download section
-            macLink.href = "#download";
-            macLink.textContent = "Download for Mac";
-            macLink.onclick = null;
           }
 
-          // Update Windows download link
-          if (windowsAsset && windowsLink) {
-            windowsLink.href = windowsAsset.browser_download_url;
-            windowsLink.textContent = `Download for Windows (${release.tag_name})`;
-            windowsLink.onclick = null; // Remove onclick to allow navigation
-            console.log(
-              "Windows link updated:",
-              windowsAsset.browser_download_url,
-              "from asset:",
-              windowsAsset.name
-            );
-          } else if (windowsLink) {
-            // Fallback if no Windows asset found - scroll to download section
-            console.warn(
-              "No Windows asset found. Available assets:",
-              release.assets.map((a) => a.name)
-            );
-            windowsLink.href = "#download";
-            windowsLink.textContent = "Windows Build Coming Soon";
-            windowsLink.onclick = null;
-            windowsLink.style.opacity = "0.6";
-            windowsLink.title = "Windows build not available in this release";
+          // Process Mac download link
+          if (macLink) {
+            const macResult = macAsset
+              ? { release: latestRelease, asset: macAsset }
+              : await findReleaseWithAsset("mac", allReleases);
+            
+            if (macResult) {
+              macDownloadUrl = macResult.asset.browser_download_url;
+              const versionLabel =
+                macResult.release.tag_name === latestRelease.tag_name
+                  ? macResult.release.tag_name
+                  : `${macResult.release.tag_name} (previous)`;
+              macLink.textContent = `Download for Mac (${versionLabel})`;
+              macLink.href = "#";
+              macLink.onclick = function (e) {
+                e.preventDefault();
+                showMacInstallModal();
+              };
+              // Update modal download button - open in new tab to ensure download works
+              macDownloadBtn.href = macDownloadUrl;
+              macDownloadBtn.target = "_blank";
+              macDownloadBtn.textContent = `Download DMG (${versionLabel})`;
+              console.log("Mac link updated:", macDownloadUrl);
+            } else {
+              // No Mac asset found in any release - redirect to releases page
+              macLink.href = latestRelease.html_url;
+              macLink.textContent = "View Releases";
+              macLink.onclick = null;
+              macLink.target = "_blank";
+              console.log("No Mac asset found, redirecting to releases page");
+            }
           }
 
-          // Update Linux download link
-          if (linuxAsset && linuxLink) {
-            // Determine file type for display
-            const fileType = linuxAsset.name.toLowerCase().endsWith(".appimage")
-              ? "AppImage"
-              : linuxAsset.name.toLowerCase().endsWith(".deb")
-              ? "DEB"
-              : linuxAsset.name.toLowerCase().endsWith(".rpm")
-              ? "RPM"
-              : "";
-            linuxLink.href = linuxAsset.browser_download_url;
-            linuxLink.textContent = `Download for Linux (${release.tag_name} - ${fileType})`;
-            linuxLink.onclick = null; // Remove onclick to allow navigation
-            console.log(
-              "Linux link updated:",
-              linuxAsset.browser_download_url,
-              "from asset:",
-              linuxAsset.name
-            );
-          } else if (linuxLink) {
-            // Fallback if no Linux asset found - scroll to download section
-            linuxLink.href = "#download";
-            linuxLink.textContent = "Download for Linux";
-            linuxLink.onclick = null;
+          // Process Windows download link
+          if (windowsLink) {
+            const windowsResult = windowsAsset
+              ? { release: latestRelease, asset: windowsAsset }
+              : await findReleaseWithAsset("windows", allReleases);
+            
+            if (windowsResult) {
+              const versionLabel =
+                windowsResult.release.tag_name === latestRelease.tag_name
+                  ? windowsResult.release.tag_name
+                  : `${windowsResult.release.tag_name} (previous)`;
+              const downloadUrl = windowsResult.asset.browser_download_url;
+              windowsLink.href = downloadUrl;
+              windowsLink.textContent = `Download for Windows (${versionLabel})`;
+              windowsLink.target = "_blank";
+              windowsLink.onclick = function(e) {
+                // Open in new tab to ensure download works
+                window.open(downloadUrl, '_blank');
+                return false; // Prevent default navigation
+              };
+              windowsLink.style.opacity = "1";
+              windowsLink.title = "";
+              console.log(
+                "Windows link updated:",
+                downloadUrl,
+                "from asset:",
+                windowsResult.asset.name
+              );
+            } else {
+              // No Windows asset found in any release - redirect to releases page
+              windowsLink.href = latestRelease.html_url;
+              windowsLink.textContent = "View Releases";
+              windowsLink.onclick = null;
+              windowsLink.target = "_blank";
+              windowsLink.style.opacity = "1";
+              windowsLink.title = "No Windows build available - view releases page";
+              console.log(
+                "No Windows asset found, redirecting to releases page"
+              );
+            }
+          }
+
+          // Process Linux download link
+          if (linuxLink) {
+            const linuxResult = linuxAsset
+              ? { release: latestRelease, asset: linuxAsset }
+              : await findReleaseWithAsset("linux", allReleases);
+            
+            if (linuxResult) {
+              // Determine file type for display
+              const fileType = linuxResult.asset.name
+                .toLowerCase()
+                .endsWith(".appimage")
+                ? "AppImage"
+                : linuxResult.asset.name.toLowerCase().endsWith(".deb")
+                ? "DEB"
+                : linuxResult.asset.name.toLowerCase().endsWith(".rpm")
+                ? "RPM"
+                : "";
+              const versionLabel =
+                linuxResult.release.tag_name === latestRelease.tag_name
+                  ? linuxResult.release.tag_name
+                  : `${linuxResult.release.tag_name} (previous)`;
+              const downloadUrl = linuxResult.asset.browser_download_url;
+              linuxLink.href = downloadUrl;
+              linuxLink.textContent = `Download for Linux (${versionLabel} - ${fileType})`;
+              linuxLink.target = "_blank";
+              linuxLink.onclick = function(e) {
+                // Open in new tab to ensure download works
+                window.open(downloadUrl, '_blank');
+                return false; // Prevent default navigation
+              };
+              console.log(
+                "Linux link updated:",
+                downloadUrl,
+                "from asset:",
+                linuxResult.asset.name
+              );
+            } else {
+              // No Linux asset found in any release - redirect to releases page
+              linuxLink.href = latestRelease.html_url;
+              linuxLink.textContent = "View Releases";
+              linuxLink.onclick = null;
+              linuxLink.target = "_blank";
+              console.log("No Linux asset found, redirecting to releases page");
+            }
           }
         } catch (error) {
-          console.error("Failed to fetch latest release:", error);
-          // Fallback to download section if API fails
-          if (macLink) {
-            macLink.href = "#download";
-            macLink.textContent = "Download for Mac";
-            macLink.onclick = null;
-          }
-          if (windowsLink) {
-            windowsLink.href = "#download";
-            windowsLink.textContent = "Windows Build Coming Soon";
-            windowsLink.onclick = null;
-            windowsLink.style.opacity = "0.6";
-          }
-          if (linuxLink) {
-            linuxLink.href = "#download";
-            linuxLink.textContent = "Download for Linux";
-            linuxLink.onclick = null;
+          console.error("Failed to fetch releases:", error);
+          // Fallback to releases page if API fails
+          try {
+            const fallbackResponse = await fetch(
+              "https://api.github.com/repos/crownemmanuel/proassist/releases/latest"
+            );
+            if (fallbackResponse.ok) {
+              const fallbackRelease = await fallbackResponse.json();
+              if (macLink) {
+                macLink.href = fallbackRelease.html_url;
+                macLink.textContent = "View Releases";
+                macLink.onclick = null;
+                macLink.target = "_blank";
+              }
+              if (windowsLink) {
+                windowsLink.href = fallbackRelease.html_url;
+                windowsLink.textContent = "View Releases";
+                windowsLink.onclick = null;
+                windowsLink.target = "_blank";
+                windowsLink.style.opacity = "1";
+              }
+              if (linuxLink) {
+                linuxLink.href = fallbackRelease.html_url;
+                linuxLink.textContent = "View Releases";
+                linuxLink.onclick = null;
+                linuxLink.target = "_blank";
+              }
+            }
+          } catch (fallbackError) {
+            console.error("Fallback also failed:", fallbackError);
+            // Last resort - link to GitHub releases page
+            const releasesUrl =
+              "https://github.com/crownemmanuel/proassist/releases";
+            if (macLink) {
+              macLink.href = releasesUrl;
+              macLink.textContent = "View Releases";
+              macLink.onclick = null;
+              macLink.target = "_blank";
+            }
+            if (windowsLink) {
+              windowsLink.href = releasesUrl;
+              windowsLink.textContent = "View Releases";
+              windowsLink.onclick = null;
+              windowsLink.target = "_blank";
+              windowsLink.style.opacity = "1";
+            }
+            if (linuxLink) {
+              linuxLink.href = releasesUrl;
+              linuxLink.textContent = "View Releases";
+              linuxLink.onclick = null;
+              linuxLink.target = "_blank";
+            }
           }
         }
       }
