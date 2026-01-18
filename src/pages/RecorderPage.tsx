@@ -29,6 +29,7 @@ import {
   getNativeAudioRecordingDuration,
   generateNativeAudioFilePath,
   NativeAudioDevice,
+  VideoRecorderConfig,
 } from "../services/recorderService";
 import {
   RecorderSettings,
@@ -615,14 +616,15 @@ const RecorderPage: React.FC = () => {
     }
     
     // Create recorder with high quality settings
-    const { recorder, mimeType, fileExtension } = createVideoRecorder(
+    const videoRecorderConfig: VideoRecorderConfig = createVideoRecorder(
       recordingStream,
       settings.videoFormat,
       settings.videoAudioCodec
     );
+    const { recorder, mimeType, fileExtension } = videoRecorderConfig;
     videoChunksRef.current = [];
 
-    recorder.ondataavailable = (e) => {
+    recorder.ondataavailable = (e: BlobEvent) => {
       if (e.data.size > 0) {
         videoChunksRef.current.push(e.data);
       }
