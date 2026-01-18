@@ -755,8 +755,21 @@ const RecorderPage: React.FC = () => {
       stopAudioMeter();
 
       try {
-        const meterStream =
-          stream || (await getAudioOnlyStream(settings.selectedAudioDeviceId));
+        let meterStream: MediaStream;
+        if (stream) {
+          meterStream = stream;
+        } else {
+          // For native audio recording, the selectedAudioDeviceId is a native device ID
+          // which doesn't work with browser getUserMedia. Try with the ID first,
+          // then fall back to default device if it fails.
+          try {
+            meterStream = await getAudioOnlyStream(settings.selectedAudioDeviceId);
+          } catch {
+            // Fall back to default audio device for meter visualization
+            console.log("Falling back to default audio device for meter");
+            meterStream = await getAudioOnlyStream(null);
+          }
+        }
         audioMeterStreamRef.current = meterStream;
         audioMeterUsesRecordingStreamRef.current = Boolean(stream);
 
@@ -898,7 +911,16 @@ const RecorderPage: React.FC = () => {
       audioRecordingModeRef.current = "web";
       setAudioRecordedPath(null);
 
-      const stream = await getAudioOnlyStream(settings.selectedAudioDeviceId);
+      // For web audio recording, the selectedAudioDeviceId might be a native device ID
+      // which doesn't work with browser getUserMedia. Try with the ID first,
+      // then fall back to default device if it fails.
+      let stream: MediaStream;
+      try {
+        stream = await getAudioOnlyStream(settings.selectedAudioDeviceId);
+      } catch {
+        console.log("Falling back to default audio device for web recording");
+        stream = await getAudioOnlyStream(null);
+      }
       audioStreamRef.current = stream;
 
       const recorder = createAudioRecorder(stream, "mp3", settings.audioBitrate);
