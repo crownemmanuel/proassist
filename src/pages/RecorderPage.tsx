@@ -291,6 +291,7 @@ const RecorderPage: React.FC = () => {
   const [videoPreviewStream, setVideoPreviewStream] = useState<MediaStream | null>(null);
   const [videoDevices, setVideoDevices] = useState<MediaDeviceOption[]>([]);
   const [videoAudioDevices, setVideoAudioDevices] = useState<MediaDeviceOption[]>([]);
+  const [videoSavedMessage, setVideoSavedMessage] = useState<string | null>(null);
 
   // Audio recording state
   const [audioStatus, setAudioStatus] = useState<RecordingStatus>("idle");
@@ -536,6 +537,9 @@ const RecorderPage: React.FC = () => {
   const startVideoRecording = useCallback(async () => {
     if (!settings) return;
 
+    // Clear any saved message from previous recording
+    setVideoSavedMessage(null);
+
     // Warn if video is disabled
     if (!isVideoEnabled) {
       const proceed = window.confirm("Video is currently disabled. Enable video and start recording?");
@@ -544,6 +548,7 @@ const RecorderPage: React.FC = () => {
     }
 
     setIsVideoStarting(true);
+    setVideoElapsedTime(0);
 
     // Ensure we have a stream
     if (!videoStreamRef.current) {
@@ -637,17 +642,13 @@ const RecorderPage: React.FC = () => {
         (fileExtension === "mp4" ? "video/mp4" : "video/webm");
       const blob = new Blob(videoChunksRef.current, { type: resolvedMimeType });
 
-      // Stop the camera stream
-      if (videoStreamRef.current) {
-        videoStreamRef.current.getTracks().forEach((t) => t.stop());
-        videoStreamRef.current = null;
-      }
+      // Clean up the recording audio stream (mono mixer) but keep the camera live
       if (videoRecordingAudioCleanupRef.current) {
         videoRecordingAudioCleanupRef.current();
         videoRecordingAudioCleanupRef.current = null;
       }
-      setVideoPreviewStream(null);
-      setCameraError(null);
+      // NOTE: We intentionally keep videoStreamRef and videoPreviewStream active
+      // so the live feed stays on for automation to start new recordings
 
       // Save to file
       const result = await saveRecordingToFile(
@@ -663,6 +664,9 @@ const RecorderPage: React.FC = () => {
       }
 
       setVideoStatus("stopped");
+      setVideoSavedMessage("Recording saved!");
+      // Clear the saved message after 3 seconds
+      setTimeout(() => setVideoSavedMessage(null), 3000);
       resolveVideoStop();
     };
 
@@ -720,14 +724,6 @@ const RecorderPage: React.FC = () => {
     },
     [videoStatus, stopVideoRecordingCore, closeStopConfirm]
   );
-
-  const startNewVideoRecording = useCallback(async () => {
-    setVideoStatus("idle");
-    setVideoElapsedTime(0);
-    
-    // Restart camera preview
-    await startVideoPreview();
-  }, [startVideoPreview]);
 
   // ============================================================================
   // Audio Recording Functions
@@ -1425,53 +1421,57 @@ const RecorderPage: React.FC = () => {
               </select>
             </div>
 
-            {/* Video Preview / Saved Message */}
+            {/* Video Preview - Always show live feed */}
             <div style={styles.videoPreview}>
-              {videoStatus === "stopped" ? (
+              <video
+                ref={videoRef}
+                autoPlay
+                muted
+                playsInline
+                style={{
+                  ...styles.videoElement,
+                  display: videoPreviewStream ? "block" : "none",
+                }}
+              />
+              {!videoPreviewStream && (
                 <div style={styles.previewPlaceholder}>
-                  <FaVideo size={48} style={{ opacity: 0.8, marginBottom: "12px", color: "#22c55e" }} />
-                  <p style={{ color: "#22c55e", fontWeight: 500 }}>Recording saved!</p>
-                  <p style={{ fontSize: "0.85em", opacity: 0.8 }}>
-                    Your video file has been saved to disk.
-                  </p>
-                </div>
-              ) : (
-                <>
-                  <video
-                    ref={videoRef}
-                    autoPlay
-                    muted
-                    playsInline
-                    style={{
-                      ...styles.videoElement,
-                      display: videoPreviewStream ? "block" : "none",
-                    }}
-                  />
-                  {!videoPreviewStream && (
-                    <div style={styles.previewPlaceholder}>
-                      <FaVideo size={48} style={{ opacity: 0.5, marginBottom: "12px" }} />
-                      <p>{cameraError || "Camera preview will appear here"}</p>
-                      {cameraError && (
-                        <button
-                          onClick={startVideoPreview}
-                          style={{
-                            marginTop: "12px",
-                            padding: "8px 16px",
-                            borderRadius: "8px",
-                            border: "1px solid var(--app-border-color)",
-                            background: "var(--app-bg-color)",
-                            color: "var(--app-text-color)",
-                            cursor: "pointer",
-                          }}
-                        >
-                          Retry Camera
-                        </button>
-                      )}
-                    </div>
+                  <FaVideo size={48} style={{ opacity: 0.5, marginBottom: "12px" }} />
+                  <p>{cameraError || "Camera preview will appear here"}</p>
+                  {cameraError && (
+                    <button
+                      onClick={startVideoPreview}
+                      style={{
+                        marginTop: "12px",
+                        padding: "8px 16px",
+                        borderRadius: "8px",
+                        border: "1px solid var(--app-border-color)",
+                        background: "var(--app-bg-color)",
+                        color: "var(--app-text-color)",
+                        cursor: "pointer",
+                      }}
+                    >
+                      Retry Camera
+                    </button>
                   )}
-                </>
+                </div>
               )}
             </div>
+
+            {/* Saved Message - shows briefly after recording saves */}
+            {videoSavedMessage && (
+              <div style={{
+                textAlign: "center",
+                padding: "8px",
+                marginBottom: "8px",
+                backgroundColor: "rgba(34, 197, 94, 0.15)",
+                borderRadius: "8px",
+                color: "#22c55e",
+                fontSize: "0.9rem",
+                fontWeight: 500,
+              }}>
+                ✓ {videoSavedMessage}
+              </div>
+            )}
 
             {/* Timer */}
             <div
@@ -1493,7 +1493,14 @@ const RecorderPage: React.FC = () => {
                 {videoStatus === "paused" ? <FaPlay size={20} /> : <FaPause size={20} />}
               </button>
               
-              {videoStatus === "idle" ? (
+              {videoStatus === "recording" || videoStatus === "paused" ? (
+                <button
+                  style={{ ...styles.controlBtn, ...styles.stopBtn }}
+                  onClick={() => stopVideoRecording("manual")}
+                >
+                  <FaStop size={20} />
+                </button>
+              ) : (
                 <button
                   style={{
                     ...styles.controlBtn,
@@ -1502,23 +1509,9 @@ const RecorderPage: React.FC = () => {
                   }}
                   onClick={startVideoRecording}
                   disabled={isVideoStarting}
+                  title={videoStatus === "stopped" ? "Start new recording" : "Start recording"}
                 >
                   <FaCircle size={24} />
-                </button>
-              ) : videoStatus === "stopped" ? (
-                <button
-                  style={{ ...styles.controlBtn, ...styles.recordBtn }}
-                  onClick={startNewVideoRecording}
-                  title="Start new recording"
-                >
-                  <FaCircle size={24} />
-                </button>
-              ) : (
-                <button
-                  style={{ ...styles.controlBtn, ...styles.stopBtn }}
-                  onClick={() => stopVideoRecording("manual")}
-                >
-                  <FaStop size={20} />
                 </button>
               )}
 
@@ -1535,16 +1528,6 @@ const RecorderPage: React.FC = () => {
                 {isVideoEnabled ? <FaVideo size={20} /> : <FaVideoSlash size={20} />}
               </button>
             </div>
-
-            {/* New Recording Button */}
-            {videoStatus === "stopped" && (
-              <button
-                style={styles.newRecordingBtn}
-                onClick={startNewVideoRecording}
-              >
-                New Recording
-              </button>
-            )}
           </div>
 
           {/* Audio Panel */}
