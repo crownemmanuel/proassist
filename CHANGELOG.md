@@ -2,6 +2,25 @@
 
 All notable changes to ProAssist will be documented in this file.
 
+## [0.6.3] - 2026-01-18
+
+### Fixed
+- **Video Recording Automation**: Keep video feed always live for automation support
+  - Video preview stays active after recording stops (no more blank screen)
+  - Automation can now start new recordings without re-engaging camera
+  - Removed 'New Recording' button - record button always starts new recording
+  - Show brief 'Recording saved!' message below live feed after save
+- **Remote Transcription AI Detection**: Fixed AI paraphrase detection for remote transcription source
+  - When using remote transcription source, now also runs AI paraphrase detection
+  - Detected paraphrased Bible references are displayed with confidence scores
+  - Scripture references (both direct and paraphrased) are included in websocket rebroadcast
+  - Key points from AI analysis are also preserved and broadcast
+
+### Changed
+- **Video Recording Controls**: Simplified video recording controls flow
+  - Record button always starts new recording (whether idle or stopped)
+  - Camera feed remains live throughout recording lifecycle
+
 ## [0.6.2] - 2026-01-18
 
 ### Fixed
