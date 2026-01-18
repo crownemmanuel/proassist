@@ -1015,11 +1015,23 @@ const SmartVersesPage: React.FC = () => {
           }
 
           // Run local direct parsing (aggressive) for verse refs.
-          detectAndLookupReferences(m.text, {
-            aggressiveSpeechNormalization: true,
-          }).then(async (directRefs) => {
+          // Also run AI paraphrase detection if enabled.
+          (async () => {
+            let scriptureReferences: string[] = m.scripture_references || [];
+            let keyPoints: KeyPoint[] = m.key_points as KeyPoint[] || [];
+
+            const directRefs = await detectAndLookupReferences(m.text, {
+              aggressiveSpeechNormalization: true,
+            });
+
             if (directRefs.length > 0) {
               setDetectedReferences((prev) => [...prev, ...directRefs]);
+              scriptureReferences = Array.from(
+                new Set([
+                  ...scriptureReferences,
+                  ...directRefs.map((r) => (r.displayRef || "").trim()).filter(Boolean),
+                ])
+              );
 
               if (settings.autoAddDetectedToHistory) {
                 setChatHistory((prev) => [
@@ -1034,28 +1046,109 @@ const SmartVersesPage: React.FC = () => {
                 ]);
               }
 
-              if (settings.autoTriggerOnDetection && directRefs.length > 0) {
+              if (settings.autoTriggerOnDetection) {
                 handleGoLive(directRefs[0]);
               }
-            }
-          });
+            } else if (settings.enableParaphraseDetection || settings.enableKeyPointExtraction) {
+              // Try AI analysis (paraphrase detection and/or key point extraction)
+              console.log("[SmartVerses][Remote] No direct refs found; invoking AI analysis...");
+              try {
+                const analysis = await analyzeTranscriptChunk(
+                  m.text,
+                  appSettings,
+                  settings.enableParaphraseDetection,
+                  settings.enableKeyPointExtraction,
+                  {
+                    keyPointInstructions: settings.keyPointExtractionInstructions,
+                  }
+                );
 
-          // Re-broadcast to local Live Slides server if enabled and safe.
-          if (
-            settings.streamTranscriptionsToWebSocket &&
-            remoteRebroadcastAllowedRef.current
-          ) {
-            broadcastTranscriptionStreamMessage({
-              type: "transcription_stream",
-              kind: m.kind,
-              timestamp: m.timestamp || Date.now(),
-              engine: m.engine || settings.transcriptionEngine,
-              text: m.text,
-              segment: m.segment as TranscriptionSegment | undefined,
-              scripture_references: m.scripture_references,
-              key_points: m.key_points as KeyPoint[] | undefined,
-            }).catch(() => {});
-          }
+                if (analysis.keyPoints?.length) {
+                  keyPoints = analysis.keyPoints;
+                  setTranscriptKeyPoints((prev) => ({
+                    ...prev,
+                    [segment.id]: keyPoints,
+                  }));
+                }
+
+                if (settings.enableParaphraseDetection && analysis.paraphrasedVerses.length > 0) {
+                  console.log(
+                    "[SmartVerses][Remote][Paraphrase] AI analysis returned:",
+                    analysis.paraphrasedVerses.length,
+                    "paraphrased verse(s)"
+                  );
+
+                  const resolvedRefs = await resolveParaphrasedVerses(analysis.paraphrasedVerses);
+                  if (resolvedRefs.length > 0) {
+                    console.log("[SmartVerses][Remote][Paraphrase] Resolved refs:", resolvedRefs.map(r => r.displayRef));
+                    const resolvedWithTranscript = resolvedRefs.map((r) => ({
+                      ...r,
+                      transcriptText: m.text,
+                    }));
+
+                    // De-dupe against recent refs
+                    const recent = detectedReferencesRef.current.slice(-5);
+                    const recentKeys = new Set(
+                      recent.map((r) => (r.displayRef || "").trim().toLowerCase())
+                    );
+                    const deduped = resolvedWithTranscript.filter(
+                      (r) => !recentKeys.has((r.displayRef || "").trim().toLowerCase())
+                    );
+
+                    if (deduped.length > 0) {
+                      setDetectedReferences((prev) => [...prev, ...deduped]);
+                      scriptureReferences = Array.from(
+                        new Set([
+                          ...scriptureReferences,
+                          ...deduped.map((r) => (r.displayRef || "").trim()).filter(Boolean),
+                        ])
+                      );
+
+                      if (settings.autoAddDetectedToHistory) {
+                        setChatHistory((prev) => [
+                          ...prev,
+                          {
+                            id: `paraphrase-${Date.now()}`,
+                            type: "result",
+                            content: `Paraphrase detected (${Math.round((deduped[0].confidence || 0) * 100)}% confidence)`,
+                            timestamp: Date.now(),
+                            references: deduped,
+                          },
+                        ]);
+                      }
+
+                      if (settings.autoTriggerOnDetection) {
+                        handleGoLive(deduped[0]);
+                      }
+                    }
+                  }
+                }
+              } catch (aiError) {
+                console.error("[SmartVerses][Remote] AI analysis failed:", aiError);
+              }
+            }
+
+            // Re-broadcast to local Live Slides server if enabled and safe.
+            if (
+              settings.streamTranscriptionsToWebSocket &&
+              remoteRebroadcastAllowedRef.current
+            ) {
+              const wsKeyPoints = keyPoints.length > 0
+                ? keyPoints.map((kp) => ({ text: kp.text, category: kp.category }))
+                : undefined;
+
+              broadcastTranscriptionStreamMessage({
+                type: "transcription_stream",
+                kind: m.kind,
+                timestamp: m.timestamp || Date.now(),
+                engine: m.engine || settings.transcriptionEngine,
+                text: m.text,
+                segment: m.segment as TranscriptionSegment | undefined,
+                scripture_references: scriptureReferences.length ? scriptureReferences : undefined,
+                key_points: wsKeyPoints,
+              }).catch(() => {});
+            }
+          })();
         }
       });
     } catch (error) {
