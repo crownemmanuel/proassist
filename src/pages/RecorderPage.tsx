@@ -914,16 +914,52 @@ const RecorderPage: React.FC = () => {
       // For web audio recording, the selectedAudioDeviceId might be a native device ID
       // which doesn't work with browser getUserMedia. Try with the ID first,
       // then fall back to default device if it fails.
-      let stream: MediaStream;
+      let rawStream: MediaStream;
       try {
-        stream = await getAudioOnlyStream(settings.selectedAudioDeviceId);
+        rawStream = await getAudioOnlyStream(settings.selectedAudioDeviceId);
       } catch {
         console.log("Falling back to default audio device for web recording");
-        stream = await getAudioOnlyStream(null);
+        rawStream = await getAudioOnlyStream(null);
       }
-      audioStreamRef.current = stream;
 
-      const recorder = createAudioRecorder(stream, "mp3", settings.audioBitrate);
+      // Force mono output using Web Audio API (browser channelCount constraint is unreliable)
+      const audioContext = new AudioContext();
+      const source = audioContext.createMediaStreamSource(rawStream);
+      const splitter = audioContext.createChannelSplitter(2);
+      const merger = audioContext.createChannelMerger(1);
+      const gainLeft = audioContext.createGain();
+      const gainRight = audioContext.createGain();
+      gainLeft.gain.value = 0.5;
+      gainRight.gain.value = 0.5;
+
+      source.connect(splitter);
+      splitter.connect(gainLeft, 0);
+      gainLeft.connect(merger, 0, 0);
+
+      try {
+        splitter.connect(gainRight, 1);
+        gainRight.connect(merger, 0, 0);
+      } catch {
+        // Some inputs are mono; ignore missing right channel.
+      }
+
+      const destination = audioContext.createMediaStreamDestination();
+      merger.connect(destination);
+
+      const monoStream = destination.stream;
+      audioStreamRef.current = rawStream; // Keep raw stream for cleanup
+
+      // Store cleanup function for audio context
+      const cleanupAudioContext = () => {
+        source.disconnect();
+        splitter.disconnect();
+        merger.disconnect();
+        gainLeft.disconnect();
+        gainRight.disconnect();
+        audioContext.close();
+      };
+
+      const recorder = createAudioRecorder(monoStream, "mp3", settings.audioBitrate);
       audioChunksRef.current = [];
 
       recorder.onerror = (e) => {
@@ -937,6 +973,9 @@ const RecorderPage: React.FC = () => {
       };
 
       recorder.onstop = async () => {
+        // Clean up audio context used for mono conversion
+        cleanupAudioContext();
+
         const mimeType = recorder.mimeType || "audio/webm";
         const rawBlob = new Blob(audioChunksRef.current, { type: mimeType });
         let outputBlob = rawBlob;
@@ -989,7 +1028,7 @@ const RecorderPage: React.FC = () => {
         setAudioElapsedTime(Math.floor((Date.now() - startTime) / 1000));
       }, 100);
 
-      await startAudioMeter(stream);
+      await startAudioMeter(monoStream);
     } catch (err) {
       console.error("Failed to start web audio recording:", err);
       stopAudioMeter();
