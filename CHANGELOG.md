@@ -2,9 +2,21 @@
 
 All notable changes to ProAssist will be documented in this file.
 
-## [0.6.2] - 2026-01-16
+## [0.6.2] - 2026-01-18
 
 ### Fixed
+- **TypeScript Build Errors**: Fixed TypeScript compilation errors in RecorderPage
+  - Added explicit VideoRecorderConfig type import and annotation
+  - Added BlobEvent type annotation for ondataavailable handler
+  - Improved type safety for video recorder creation
+- **Audio Device Selection**: Fixed audio device selection for browser getUserMedia API
+  - Native audio device IDs (from Tauri) don't work with browser getUserMedia
+  - Added fallback to default audio device when native ID fails
+  - Fixes audio meter visualization and web audio recording (MP3 mode)
+- **Audio Recording Mono Output**: Fixed audio recording to properly output mono audio
+  - Use Web Audio API to force mono output for web audio recording (MP3)
+  - Browser channelCount constraint is unreliable, explicit mixing ensures mono
+  - Properly clean up audio context when recording stops
 - **Video Recorder Preview**: Removed video playback preview after recording due to WebView compatibility issues
   - Video files are still saved correctly to disk and can be played in external players
   - Shows "Recording saved!" confirmation message instead of video player
