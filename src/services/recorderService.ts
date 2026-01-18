@@ -16,6 +16,8 @@ import {
   MediaDeviceOption,
   VideoResolution,
   VIDEO_RESOLUTION_CONFIG,
+  VideoFormat,
+  VideoAudioCodec,
   AudioBitrate,
   AUDIO_BITRATE_CONFIG,
   RecordingResult,
@@ -25,24 +27,61 @@ import {
 // Settings Management
 // ============================================================================
 
+function getDefaultVideoAudioCodec(): VideoAudioCodec {
+  if (typeof navigator !== "undefined") {
+    const ua = navigator.userAgent || "";
+    if (/Windows/i.test(ua)) {
+      return "aac";
+    }
+  }
+  return "aac";
+}
+
+function normalizeRecorderSettings(settings: RecorderSettings): RecorderSettings {
+  const next = { ...settings };
+  if (typeof next.selectedVideoAudioDeviceId === "undefined") {
+    next.selectedVideoAudioDeviceId = next.selectedAudioDeviceId ?? null;
+  }
+  if (typeof next.videoAudioDelayMs !== "number" || Number.isNaN(next.videoAudioDelayMs)) {
+    next.videoAudioDelayMs = 0;
+  }
+  if (next.videoAudioDelayMs < 0) {
+    next.videoAudioDelayMs = 0;
+  }
+  if (next.videoAudioDelayMs > 2000) {
+    next.videoAudioDelayMs = 2000;
+  }
+  if (!next.videoAudioCodec) {
+    next.videoAudioCodec = getDefaultVideoAudioCodec();
+  }
+  if (next.videoFormat === "webm" && next.videoAudioCodec !== "opus") {
+    next.videoAudioCodec = "opus";
+  }
+  if (next.videoFormat === "mp4" && next.videoAudioCodec !== "aac") {
+    next.videoAudioCodec = "aac";
+  }
+  return next;
+}
+
 export function loadRecorderSettings(): RecorderSettings {
   try {
     const stored = localStorage.getItem(RECORDER_SETTINGS_KEY);
     if (stored) {
       const parsed = JSON.parse(stored);
-      return { ...DEFAULT_RECORDER_SETTINGS, ...parsed };
+      return normalizeRecorderSettings({ ...DEFAULT_RECORDER_SETTINGS, ...parsed });
     }
   } catch (err) {
     console.error("Failed to load recorder settings:", err);
   }
-  return { ...DEFAULT_RECORDER_SETTINGS };
+  return normalizeRecorderSettings({ ...DEFAULT_RECORDER_SETTINGS });
 }
 
 export function saveRecorderSettings(settings: RecorderSettings): void {
   try {
-    localStorage.setItem(RECORDER_SETTINGS_KEY, JSON.stringify(settings));
+    const normalized = normalizeRecorderSettings(settings);
+    localStorage.setItem(RECORDER_SETTINGS_KEY, JSON.stringify(normalized));
     // Notify any open pages (e.g. RecorderPage) to refresh settings immediately
-    window.dispatchEvent(new CustomEvent("recorder-settings-updated", { detail: settings }));
+    window.dispatchEvent(new CustomEvent("recorder-settings-updated", { detail: normalized }));
   } catch (err) {
     console.error("Failed to save recorder settings:", err);
   }
@@ -197,7 +236,8 @@ export function generateNativeAudioFilePath(
 export function generateFilename(
   type: "video" | "audio",
   settings: RecorderSettings,
-  sessionName?: string
+  sessionName?: string,
+  extensionOverride?: string
 ): string {
   const now = new Date();
   const timestamp = now
@@ -230,7 +270,7 @@ export function generateFilename(
       break;
   }
 
-  const extension = type === "video" ? settings.videoFormat : settings.audioFormat;
+  const extension = extensionOverride || (type === "video" ? settings.videoFormat : settings.audioFormat);
   return `${baseName}.${extension}`;
 }
 
@@ -242,10 +282,11 @@ export async function saveRecordingToFile(
   blob: Blob,
   type: "video" | "audio",
   settings: RecorderSettings,
-  sessionName?: string
+  sessionName?: string,
+  extensionOverride?: string
 ): Promise<RecordingResult> {
   try {
-    const filename = generateFilename(type, settings, sessionName);
+    const filename = generateFilename(type, settings, sessionName, extensionOverride);
     const subFolder = type === "video" ? "video" : "audio";
     
     // Normalize base path
@@ -300,7 +341,9 @@ export async function saveRecordingToFile(
 
 export async function getVideoStream(
   deviceId: string | null,
-  resolution: VideoResolution
+  resolution: VideoResolution,
+  audioDeviceId?: string | null,
+  includeAudio: boolean = true
 ): Promise<MediaStream> {
   const config = VIDEO_RESOLUTION_CONFIG[resolution];
   
@@ -310,11 +353,15 @@ export async function getVideoStream(
       height: { ideal: config.height },
       ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
     },
-    audio: {
-      echoCancellation: false,
-      noiseSuppression: false,
-      autoGainControl: false,
-    }, // Include raw audio in video recording
+    audio: includeAudio
+      ? {
+          ...(audioDeviceId ? { deviceId: { exact: audioDeviceId } } : {}),
+          channelCount: 1,
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+        }
+      : false, // Include raw audio in video recording
   };
 
   return await navigator.mediaDevices.getUserMedia(constraints);
@@ -340,14 +387,53 @@ export async function getAudioOnlyStream(
 // MediaRecorder Factory
 // ============================================================================
 
+export interface VideoRecorderConfig {
+  recorder: MediaRecorder;
+  mimeType: string;
+  fileExtension: VideoFormat;
+}
+
+function getVideoExtensionFromMimeType(
+  mimeType: string | undefined,
+  fallback: VideoFormat
+): VideoFormat {
+  if (!mimeType) return fallback;
+  if (mimeType.includes("webm")) return "webm";
+  if (mimeType.includes("mp4")) return "mp4";
+  return fallback;
+}
+
 export function createVideoRecorder(
   stream: MediaStream,
-  format: "mp4" | "webm"
-): MediaRecorder {
+  format: "mp4" | "webm",
+  audioCodec: VideoAudioCodec
+): VideoRecorderConfig {
   // Determine the best supported MIME type
-  const mimeTypes = format === "mp4"
-    ? ["video/mp4", "video/webm;codecs=h264", "video/webm"]
-    : ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"];
+  const mp4AacMimeTypes = [
+    "video/mp4;codecs=avc1.42E01E,mp4a.40.2",
+    "video/mp4;codecs=avc1.4D401E,mp4a.40.2",
+    "video/mp4;codecs=avc1,mp4a.40.2",
+    "video/mp4",
+  ];
+  const webmOpusMimeTypes = [
+    "video/webm;codecs=vp9,opus",
+    "video/webm;codecs=vp8,opus",
+    "video/webm;codecs=vp9",
+    "video/webm;codecs=vp8",
+    "video/webm",
+  ];
+
+  if (format === "mp4" && audioCodec !== "aac") {
+    console.warn("MP4 recordings use AAC audio; switching codec to AAC.");
+  }
+  if (format === "webm" && audioCodec !== "opus") {
+    console.warn("WebM recordings use Opus audio; switching codec to Opus.");
+  }
+
+  const mimeTypes =
+    format === "mp4"
+      ? mp4AacMimeTypes
+      : webmOpusMimeTypes;
 
   let selectedMimeType = "";
   for (const mimeType of mimeTypes) {
@@ -359,10 +445,19 @@ export function createVideoRecorder(
 
   if (!selectedMimeType) {
     // Fallback to browser default
-    return new MediaRecorder(stream);
+    const fallbackRecorder = new MediaRecorder(stream);
+    return {
+      recorder: fallbackRecorder,
+      mimeType: fallbackRecorder.mimeType || "",
+      fileExtension: getVideoExtensionFromMimeType(fallbackRecorder.mimeType, format),
+    };
   }
 
-  return new MediaRecorder(stream, { mimeType: selectedMimeType });
+  return {
+    recorder: new MediaRecorder(stream, { mimeType: selectedMimeType }),
+    mimeType: selectedMimeType,
+    fileExtension: getVideoExtensionFromMimeType(selectedMimeType, format),
+  };
 }
 
 export function createAudioRecorder(
