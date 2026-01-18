@@ -15,6 +15,7 @@ import {
   loadRecorderSettings,
   saveRecorderSettings,
   getVideoDevices,
+  getAudioDevices,
   getVideoStream,
   getAudioOnlyStream,
   createVideoRecorder,
@@ -285,10 +286,10 @@ const RecorderPage: React.FC = () => {
   const [videoStatus, setVideoStatus] = useState<RecordingStatus>("idle");
   const [isVideoStarting, setIsVideoStarting] = useState(false);
   const [videoElapsedTime, setVideoElapsedTime] = useState(0);
-  const [videoRecordedUrl, setVideoRecordedUrl] = useState<string | null>(null);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [videoPreviewStream, setVideoPreviewStream] = useState<MediaStream | null>(null);
   const [videoDevices, setVideoDevices] = useState<MediaDeviceOption[]>([]);
+  const [videoAudioDevices, setVideoAudioDevices] = useState<MediaDeviceOption[]>([]);
 
   // Audio recording state
   const [audioStatus, setAudioStatus] = useState<RecordingStatus>("idle");
@@ -303,12 +304,15 @@ const RecorderPage: React.FC = () => {
   const [isVideoEnabled, setIsVideoEnabled] = useState(true);
   const [isMicEnabled, setIsMicEnabled] = useState(true);
 
+  const [isStopConfirmOpen, setIsStopConfirmOpen] = useState(false);
+  const [stopConfirmTarget, setStopConfirmTarget] = useState<"video" | "audio" | "both" | null>(null);
+
   // Refs
   const videoRef = useRef<HTMLVideoElement>(null);
-  const recordedVideoRef = useRef<HTMLVideoElement>(null);
   const videoRecorderRef = useRef<MediaRecorder | null>(null);
   const videoChunksRef = useRef<Blob[]>([]);
   const videoStreamRef = useRef<MediaStream | null>(null);
+  const videoRecordingAudioCleanupRef = useRef<(() => void) | null>(null);
   const audioRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const audioStreamRef = useRef<MediaStream | null>(null);
@@ -319,6 +323,8 @@ const RecorderPage: React.FC = () => {
   const audioRecordingModeRef = useRef<"native" | "web">("native");
   const audioPreviewObjectUrlRef = useRef<string | null>(null);
   const videoPreviewRequestSeqRef = useRef(0);
+  const videoStopResolverRef = useRef<(() => void) | null>(null);
+  const audioStopResolverRef = useRef<(() => void) | null>(null);
 
   const videoTimerRef = useRef<number | null>(null);
   const audioTimerRef = useRef<number | null>(null);
@@ -329,9 +335,14 @@ const RecorderPage: React.FC = () => {
 
   const loadDevices = useCallback(async () => {
     try {
-      const [video, audio] = await Promise.all([getVideoDevices(), getNativeAudioDevices()]);
+      const [video, audio, nativeAudio] = await Promise.all([
+        getVideoDevices(),
+        getAudioDevices(),
+        getNativeAudioDevices(),
+      ]);
       setVideoDevices(video);
-      setNativeAudioDevices(audio);
+      setVideoAudioDevices(audio);
+      setNativeAudioDevices(nativeAudio);
     } catch (err) {
       console.error("Failed to load recording devices:", err);
     }
@@ -367,6 +378,13 @@ const RecorderPage: React.FC = () => {
     return () => window.removeEventListener("recorder-settings-updated", handler as EventListener);
   }, []);
 
+  const revokeAudioPreviewObjectUrl = useCallback(() => {
+    if (audioPreviewObjectUrlRef.current) {
+      URL.revokeObjectURL(audioPreviewObjectUrlRef.current);
+      audioPreviewObjectUrlRef.current = null;
+    }
+  }, []);
+
   // Attach preview stream to video element
   useEffect(() => {
     if (!videoRef.current || !videoPreviewStream) return;
@@ -379,10 +397,24 @@ const RecorderPage: React.FC = () => {
     }
   }, [videoPreviewStream]);
 
-  const revokeAudioPreviewObjectUrl = useCallback(() => {
-    if (audioPreviewObjectUrlRef.current) {
-      URL.revokeObjectURL(audioPreviewObjectUrlRef.current);
-      audioPreviewObjectUrlRef.current = null;
+  const closeStopConfirm = useCallback(() => {
+    setIsStopConfirmOpen(false);
+    setStopConfirmTarget(null);
+  }, []);
+
+  const resolveVideoStop = useCallback(() => {
+    if (videoStopResolverRef.current) {
+      const resolver = videoStopResolverRef.current;
+      videoStopResolverRef.current = null;
+      resolver();
+    }
+  }, []);
+
+  const resolveAudioStop = useCallback(() => {
+    if (audioStopResolverRef.current) {
+      const resolver = audioStopResolverRef.current;
+      audioStopResolverRef.current = null;
+      resolver();
     }
   }, []);
 
@@ -391,6 +423,10 @@ const RecorderPage: React.FC = () => {
     return () => {
       if (videoStreamRef.current) {
         videoStreamRef.current.getTracks().forEach((t) => t.stop());
+      }
+      if (videoRecordingAudioCleanupRef.current) {
+        videoRecordingAudioCleanupRef.current();
+        videoRecordingAudioCleanupRef.current = null;
       }
       if (audioRecorderRef.current && audioRecorderRef.current.state !== "inactive") {
         audioRecorderRef.current.stop();
@@ -425,7 +461,9 @@ const RecorderPage: React.FC = () => {
       }
       const stream = await getVideoStream(
         settings.selectedVideoDeviceId,
-        settings.videoResolution
+        settings.videoResolution,
+        settings.selectedVideoAudioDeviceId ?? settings.selectedAudioDeviceId,
+        false
       );
 
       // If user disabled video while we were requesting permission, immediately stop.
@@ -439,7 +477,6 @@ const RecorderPage: React.FC = () => {
     } catch (err) {
       console.error("Failed to start video preview:", err);
       setCameraError(err instanceof Error ? err.message : "Failed to access camera");
-      setVideoPreviewStream(null);
     }
   }, [settings, isVideoEnabled]);
 
@@ -490,10 +527,10 @@ const RecorderPage: React.FC = () => {
 
   // Start camera preview when settings load or device changes
   useEffect(() => {
-    if (settings && videoStatus === "idle" && !videoRecordedUrl && isVideoEnabled) {
+    if (settings && videoStatus === "idle" && isVideoEnabled) {
       startVideoPreview();
     }
-  }, [settings, videoStatus, videoRecordedUrl, startVideoPreview, isVideoEnabled]);
+  }, [settings, videoStatus, startVideoPreview, isVideoEnabled]);
 
   const startVideoRecording = useCallback(async () => {
     if (!settings) return;
@@ -516,16 +553,73 @@ const RecorderPage: React.FC = () => {
       }
     }
 
-    // Clear any previous recording
-    if (videoRecordedUrl) {
-      URL.revokeObjectURL(videoRecordedUrl);
-      setVideoRecordedUrl(null);
+    const stream = videoStreamRef.current;
+    let recordingStream = stream;
+
+    if (videoRecordingAudioCleanupRef.current) {
+      videoRecordingAudioCleanupRef.current();
+      videoRecordingAudioCleanupRef.current = null;
     }
 
-    const stream = videoStreamRef.current;
+    try {
+      const audioDeviceId =
+        settings.selectedVideoAudioDeviceId ?? settings.selectedAudioDeviceId ?? null;
+      const audioStream = await getAudioOnlyStream(audioDeviceId);
+      const audioContext = new AudioContext();
+      const source = audioContext.createMediaStreamSource(audioStream);
+      const splitter = audioContext.createChannelSplitter(2);
+      const merger = audioContext.createChannelMerger(1);
+      const gainLeft = audioContext.createGain();
+      const gainRight = audioContext.createGain();
+      gainLeft.gain.value = 0.5;
+      gainRight.gain.value = 0.5;
+
+      source.connect(splitter);
+      splitter.connect(gainLeft, 0);
+      gainLeft.connect(merger, 0, 0);
+
+      try {
+        splitter.connect(gainRight, 1);
+        gainRight.connect(merger, 0, 0);
+      } catch {
+        // Some inputs are mono; ignore missing right channel.
+      }
+
+      const destination = audioContext.createMediaStreamDestination();
+      const delaySeconds = Math.min(
+        Math.max(0, (settings.videoAudioDelayMs || 0) / 1000),
+        2
+      );
+      const delayNode = audioContext.createDelay(2);
+      delayNode.delayTime.value = delaySeconds;
+      merger.connect(delayNode);
+      delayNode.connect(destination);
+
+      const monoAudioTrack = destination.stream.getAudioTracks()[0];
+      if (monoAudioTrack) {
+        recordingStream = new MediaStream([...stream.getVideoTracks(), monoAudioTrack]);
+      }
+
+      videoRecordingAudioCleanupRef.current = () => {
+        source.disconnect();
+        splitter.disconnect();
+        merger.disconnect();
+        delayNode.disconnect();
+        gainLeft.disconnect();
+        gainRight.disconnect();
+        audioStream.getTracks().forEach((track) => track.stop());
+        audioContext.close();
+      };
+    } catch (err) {
+      console.warn("Failed to capture mono audio for video recording:", err);
+    }
     
     // Create recorder with high quality settings
-    const recorder = createVideoRecorder(stream, settings.videoFormat);
+    const { recorder, mimeType, fileExtension } = createVideoRecorder(
+      recordingStream,
+      settings.videoFormat,
+      settings.videoAudioCodec
+    );
     videoChunksRef.current = [];
 
     recorder.ondataavailable = (e) => {
@@ -535,30 +629,39 @@ const RecorderPage: React.FC = () => {
     };
 
     recorder.onstop = async () => {
-      const mimeType = recorder.mimeType || "video/webm";
-      const blob = new Blob(videoChunksRef.current, { type: mimeType });
-      const url = URL.createObjectURL(blob);
-      
-      setVideoRecordedUrl(url);
-      setVideoStatus("stopped");
+      const resolvedMimeType =
+        mimeType ||
+        recorder.mimeType ||
+        (fileExtension === "mp4" ? "video/mp4" : "video/webm");
+      const blob = new Blob(videoChunksRef.current, { type: resolvedMimeType });
 
       // Stop the camera stream
       if (videoStreamRef.current) {
         videoStreamRef.current.getTracks().forEach((t) => t.stop());
         videoStreamRef.current = null;
       }
+      if (videoRecordingAudioCleanupRef.current) {
+        videoRecordingAudioCleanupRef.current();
+        videoRecordingAudioCleanupRef.current = null;
+      }
       setVideoPreviewStream(null);
+      setCameraError(null);
 
       // Save to file
       const result = await saveRecordingToFile(
         blob,
         "video",
         settings,
-        currentSession?.session
+        currentSession?.session,
+        fileExtension
       );
+
       if (!result.success) {
         console.error("Failed to save video:", result.error);
       }
+
+      setVideoStatus("stopped");
+      resolveVideoStop();
     };
 
     videoRecorderRef.current = recorder;
@@ -573,7 +676,7 @@ const RecorderPage: React.FC = () => {
     videoTimerRef.current = window.setInterval(() => {
       setVideoElapsedTime(Math.floor((Date.now() - startTime) / 1000));
     }, 100);
-  }, [settings, startVideoPreview, currentSession, videoRecordedUrl, isVideoEnabled]);
+  }, [settings, startVideoPreview, currentSession, isVideoEnabled, resolveVideoStop]);
 
   const pauseVideoRecording = useCallback(() => {
     if (videoRecorderRef.current && videoStatus === "recording") {
@@ -590,28 +693,39 @@ const RecorderPage: React.FC = () => {
     }
   }, [videoStatus, videoElapsedTime]);
 
-  const stopVideoRecording = useCallback(() => {
+  const stopVideoRecordingCore = useCallback(() => {
     if (videoRecorderRef.current && (videoStatus === "recording" || videoStatus === "paused")) {
       videoRecorderRef.current.stop();
       if (videoTimerRef.current) {
         clearInterval(videoTimerRef.current);
         videoTimerRef.current = null;
       }
+    } else if (videoStatus === "recording" || videoStatus === "paused") {
+      resolveVideoStop();
     }
-  }, [videoStatus]);
+  }, [videoStatus, resolveVideoStop]);
+
+  const stopVideoRecording = useCallback(
+    (reason: "manual" | "automation" = "manual") => {
+      if (videoStatus !== "recording" && videoStatus !== "paused") return;
+      if (reason === "manual") {
+        setStopConfirmTarget("video");
+        setIsStopConfirmOpen(true);
+        return;
+      }
+      closeStopConfirm();
+      stopVideoRecordingCore();
+    },
+    [videoStatus, stopVideoRecordingCore, closeStopConfirm]
+  );
 
   const startNewVideoRecording = useCallback(async () => {
-    // Clear previous recording
-    if (videoRecordedUrl) {
-      URL.revokeObjectURL(videoRecordedUrl);
-      setVideoRecordedUrl(null);
-    }
     setVideoStatus("idle");
     setVideoElapsedTime(0);
     
     // Restart camera preview
     await startVideoPreview();
-  }, [videoRecordedUrl, startVideoPreview]);
+  }, [startVideoPreview]);
 
   // ============================================================================
   // Audio Recording Functions
@@ -834,6 +948,7 @@ const RecorderPage: React.FC = () => {
         }
         audioRecorderRef.current = null;
         setAudioStatus("stopped");
+        resolveAudioStop();
       };
 
       audioRecorderRef.current = recorder;
@@ -856,7 +971,15 @@ const RecorderPage: React.FC = () => {
       stopAudioMeter();
       setIsAudioStarting(false);
     }
-  }, [settings, currentSession, startAudioMeter, stopAudioMeter, encodeMp3FromBlob]);
+  }, [
+    settings,
+    currentSession,
+    startAudioMeter,
+    stopAudioMeter,
+    encodeMp3FromBlob,
+    revokeAudioPreviewObjectUrl,
+    resolveAudioStop,
+  ]);
 
   const startAudioRecording = useCallback(async () => {
     if (!settings) return;
@@ -875,7 +998,7 @@ const RecorderPage: React.FC = () => {
     }
   }, [settings, startWebAudioRecording, startNativeAudioRecording, isMicEnabled]);
 
-  const stopAudioRecording = useCallback(async () => {
+  const stopAudioRecordingCore = useCallback(async () => {
     if (audioStatus !== "recording") return;
 
     if (audioTimerRef.current) {
@@ -905,14 +1028,32 @@ const RecorderPage: React.FC = () => {
         setAudioStatus("stopped");
       } catch (err) {
         console.error("Failed to stop audio recording:", err);
+      } finally {
+        resolveAudioStop();
       }
       return;
     }
 
     if (audioRecorderRef.current && audioRecorderRef.current.state !== "inactive") {
       audioRecorderRef.current.stop();
+    } else {
+      resolveAudioStop();
     }
-  }, [audioStatus, stopAudioMeter]);
+  }, [audioStatus, stopAudioMeter, resolveAudioStop, revokeAudioPreviewObjectUrl]);
+
+  const stopAudioRecording = useCallback(
+    async (reason: "manual" | "automation" = "manual") => {
+      if (audioStatus !== "recording") return;
+      if (reason === "manual") {
+        setStopConfirmTarget("audio");
+        setIsStopConfirmOpen(true);
+        return;
+      }
+      closeStopConfirm();
+      await stopAudioRecordingCore();
+    },
+    [audioStatus, stopAudioRecordingCore, closeStopConfirm]
+  );
 
   const startNewAudioRecording = useCallback(() => {
     revokeAudioPreviewObjectUrl();
@@ -929,9 +1070,9 @@ const RecorderPage: React.FC = () => {
 
   // Refs for automation handlers (to avoid stale closures)
   const startVideoRecordingRef = useRef(startVideoRecording);
-  const stopVideoRecordingRef = useRef(stopVideoRecording);
+  const stopVideoRecordingRef = useRef<(reason?: "manual" | "automation") => void>(stopVideoRecording);
   const startAudioRecordingRef = useRef(startAudioRecording);
-  const stopAudioRecordingRef = useRef(stopAudioRecording);
+  const stopAudioRecordingRef = useRef<(reason?: "manual" | "automation") => void>(stopAudioRecording);
   const videoStatusRef = useRef(videoStatus);
   const audioStatusRef = useRef(audioStatus);
 
@@ -949,17 +1090,30 @@ const RecorderPage: React.FC = () => {
   useEffect(() => {
     const handleStartVideo = () => {
       console.log("[Automation] Received start video recording event");
-      if (videoStatusRef.current === "idle") {
-        startVideoRecordingRef.current();
-      } else {
-        console.log("[Automation] Video already recording or stopped, skipping start");
-      }
+      const run = async () => {
+        if (videoStatusRef.current === "recording" || videoStatusRef.current === "paused") {
+          await new Promise<void>((resolve) => {
+            if (videoStopResolverRef.current) {
+              const prev = videoStopResolverRef.current;
+              videoStopResolverRef.current = () => {
+                prev();
+                resolve();
+              };
+            } else {
+              videoStopResolverRef.current = resolve;
+              stopVideoRecordingRef.current("automation");
+            }
+          });
+        }
+        await startVideoRecordingRef.current();
+      };
+      void run();
     };
 
     const handleStopVideo = () => {
       console.log("[Automation] Received stop video recording event");
       if (videoStatusRef.current === "recording" || videoStatusRef.current === "paused") {
-        stopVideoRecordingRef.current();
+        stopVideoRecordingRef.current("automation");
       } else {
         console.log("[Automation] Video not recording, skipping stop");
       }
@@ -967,17 +1121,30 @@ const RecorderPage: React.FC = () => {
 
     const handleStartAudio = () => {
       console.log("[Automation] Received start audio recording event");
-      if (audioStatusRef.current === "idle") {
-        startAudioRecordingRef.current();
-      } else {
-        console.log("[Automation] Audio already recording or stopped, skipping start");
-      }
+      const run = async () => {
+        if (audioStatusRef.current === "recording") {
+          await new Promise<void>((resolve) => {
+            if (audioStopResolverRef.current) {
+              const prev = audioStopResolverRef.current;
+              audioStopResolverRef.current = () => {
+                prev();
+                resolve();
+              };
+            } else {
+              audioStopResolverRef.current = resolve;
+              stopAudioRecordingRef.current("automation");
+            }
+          });
+        }
+        await startAudioRecordingRef.current();
+      };
+      void run();
     };
 
     const handleStopAudio = () => {
       console.log("[Automation] Received stop audio recording event");
       if (audioStatusRef.current === "recording") {
-        stopAudioRecordingRef.current();
+        stopAudioRecordingRef.current("automation");
       } else {
         console.log("[Automation] Audio not recording, skipping stop");
       }
@@ -985,21 +1152,55 @@ const RecorderPage: React.FC = () => {
 
     const handleStartBoth = () => {
       console.log("[Automation] Received start both recording event");
-      if (videoStatusRef.current === "idle") {
-        startVideoRecordingRef.current();
-      }
-      if (audioStatusRef.current === "idle") {
-        startAudioRecordingRef.current();
-      }
+      const run = async () => {
+        const stops: Promise<void>[] = [];
+        if (videoStatusRef.current === "recording" || videoStatusRef.current === "paused") {
+          stops.push(
+            new Promise<void>((resolve) => {
+              if (videoStopResolverRef.current) {
+                const prev = videoStopResolverRef.current;
+                videoStopResolverRef.current = () => {
+                  prev();
+                  resolve();
+                };
+              } else {
+                videoStopResolverRef.current = resolve;
+                stopVideoRecordingRef.current("automation");
+              }
+            })
+          );
+        }
+        if (audioStatusRef.current === "recording") {
+          stops.push(
+            new Promise<void>((resolve) => {
+              if (audioStopResolverRef.current) {
+                const prev = audioStopResolverRef.current;
+                audioStopResolverRef.current = () => {
+                  prev();
+                  resolve();
+                };
+              } else {
+                audioStopResolverRef.current = resolve;
+                stopAudioRecordingRef.current("automation");
+              }
+            })
+          );
+        }
+        if (stops.length > 0) {
+          await Promise.all(stops);
+        }
+        await Promise.all([startVideoRecordingRef.current(), startAudioRecordingRef.current()]);
+      };
+      void run();
     };
 
     const handleStopBoth = () => {
       console.log("[Automation] Received stop both recording event");
       if (videoStatusRef.current === "recording" || videoStatusRef.current === "paused") {
-        stopVideoRecordingRef.current();
+        stopVideoRecordingRef.current("automation");
       }
       if (audioStatusRef.current === "recording") {
-        stopAudioRecordingRef.current();
+        stopAudioRecordingRef.current("automation");
       }
     };
 
@@ -1060,6 +1261,30 @@ const RecorderPage: React.FC = () => {
     return getStatusText(audioStatus);
   };
 
+  const handleConfirmStop = async () => {
+    const target = stopConfirmTarget;
+    closeStopConfirm();
+    if (target === "video") {
+      stopVideoRecordingCore();
+      return;
+    }
+    if (target === "audio") {
+      await stopAudioRecordingCore();
+      return;
+    }
+    if (target === "both") {
+      stopVideoRecordingCore();
+      await stopAudioRecordingCore();
+    }
+  };
+
+  const stopConfirmTitle =
+    stopConfirmTarget === "both"
+      ? "Stop video and audio recording?"
+      : stopConfirmTarget === "video"
+      ? "Stop video recording?"
+      : "Stop audio recording?";
+
   if (!settings) {
     return (
       <div style={styles.pageContainer}>
@@ -1092,6 +1317,9 @@ const RecorderPage: React.FC = () => {
               <span style={{ ...styles.formatBadge, ...styles.formatBadgeVideo }}>
                 {settings.videoFormat.toUpperCase()}
               </span>
+              <span style={{ ...styles.formatBadge, ...styles.formatBadgeAudio }}>
+                {settings.videoAudioCodec.toUpperCase()}
+              </span>
               <span style={{ ...styles.formatBadge, ...styles.formatBadgeResolution }}>
                 {settings.videoResolution}
               </span>
@@ -1115,15 +1343,35 @@ const RecorderPage: React.FC = () => {
               </select>
             </div>
 
-            {/* Video Preview / Recorded Video */}
+            <div style={styles.deviceSelectRow}>
+              <FaMicrophone size={14} />
+              <select
+                style={styles.deviceSelect}
+                value={settings.selectedVideoAudioDeviceId || ""}
+                onChange={(e) =>
+                  updateSettings({ selectedVideoAudioDeviceId: e.target.value || null })
+                }
+                disabled={videoStatus === "recording" || videoStatus === "paused"}
+              >
+                <option value="">Default Microphone (Video Audio)</option>
+                {videoAudioDevices.map((device) => (
+                  <option key={device.deviceId} value={device.deviceId}>
+                    {device.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Video Preview / Saved Message */}
             <div style={styles.videoPreview}>
-              {videoRecordedUrl ? (
-                <video
-                  ref={recordedVideoRef}
-                  src={videoRecordedUrl}
-                  controls
-                  style={styles.videoElement}
-                />
+              {videoStatus === "stopped" ? (
+                <div style={styles.previewPlaceholder}>
+                  <FaVideo size={48} style={{ opacity: 0.8, marginBottom: "12px", color: "#22c55e" }} />
+                  <p style={{ color: "#22c55e", fontWeight: 500 }}>Recording saved!</p>
+                  <p style={{ fontSize: "0.85em", opacity: 0.8 }}>
+                    Your video file has been saved to disk.
+                  </p>
+                </div>
               ) : (
                 <>
                   <video
@@ -1205,7 +1453,7 @@ const RecorderPage: React.FC = () => {
               ) : (
                 <button
                   style={{ ...styles.controlBtn, ...styles.stopBtn }}
-                  onClick={stopVideoRecording}
+                  onClick={() => stopVideoRecording("manual")}
                 >
                   <FaStop size={20} />
                 </button>
@@ -1335,7 +1583,7 @@ const RecorderPage: React.FC = () => {
               ) : (
                 <button
                   style={{ ...styles.controlBtn, ...styles.stopBtn }}
-                  onClick={stopAudioRecording}
+                  onClick={() => stopAudioRecording("manual")}
                 >
                   <FaStop size={20} />
                 </button>
@@ -1386,6 +1634,28 @@ const RecorderPage: React.FC = () => {
           </div>
         )}
       </div>
+
+      {isStopConfirmOpen && (
+        <div className="modal-overlay">
+          <div
+            className="modal-content"
+            style={{ maxWidth: "420px", backgroundColor: "var(--app-header-bg)" }}
+          >
+            <h3 style={{ marginTop: 0 }}>{stopConfirmTitle}</h3>
+            <p style={{ color: "var(--app-text-color-secondary)" }}>
+              This will finalize the current recording and save it to disk.
+            </p>
+            <div className="modal-actions" style={{ justifyContent: "flex-end" }}>
+              <button onClick={closeStopConfirm} className="secondary">
+                Cancel
+              </button>
+              <button onClick={handleConfirmStop} className="primary">
+                Stop Recording
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

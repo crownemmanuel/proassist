@@ -2,6 +2,19 @@
 
 All notable changes to ProAssist will be documented in this file.
 
+## [0.6.2] - 2026-01-16
+
+### Fixed
+- **Video Recorder Preview**: Removed video playback preview after recording due to WebView compatibility issues
+  - Video files are still saved correctly to disk and can be played in external players
+  - Shows "Recording saved!" confirmation message instead of video player
+  - Audio playback preview continues to work as before
+
+### Changed
+- **Recorder Page**: Simplified video recording UI to show success message instead of attempting video playback
+  - Removed video blob URL and asset protocol URL handling for preview
+  - Cleaned up unused video playback state variables and refs
+
 ## [0.6.1] - 2026-01-16
 
 ### Changed
