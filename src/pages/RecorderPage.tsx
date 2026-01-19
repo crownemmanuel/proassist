@@ -30,6 +30,23 @@ import {
   generateNativeAudioFilePath,
   NativeAudioDevice,
   VideoRecorderConfig,
+  // Streaming video recording functions (production-grade - no memory accumulation)
+  startStreamingVideoRecording,
+  appendVideoChunk,
+  finalizeStreamingVideoRecording,
+  abortStreamingVideoRecording,
+  generateStreamingVideoFilePath,
+  blobToBase64,
+  // Streaming web audio recording functions (crash-safe MP3)
+  startStreamingWebAudioRecording,
+  appendWebAudioChunk,
+  finalizeStreamingWebAudioRecording,
+  abortStreamingWebAudioRecording,
+  readFileAsBase64,
+  deleteFile,
+  generateStreamingWebAudioTempPath,
+  generateFinalMp3Path,
+  base64ToBlob,
 } from "../services/recorderService";
 import {
   RecorderSettings,
@@ -312,12 +329,17 @@ const RecorderPage: React.FC = () => {
   // Refs
   const videoRef = useRef<HTMLVideoElement>(null);
   const videoRecorderRef = useRef<MediaRecorder | null>(null);
-  const videoChunksRef = useRef<Blob[]>([]);
+  // NOTE: We no longer accumulate chunks in memory (was causing OOM after 1+ hour recordings)
+  // Chunks are now streamed directly to disk via Rust backend
   const videoStreamRef = useRef<MediaStream | null>(null);
   const videoRecordingAudioCleanupRef = useRef<(() => void) | null>(null);
+  const videoStreamingFilePathRef = useRef<string | null>(null); // Path for streaming recording
   const audioRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
+  // NOTE: We no longer accumulate audio chunks in memory for web recording
+  // Chunks are streamed to disk for crash safety
   const audioStreamRef = useRef<MediaStream | null>(null);
+  const audioStreamingTempPathRef = useRef<string | null>(null); // Temp WebM path for streaming
+  const audioFinalMp3PathRef = useRef<string | null>(null); // Final MP3 path
   const audioAnalyzerRef = useRef<ReturnType<typeof createAudioAnalyzer> | null>(null);
   const audioMeterStreamRef = useRef<MediaStream | null>(null);
   const audioMeterFrameRef = useRef<number | null>(null);
@@ -423,6 +445,17 @@ const RecorderPage: React.FC = () => {
   // Cleanup on unmount
   useEffect(() => {
     return () => {
+      // Stop video recording if active (finalize streaming to disk)
+      if (videoRecorderRef.current && videoRecorderRef.current.state !== "inactive") {
+        videoRecorderRef.current.stop();
+      }
+      // If video streaming was active, finalize it
+      if (videoStreamingFilePathRef.current) {
+        finalizeStreamingVideoRecording().catch((e) =>
+          console.error("[Cleanup] Failed to finalize video recording:", e)
+        );
+        videoStreamingFilePathRef.current = null;
+      }
       if (videoStreamRef.current) {
         videoStreamRef.current.getTracks().forEach((t) => t.stop());
       }
@@ -430,8 +463,17 @@ const RecorderPage: React.FC = () => {
         videoRecordingAudioCleanupRef.current();
         videoRecordingAudioCleanupRef.current = null;
       }
+      // Stop audio recording if active
       if (audioRecorderRef.current && audioRecorderRef.current.state !== "inactive") {
         audioRecorderRef.current.stop();
+      }
+      // If web audio streaming was active, finalize it
+      if (audioStreamingTempPathRef.current) {
+        finalizeStreamingWebAudioRecording().catch((e) =>
+          console.error("[Cleanup] Failed to finalize audio recording:", e)
+        );
+        audioStreamingTempPathRef.current = null;
+        audioFinalMp3PathRef.current = null;
       }
       if (audioStreamRef.current) {
         audioStreamRef.current.getTracks().forEach((t) => t.stop());
@@ -626,22 +668,44 @@ const RecorderPage: React.FC = () => {
       settings.videoFormat,
       settings.videoAudioCodec
     );
-    const { recorder, mimeType, fileExtension } = videoRecorderConfig;
-    videoChunksRef.current = [];
+    const { recorder } = videoRecorderConfig;
 
-    recorder.ondataavailable = (e: BlobEvent) => {
+    // =========================================================================
+    // PRODUCTION-GRADE STREAMING RECORDING
+    // =========================================================================
+    // Instead of accumulating chunks in memory (which causes OOM after 1+ hour),
+    // we stream each chunk directly to disk via the Rust backend.
+    // Memory usage: O(1) constant, regardless of recording length.
+    // =========================================================================
+    
+    // Generate the file path and start streaming recording on Rust side
+    const streamingFilePath = generateStreamingVideoFilePath(settings, currentSession?.session);
+    try {
+      await startStreamingVideoRecording(streamingFilePath);
+      videoStreamingFilePathRef.current = streamingFilePath;
+      console.log("[VideoRecording] Started streaming to:", streamingFilePath);
+    } catch (err) {
+      console.error("[VideoRecording] Failed to start streaming recording:", err);
+      setIsVideoStarting(false);
+      return;
+    }
+
+    // Stream each chunk directly to disk - NO memory accumulation
+    recorder.ondataavailable = async (e: BlobEvent) => {
       if (e.data.size > 0) {
-        videoChunksRef.current.push(e.data);
+        try {
+          // Convert blob to base64 and stream to Rust backend
+          const base64Chunk = await blobToBase64(e.data);
+          await appendVideoChunk(base64Chunk);
+          // Chunk is now on disk - memory is freed
+        } catch (err) {
+          console.error("[VideoRecording] Failed to stream chunk:", err);
+          // Continue recording even if one chunk fails
+        }
       }
     };
 
     recorder.onstop = async () => {
-      const resolvedMimeType =
-        mimeType ||
-        recorder.mimeType ||
-        (fileExtension === "mp4" ? "video/mp4" : "video/webm");
-      const blob = new Blob(videoChunksRef.current, { type: resolvedMimeType });
-
       // Clean up the recording audio stream (mono mixer) but keep the camera live
       if (videoRecordingAudioCleanupRef.current) {
         videoRecordingAudioCleanupRef.current();
@@ -650,28 +714,40 @@ const RecorderPage: React.FC = () => {
       // NOTE: We intentionally keep videoStreamRef and videoPreviewStream active
       // so the live feed stays on for automation to start new recordings
 
-      // Save to file
-      const result = await saveRecordingToFile(
-        blob,
-        "video",
-        settings,
-        currentSession?.session,
-        fileExtension
-      );
-
-      if (!result.success) {
-        console.error("Failed to save video:", result.error);
+      // Finalize the streaming recording - this closes the file properly
+      try {
+        const result = await finalizeStreamingVideoRecording();
+        console.log(
+          "[VideoRecording] Finalized:",
+          result.file_path,
+          `(${result.duration_seconds.toFixed(1)}s, ${(result.bytes_written / 1024 / 1024).toFixed(1)} MB)`
+        );
+        setVideoSavedMessage("Recording saved!");
+      } catch (err) {
+        console.error("[VideoRecording] Failed to finalize recording:", err);
+        setVideoSavedMessage("Recording may be incomplete");
       }
 
+      videoStreamingFilePathRef.current = null;
       setVideoStatus("stopped");
-      setVideoSavedMessage("Recording saved!");
       // Clear the saved message after 3 seconds
       setTimeout(() => setVideoSavedMessage(null), 3000);
       resolveVideoStop();
     };
 
+    recorder.onerror = async (event) => {
+      console.error("[VideoRecording] MediaRecorder error:", event);
+      // Abort the streaming recording if there's an error
+      try {
+        await abortStreamingVideoRecording();
+      } catch (e) {
+        console.error("[VideoRecording] Failed to abort:", e);
+      }
+      videoStreamingFilePathRef.current = null;
+    };
+
     videoRecorderRef.current = recorder;
-    recorder.start(1000);
+    recorder.start(1000); // Request data every second
 
     setVideoStatus("recording");
     setIsVideoStarting(false);
@@ -956,15 +1032,53 @@ const RecorderPage: React.FC = () => {
       };
 
       const recorder = createAudioRecorder(monoStream, "mp3", settings.audioBitrate);
-      audioChunksRef.current = [];
 
-      recorder.onerror = (e) => {
-        console.error("MediaRecorder audio error:", e);
+      // =========================================================================
+      // PRODUCTION-GRADE STREAMING AUDIO RECORDING
+      // =========================================================================
+      // Stream raw WebM/Opus chunks to disk as they arrive (crash-safe).
+      // After recording stops, convert to MP3.
+      // If app crashes, the WebM file preserves all audio up to that point.
+      // =========================================================================
+
+      // Generate paths
+      const tempWebmPath = generateStreamingWebAudioTempPath(settings, currentSession?.session);
+      const finalMp3Path = generateFinalMp3Path(settings, currentSession?.session);
+      audioStreamingTempPathRef.current = tempWebmPath;
+      audioFinalMp3PathRef.current = finalMp3Path;
+
+      // Start streaming recording on Rust side
+      try {
+        await startStreamingWebAudioRecording(tempWebmPath);
+        console.log("[AudioRecording] Started streaming to:", tempWebmPath);
+      } catch (err) {
+        console.error("[AudioRecording] Failed to start streaming:", err);
+        cleanupAudioContext();
+        setIsAudioStarting(false);
+        return;
+      }
+
+      recorder.onerror = async (e) => {
+        console.error("[AudioRecording] MediaRecorder error:", e);
+        try {
+          await abortStreamingWebAudioRecording();
+        } catch (abortErr) {
+          console.error("[AudioRecording] Failed to abort:", abortErr);
+        }
+        audioStreamingTempPathRef.current = null;
+        audioFinalMp3PathRef.current = null;
       };
 
-      recorder.ondataavailable = (e) => {
+      // Stream each chunk directly to disk - NO memory accumulation
+      recorder.ondataavailable = async (e) => {
         if (e.data.size > 0) {
-          audioChunksRef.current.push(e.data);
+          try {
+            const base64Chunk = await blobToBase64(e.data);
+            await appendWebAudioChunk(base64Chunk);
+            // Chunk is now on disk - memory freed
+          } catch (err) {
+            console.error("[AudioRecording] Failed to stream chunk:", err);
+          }
         }
       };
 
@@ -972,34 +1086,78 @@ const RecorderPage: React.FC = () => {
         // Clean up audio context used for mono conversion
         cleanupAudioContext();
 
-        const mimeType = recorder.mimeType || "audio/webm";
-        const rawBlob = new Blob(audioChunksRef.current, { type: mimeType });
-        let outputBlob = rawBlob;
+        // Finalize streaming - close the WebM file
+        let webmResult;
+        try {
+          webmResult = await finalizeStreamingWebAudioRecording();
+          console.log(
+            "[AudioRecording] Finalized WebM:",
+            webmResult.file_path,
+            `(${webmResult.duration_seconds.toFixed(1)}s, ${(webmResult.bytes_written / 1024).toFixed(1)} KB)`
+          );
+        } catch (err) {
+          console.error("[AudioRecording] Failed to finalize streaming:", err);
+          if (audioStreamRef.current) {
+            audioStreamRef.current.getTracks().forEach((t) => t.stop());
+            audioStreamRef.current = null;
+          }
+          audioRecorderRef.current = null;
+          setAudioStatus("stopped");
+          resolveAudioStop();
+          return;
+        }
 
-        if (settings.audioFormat === "mp3") {
+        // Now convert WebM to MP3
+        if (settings.audioFormat === "mp3" && webmResult) {
           try {
-            outputBlob = await encodeMp3FromBlob(rawBlob);
+            console.log("[AudioRecording] Converting WebM to MP3...");
+            
+            // Read the WebM file
+            const webmBase64 = await readFileAsBase64(webmResult.file_path);
+            const webmBlob = base64ToBlob(webmBase64, "audio/webm");
+            
+            // Encode to MP3
+            const mp3Blob = await encodeMp3FromBlob(webmBlob);
+            
+            // Save the MP3 file
+            const result = await saveRecordingToFile(
+              mp3Blob,
+              "audio",
+              settings,
+              currentSession?.session
+            );
+
+            if (result.success) {
+              console.log("[AudioRecording] MP3 saved:", result.filePath);
+              setAudioRecordedPath(result.filePath || null);
+              
+              // Create preview from MP3
+              revokeAudioPreviewObjectUrl();
+              audioPreviewObjectUrlRef.current = URL.createObjectURL(mp3Blob);
+              setAudioRecordedUrl(audioPreviewObjectUrlRef.current);
+
+              // Clean up the temp WebM file
+              try {
+                await deleteFile(webmResult.file_path);
+                console.log("[AudioRecording] Deleted temp WebM file");
+              } catch (delErr) {
+                console.warn("[AudioRecording] Failed to delete temp file:", delErr);
+              }
+            } else {
+              console.error("[AudioRecording] Failed to save MP3:", result.error);
+              // Keep the WebM file as fallback
+              setAudioRecordedPath(webmResult.file_path);
+            }
           } catch (err) {
-            console.error("MP3 encoding failed, saving raw audio instead:", err);
+            console.error("[AudioRecording] MP3 conversion failed:", err);
+            // Keep the WebM file as fallback - user can convert manually
+            setAudioRecordedPath(webmResult.file_path);
+            console.log("[AudioRecording] WebM file preserved at:", webmResult.file_path);
           }
         }
 
-        // Always set preview from the in-memory blob (never a raw filesystem path)
-        revokeAudioPreviewObjectUrl();
-        audioPreviewObjectUrlRef.current = URL.createObjectURL(outputBlob);
-        setAudioRecordedUrl(audioPreviewObjectUrlRef.current);
-
-        const result = await saveRecordingToFile(
-          outputBlob,
-          "audio",
-          settings,
-          currentSession?.session
-        );
-        if (result.success) {
-          setAudioRecordedPath(result.filePath || null);
-        } else {
-          console.error("Failed to save audio:", result.error);
-        }
+        audioStreamingTempPathRef.current = null;
+        audioFinalMp3PathRef.current = null;
 
         if (audioStreamRef.current) {
           audioStreamRef.current.getTracks().forEach((t) => t.stop());
@@ -1013,7 +1171,7 @@ const RecorderPage: React.FC = () => {
       audioRecorderRef.current = recorder;
       // Pre-roll: let the mic settle before starting MediaRecorder.
       await new Promise((r) => setTimeout(r, 800));
-      recorder.start(1000);
+      recorder.start(1000); // Request data every second
 
       setAudioStatus("recording");
       setIsAudioStarting(false);

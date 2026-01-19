@@ -1260,6 +1260,21 @@ lazy_static::lazy_static! {
     static ref AUDIO_RECORDING_STOP_FLAG: Mutex<Option<std::sync::Arc<AtomicBool>>> = Mutex::new(None);
     static ref AUDIO_RECORDING_START_TIME: Mutex<Option<std::time::Instant>> = Mutex::new(None);
     static ref AUDIO_RECORDING_FILE_PATH: Mutex<Option<String>> = Mutex::new(None);
+    
+    // Video streaming recording state - writes chunks to disk as they arrive
+    static ref VIDEO_RECORDING_RUNNING: AtomicBool = AtomicBool::new(false);
+    static ref VIDEO_RECORDING_FILE: Mutex<Option<std::fs::File>> = Mutex::new(None);
+    static ref VIDEO_RECORDING_FILE_PATH: Mutex<Option<String>> = Mutex::new(None);
+    static ref VIDEO_RECORDING_START_TIME: Mutex<Option<std::time::Instant>> = Mutex::new(None);
+    static ref VIDEO_RECORDING_BYTES_WRITTEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    
+    // Web Audio streaming recording state - writes chunks to disk for crash safety
+    // Note: This streams raw WebM/Opus data; MP3 conversion happens after recording stops
+    static ref WEB_AUDIO_RECORDING_RUNNING: AtomicBool = AtomicBool::new(false);
+    static ref WEB_AUDIO_RECORDING_FILE: Mutex<Option<std::fs::File>> = Mutex::new(None);
+    static ref WEB_AUDIO_RECORDING_FILE_PATH: Mutex<Option<String>> = Mutex::new(None);
+    static ref WEB_AUDIO_RECORDING_START_TIME: Mutex<Option<std::time::Instant>> = Mutex::new(None);
+    static ref WEB_AUDIO_RECORDING_BYTES_WRITTEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 }
 
 #[tauri::command]
@@ -1365,6 +1380,9 @@ fn start_native_audio_recording(
                 let mut resample_buffer: Vec<f32> = Vec::new();
                 let mut resample_pos: f64 = 0.0;
                 let mut skipped_frames: usize = 0;
+                // Flush counter for crash safety - flush every ~1 second of audio
+                let mut samples_since_flush: usize = 0;
+                let flush_interval: usize = target_sample_rate as usize; // ~1 second
 
                 selected.build_input_stream(
                     &stream_config,
@@ -1416,6 +1434,7 @@ fn start_native_audio_recording(
                                     for sample in &resample_buffer {
                                         let i16_sample = (*sample * i16::MAX as f32).clamp(i16::MIN as f32, i16::MAX as f32) as i16;
                                         let _ = writer.write_sample(i16_sample);
+                                        samples_since_flush += 1;
                                     }
                                 } else {
                                     let data = &data[start_idx..];
@@ -1430,8 +1449,16 @@ fn start_native_audio_recording(
                                             .clamp(-1.0, 1.0);
                                         let i16_sample = (mono * i16::MAX as f32).clamp(i16::MIN as f32, i16::MAX as f32) as i16;
                                         let _ = writer.write_sample(i16_sample);
+                                        samples_since_flush += 1;
                                         i += channels as usize;
                                     }
+                                }
+
+                                // Flush to disk periodically for crash safety
+                                // This ensures audio data is on disk even if app crashes
+                                if samples_since_flush >= flush_interval {
+                                    let _ = writer.flush();
+                                    samples_since_flush = 0;
                                 }
                             }
                         }
@@ -1444,6 +1471,9 @@ fn start_native_audio_recording(
                 let stop_flag = stop_flag_clone.clone();
                 let wav_writer = wav_writer_clone.clone();
                 let mut skipped_frames: usize = 0;
+                // Flush counter for crash safety - flush every ~1 second of audio
+                let mut samples_since_flush: usize = 0;
+                let flush_interval: usize = target_sample_rate as usize; // ~1 second
 
                 selected.build_input_stream(
                     &stream_config,
@@ -1475,7 +1505,14 @@ fn start_native_audio_recording(
                                     }
                                     let mono = (sum / channels as i32) as i16;
                                     let _ = writer.write_sample(mono);
+                                    samples_since_flush += 1;
                                     i += channels as usize;
+                                }
+
+                                // Flush to disk periodically for crash safety
+                                if samples_since_flush >= flush_interval {
+                                    let _ = writer.flush();
+                                    samples_since_flush = 0;
                                 }
                             }
                         }
@@ -1585,6 +1622,500 @@ fn get_audio_recording_duration() -> f64 {
         return guard.map(|t| t.elapsed().as_secs_f64()).unwrap_or(0.0);
     }
     0.0
+}
+
+// ============================================================================
+// Streaming Video Recording (Production-Grade - No Memory Accumulation)
+// ============================================================================
+//
+// This implementation writes video chunks directly to disk as they arrive from
+// the frontend MediaRecorder API, avoiding the memory accumulation that causes
+// "Out of Memory" crashes during long recordings (1+ hours).
+//
+// How it works:
+// 1. Frontend calls start_streaming_video_recording() to initialize the file
+// 2. Each MediaRecorder ondataavailable event sends the chunk via append_video_chunk()
+// 3. Chunks are written directly to disk - no accumulation in memory
+// 4. Frontend calls finalize_streaming_video_recording() to properly close the file
+//
+// Memory usage: O(1) constant, regardless of recording length
+
+#[derive(Debug, Clone, Serialize)]
+pub struct VideoRecordingInfo {
+    pub file_path: String,
+    pub duration_seconds: f64,
+    pub bytes_written: u64,
+}
+
+#[tauri::command]
+fn start_streaming_video_recording(file_path: String) -> Result<String, String> {
+    use std::fs::{create_dir_all, File};
+    use std::path::Path;
+
+    // Stop any existing recording first
+    let _ = finalize_streaming_video_recording();
+
+    // Normalize file path (expand ~)
+    let mut normalized_path = file_path.trim().to_string();
+    if normalized_path.starts_with("~/") {
+        let home = std::env::var("HOME")
+            .or_else(|_| std::env::var("USERPROFILE"))
+            .map_err(|_| "home_dir_unavailable".to_string())?;
+        normalized_path = format!("{}/{}", home.trim_end_matches('/'), &normalized_path[2..]);
+    }
+
+    // Create parent directories if needed
+    if let Some(parent) = Path::new(&normalized_path).parent() {
+        if !parent.exists() {
+            create_dir_all(parent).map_err(|e| format!("create_dir_failed:{}", e))?;
+        }
+    }
+
+    // Create/truncate the video file
+    let file = File::create(&normalized_path)
+        .map_err(|e| format!("create_video_file_failed:{}", e))?;
+
+    // Store state
+    {
+        let mut guard = VIDEO_RECORDING_FILE.lock().map_err(|_| "lock_failed")?;
+        *guard = Some(file);
+    }
+    {
+        let mut guard = VIDEO_RECORDING_FILE_PATH.lock().map_err(|_| "lock_failed")?;
+        *guard = Some(normalized_path.clone());
+    }
+    {
+        let mut guard = VIDEO_RECORDING_START_TIME.lock().map_err(|_| "lock_failed")?;
+        *guard = Some(std::time::Instant::now());
+    }
+    VIDEO_RECORDING_BYTES_WRITTEN.store(0, Ordering::SeqCst);
+    VIDEO_RECORDING_RUNNING.store(true, Ordering::SeqCst);
+
+    println!("[video_recording] Started streaming recording to: {}", normalized_path);
+    Ok(normalized_path)
+}
+
+#[tauri::command]
+fn append_video_chunk(chunk_base64: String) -> Result<u64, String> {
+    use std::io::Write;
+
+    if !VIDEO_RECORDING_RUNNING.load(Ordering::SeqCst) {
+        return Err("not_recording".to_string());
+    }
+
+    // Decode base64 chunk
+    let chunk_data = base64::engine::general_purpose::STANDARD
+        .decode(&chunk_base64)
+        .map_err(|e| format!("base64_decode_failed:{}", e))?;
+
+    let chunk_size = chunk_data.len() as u64;
+
+    // Write directly to file
+    {
+        let mut guard = VIDEO_RECORDING_FILE.lock().map_err(|_| "lock_failed")?;
+        if let Some(ref mut file) = *guard {
+            file.write_all(&chunk_data)
+                .map_err(|e| format!("write_chunk_failed:{}", e))?;
+            // Flush to ensure data is persisted (optional - can be removed for better performance)
+            // file.flush().map_err(|e| format!("flush_failed:{}", e))?;
+        } else {
+            return Err("file_not_open".to_string());
+        }
+    }
+
+    // Update bytes written counter
+    let total = VIDEO_RECORDING_BYTES_WRITTEN.fetch_add(chunk_size, Ordering::SeqCst) + chunk_size;
+
+    Ok(total)
+}
+
+#[tauri::command]
+fn finalize_streaming_video_recording() -> Result<VideoRecordingInfo, String> {
+    if !VIDEO_RECORDING_RUNNING.load(Ordering::SeqCst) {
+        return Err("not_recording".to_string());
+    }
+
+    // Get recording info before closing
+    let duration_seconds = {
+        let guard = VIDEO_RECORDING_START_TIME.lock().map_err(|_| "lock_failed")?;
+        guard.map(|t| t.elapsed().as_secs_f64()).unwrap_or(0.0)
+    };
+
+    let file_path = {
+        let guard = VIDEO_RECORDING_FILE_PATH.lock().map_err(|_| "lock_failed")?;
+        guard.clone().unwrap_or_default()
+    };
+
+    let bytes_written = VIDEO_RECORDING_BYTES_WRITTEN.load(Ordering::SeqCst);
+
+    // Close the file (drop triggers flush and close)
+    {
+        let mut guard = VIDEO_RECORDING_FILE.lock().map_err(|_| "lock_failed")?;
+        if let Some(file) = guard.take() {
+            // Sync all data to disk before closing
+            let _ = file.sync_all();
+            drop(file);
+        }
+    }
+
+    // Clear state
+    VIDEO_RECORDING_RUNNING.store(false, Ordering::SeqCst);
+    {
+        let mut guard = VIDEO_RECORDING_FILE_PATH.lock().map_err(|_| "lock_failed")?;
+        *guard = None;
+    }
+    {
+        let mut guard = VIDEO_RECORDING_START_TIME.lock().map_err(|_| "lock_failed")?;
+        *guard = None;
+    }
+    VIDEO_RECORDING_BYTES_WRITTEN.store(0, Ordering::SeqCst);
+
+    println!(
+        "[video_recording] Finalized: {} ({:.1}s, {} bytes)",
+        file_path, duration_seconds, bytes_written
+    );
+
+    Ok(VideoRecordingInfo {
+        file_path,
+        duration_seconds,
+        bytes_written,
+    })
+}
+
+#[tauri::command]
+fn is_video_streaming_recording() -> bool {
+    VIDEO_RECORDING_RUNNING.load(Ordering::SeqCst)
+}
+
+#[tauri::command]
+fn get_video_recording_stats() -> Result<VideoRecordingInfo, String> {
+    if !VIDEO_RECORDING_RUNNING.load(Ordering::SeqCst) {
+        return Err("not_recording".to_string());
+    }
+
+    let duration_seconds = {
+        let guard = VIDEO_RECORDING_START_TIME.lock().map_err(|_| "lock_failed")?;
+        guard.map(|t| t.elapsed().as_secs_f64()).unwrap_or(0.0)
+    };
+
+    let file_path = {
+        let guard = VIDEO_RECORDING_FILE_PATH.lock().map_err(|_| "lock_failed")?;
+        guard.clone().unwrap_or_default()
+    };
+
+    let bytes_written = VIDEO_RECORDING_BYTES_WRITTEN.load(Ordering::SeqCst);
+
+    Ok(VideoRecordingInfo {
+        file_path,
+        duration_seconds,
+        bytes_written,
+    })
+}
+
+#[tauri::command]
+fn abort_streaming_video_recording() -> Result<(), String> {
+    if !VIDEO_RECORDING_RUNNING.load(Ordering::SeqCst) {
+        return Ok(());
+    }
+
+    let file_path = {
+        let guard = VIDEO_RECORDING_FILE_PATH.lock().map_err(|_| "lock_failed")?;
+        guard.clone()
+    };
+
+    // Close the file
+    {
+        let mut guard = VIDEO_RECORDING_FILE.lock().map_err(|_| "lock_failed")?;
+        *guard = None;
+    }
+
+    // Clear state
+    VIDEO_RECORDING_RUNNING.store(false, Ordering::SeqCst);
+    {
+        let mut guard = VIDEO_RECORDING_FILE_PATH.lock().map_err(|_| "lock_failed")?;
+        *guard = None;
+    }
+    {
+        let mut guard = VIDEO_RECORDING_START_TIME.lock().map_err(|_| "lock_failed")?;
+        *guard = None;
+    }
+    VIDEO_RECORDING_BYTES_WRITTEN.store(0, Ordering::SeqCst);
+
+    // Optionally delete the incomplete file
+    if let Some(path) = file_path {
+        let _ = std::fs::remove_file(&path);
+        println!("[video_recording] Aborted and deleted incomplete file: {}", path);
+    }
+
+    Ok(())
+}
+
+// ============================================================================
+// Streaming Web Audio Recording (Production-Grade - Crash Safe)
+// ============================================================================
+//
+// Similar to video streaming, this writes audio chunks directly to disk as they
+// arrive from the browser MediaRecorder. The raw format is typically WebM/Opus.
+// After recording stops, the frontend converts to MP3 if needed.
+//
+// Crash Safety: If app crashes, the WebM file on disk contains all audio up to
+// that point. It can be recovered or converted manually.
+
+#[derive(Debug, Clone, Serialize)]
+pub struct WebAudioRecordingInfo {
+    pub file_path: String,
+    pub duration_seconds: f64,
+    pub bytes_written: u64,
+}
+
+#[tauri::command]
+fn start_streaming_web_audio_recording(file_path: String) -> Result<String, String> {
+    use std::fs::{create_dir_all, File};
+    use std::path::Path;
+
+    // Stop any existing recording first
+    let _ = finalize_streaming_web_audio_recording();
+
+    // Normalize file path (expand ~)
+    let mut normalized_path = file_path.trim().to_string();
+    if normalized_path.starts_with("~/") {
+        let home = std::env::var("HOME")
+            .or_else(|_| std::env::var("USERPROFILE"))
+            .map_err(|_| "home_dir_unavailable".to_string())?;
+        normalized_path = format!("{}/{}", home.trim_end_matches('/'), &normalized_path[2..]);
+    }
+
+    // Create parent directories if needed
+    if let Some(parent) = Path::new(&normalized_path).parent() {
+        if !parent.exists() {
+            create_dir_all(parent).map_err(|e| format!("create_dir_failed:{}", e))?;
+        }
+    }
+
+    // Create/truncate the audio file
+    let file = File::create(&normalized_path)
+        .map_err(|e| format!("create_audio_file_failed:{}", e))?;
+
+    // Store state
+    {
+        let mut guard = WEB_AUDIO_RECORDING_FILE.lock().map_err(|_| "lock_failed")?;
+        *guard = Some(file);
+    }
+    {
+        let mut guard = WEB_AUDIO_RECORDING_FILE_PATH.lock().map_err(|_| "lock_failed")?;
+        *guard = Some(normalized_path.clone());
+    }
+    {
+        let mut guard = WEB_AUDIO_RECORDING_START_TIME.lock().map_err(|_| "lock_failed")?;
+        *guard = Some(std::time::Instant::now());
+    }
+    WEB_AUDIO_RECORDING_BYTES_WRITTEN.store(0, Ordering::SeqCst);
+    WEB_AUDIO_RECORDING_RUNNING.store(true, Ordering::SeqCst);
+
+    println!("[web_audio_recording] Started streaming to: {}", normalized_path);
+    Ok(normalized_path)
+}
+
+#[tauri::command]
+fn append_web_audio_chunk(chunk_base64: String) -> Result<u64, String> {
+    use std::io::Write;
+
+    if !WEB_AUDIO_RECORDING_RUNNING.load(Ordering::SeqCst) {
+        return Err("not_recording".to_string());
+    }
+
+    // Decode base64 chunk
+    let chunk_data = base64::engine::general_purpose::STANDARD
+        .decode(&chunk_base64)
+        .map_err(|e| format!("base64_decode_failed:{}", e))?;
+
+    let chunk_size = chunk_data.len() as u64;
+
+    // Write directly to file
+    {
+        let mut guard = WEB_AUDIO_RECORDING_FILE.lock().map_err(|_| "lock_failed")?;
+        if let Some(ref mut file) = *guard {
+            file.write_all(&chunk_data)
+                .map_err(|e| format!("write_chunk_failed:{}", e))?;
+        } else {
+            return Err("file_not_open".to_string());
+        }
+    }
+
+    // Update bytes written counter
+    let total = WEB_AUDIO_RECORDING_BYTES_WRITTEN.fetch_add(chunk_size, Ordering::SeqCst) + chunk_size;
+
+    Ok(total)
+}
+
+#[tauri::command]
+fn finalize_streaming_web_audio_recording() -> Result<WebAudioRecordingInfo, String> {
+    if !WEB_AUDIO_RECORDING_RUNNING.load(Ordering::SeqCst) {
+        return Err("not_recording".to_string());
+    }
+
+    // Get recording info before closing
+    let duration_seconds = {
+        let guard = WEB_AUDIO_RECORDING_START_TIME.lock().map_err(|_| "lock_failed")?;
+        guard.map(|t| t.elapsed().as_secs_f64()).unwrap_or(0.0)
+    };
+
+    let file_path = {
+        let guard = WEB_AUDIO_RECORDING_FILE_PATH.lock().map_err(|_| "lock_failed")?;
+        guard.clone().unwrap_or_default()
+    };
+
+    let bytes_written = WEB_AUDIO_RECORDING_BYTES_WRITTEN.load(Ordering::SeqCst);
+
+    // Close the file (drop triggers flush and close)
+    {
+        let mut guard = WEB_AUDIO_RECORDING_FILE.lock().map_err(|_| "lock_failed")?;
+        if let Some(file) = guard.take() {
+            let _ = file.sync_all();
+            drop(file);
+        }
+    }
+
+    // Clear state
+    WEB_AUDIO_RECORDING_RUNNING.store(false, Ordering::SeqCst);
+    {
+        let mut guard = WEB_AUDIO_RECORDING_FILE_PATH.lock().map_err(|_| "lock_failed")?;
+        *guard = None;
+    }
+    {
+        let mut guard = WEB_AUDIO_RECORDING_START_TIME.lock().map_err(|_| "lock_failed")?;
+        *guard = None;
+    }
+    WEB_AUDIO_RECORDING_BYTES_WRITTEN.store(0, Ordering::SeqCst);
+
+    println!(
+        "[web_audio_recording] Finalized: {} ({:.1}s, {} bytes)",
+        file_path, duration_seconds, bytes_written
+    );
+
+    Ok(WebAudioRecordingInfo {
+        file_path,
+        duration_seconds,
+        bytes_written,
+    })
+}
+
+#[tauri::command]
+fn is_web_audio_streaming_recording() -> bool {
+    WEB_AUDIO_RECORDING_RUNNING.load(Ordering::SeqCst)
+}
+
+#[tauri::command]
+fn get_web_audio_recording_stats() -> Result<WebAudioRecordingInfo, String> {
+    if !WEB_AUDIO_RECORDING_RUNNING.load(Ordering::SeqCst) {
+        return Err("not_recording".to_string());
+    }
+
+    let duration_seconds = {
+        let guard = WEB_AUDIO_RECORDING_START_TIME.lock().map_err(|_| "lock_failed")?;
+        guard.map(|t| t.elapsed().as_secs_f64()).unwrap_or(0.0)
+    };
+
+    let file_path = {
+        let guard = WEB_AUDIO_RECORDING_FILE_PATH.lock().map_err(|_| "lock_failed")?;
+        guard.clone().unwrap_or_default()
+    };
+
+    let bytes_written = WEB_AUDIO_RECORDING_BYTES_WRITTEN.load(Ordering::SeqCst);
+
+    Ok(WebAudioRecordingInfo {
+        file_path,
+        duration_seconds,
+        bytes_written,
+    })
+}
+
+#[tauri::command]
+fn abort_streaming_web_audio_recording() -> Result<(), String> {
+    if !WEB_AUDIO_RECORDING_RUNNING.load(Ordering::SeqCst) {
+        return Ok(());
+    }
+
+    let file_path = {
+        let guard = WEB_AUDIO_RECORDING_FILE_PATH.lock().map_err(|_| "lock_failed")?;
+        guard.clone()
+    };
+
+    // Close the file
+    {
+        let mut guard = WEB_AUDIO_RECORDING_FILE.lock().map_err(|_| "lock_failed")?;
+        *guard = None;
+    }
+
+    // Clear state
+    WEB_AUDIO_RECORDING_RUNNING.store(false, Ordering::SeqCst);
+    {
+        let mut guard = WEB_AUDIO_RECORDING_FILE_PATH.lock().map_err(|_| "lock_failed")?;
+        *guard = None;
+    }
+    {
+        let mut guard = WEB_AUDIO_RECORDING_START_TIME.lock().map_err(|_| "lock_failed")?;
+        *guard = None;
+    }
+    WEB_AUDIO_RECORDING_BYTES_WRITTEN.store(0, Ordering::SeqCst);
+
+    // Optionally delete the incomplete file
+    if let Some(path) = file_path {
+        let _ = std::fs::remove_file(&path);
+        println!("[web_audio_recording] Aborted and deleted: {}", path);
+    }
+
+    Ok(())
+}
+
+/// Read a file and return its contents as base64.
+/// Used to read the streamed WebM audio file for MP3 conversion.
+#[tauri::command]
+fn read_file_as_base64(file_path: String) -> Result<String, String> {
+    use std::fs::File;
+    use std::io::Read;
+    use std::path::Path;
+
+    // Normalize file path (expand ~)
+    let mut normalized_path = file_path.trim().to_string();
+    if normalized_path.starts_with("~/") {
+        let home = std::env::var("HOME")
+            .or_else(|_| std::env::var("USERPROFILE"))
+            .map_err(|_| "home_dir_unavailable".to_string())?;
+        normalized_path = format!("{}/{}", home.trim_end_matches('/'), &normalized_path[2..]);
+    }
+
+    if !Path::new(&normalized_path).exists() {
+        return Err(format!("file_not_found:{}", normalized_path));
+    }
+
+    let mut file = File::open(&normalized_path)
+        .map_err(|e| format!("open_failed:{}", e))?;
+    
+    let mut buffer = Vec::new();
+    file.read_to_end(&mut buffer)
+        .map_err(|e| format!("read_failed:{}", e))?;
+
+    Ok(base64::engine::general_purpose::STANDARD.encode(&buffer))
+}
+
+/// Delete a file (used to clean up temp WebM files after MP3 conversion)
+#[tauri::command]
+fn delete_file(file_path: String) -> Result<(), String> {
+    // Normalize file path (expand ~)
+    let mut normalized_path = file_path.trim().to_string();
+    if normalized_path.starts_with("~/") {
+        let home = std::env::var("HOME")
+            .or_else(|_| std::env::var("USERPROFILE"))
+            .map_err(|_| "home_dir_unavailable".to_string())?;
+        normalized_path = format!("{}/{}", home.trim_end_matches('/'), &normalized_path[2..]);
+    }
+
+    std::fs::remove_file(&normalized_path)
+        .map_err(|e| format!("delete_failed:{}", e))?;
+
+    println!("[file] Deleted: {}", normalized_path);
+    Ok(())
 }
 
 // ============================================================================
@@ -2087,6 +2618,23 @@ pub fn run() {
             stop_native_audio_recording,
             is_audio_recording,
             get_audio_recording_duration,
+            // Streaming video recording commands (production-grade - no memory accumulation)
+            start_streaming_video_recording,
+            append_video_chunk,
+            finalize_streaming_video_recording,
+            is_video_streaming_recording,
+            get_video_recording_stats,
+            abort_streaming_video_recording,
+            // Streaming web audio recording commands (crash-safe MP3 recording)
+            start_streaming_web_audio_recording,
+            append_web_audio_chunk,
+            finalize_streaming_web_audio_recording,
+            is_web_audio_streaming_recording,
+            get_web_audio_recording_stats,
+            abort_streaming_web_audio_recording,
+            // File utilities for audio conversion
+            read_file_as_base64,
+            delete_file,
             assemblyai_create_realtime_token,
             write_text_to_file,
             write_binary_to_file,
