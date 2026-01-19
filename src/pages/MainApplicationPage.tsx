@@ -742,12 +742,24 @@ const MainApplicationPage: React.FC = () => {
 
     if (!template) {
       // Live Slides items don't require a template; they use Live Slides settings for output.
-      if (!isLiveSlidesItem) {
+      // Also allow items with ProPresenter activation configured - they can trigger without file output
+      const hasProPresenterActivation = !!(
+        slide.proPresenterActivation ||
+        playlistItem.defaultProPresenterActivation
+      );
+      
+      if (!isLiveSlidesItem && !hasProPresenterActivation) {
         console.error(
           `Template '${playlistItem.templateName}' not found for playlist item '${playlistItem.title}'.`
         );
         alert(`Error: Template definition not found for this item.`);
         return;
+      }
+      
+      if (!isLiveSlidesItem) {
+        console.warn(
+          `Template '${playlistItem.templateName}' not found, but ProPresenter activation is configured. Skipping file output.`
+        );
       }
     }
 
@@ -785,6 +797,9 @@ const MainApplicationPage: React.FC = () => {
       ? liveSlidesSettings?.outputFilePrefix
       : template?.outputFileNamePrefix) || "").trim();
 
+    // Check if we have a valid output path for file writing
+    const hasValidOutputPath = basePath && basePath !== "/";
+
     // Check if this is an auto-scripture slide with custom mapping configured
     const isScriptureWithMapping =
       slide.isAutoScripture &&
@@ -793,7 +808,10 @@ const MainApplicationPage: React.FC = () => {
       template.scriptureTextFileIndex !== undefined;
 
     try {
-      if (isScriptureWithMapping) {
+      // Only write files if we have a valid output path
+      if (!hasValidOutputPath) {
+        console.log("No output path configured - skipping file writing");
+      } else if (isScriptureWithMapping) {
         // For auto-scripture slides with mapping configured:
         // - Write verse text to the designated text file index
         // - Write reference to the designated reference file index

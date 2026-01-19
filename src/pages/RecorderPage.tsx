@@ -9,7 +9,9 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { FaVideo, FaVideoSlash, FaMicrophone, FaMicrophoneSlash, FaPause, FaStop, FaPlay, FaCircle } from "react-icons/fa";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { Mp3Encoder } from "lamejs";
+// Using @breezystack/lamejs fork which is compatible with ES module bundlers
+// The original lamejs has issues with missing MPEGMode variable when tree-shaken
+import { Mp3Encoder } from "@breezystack/lamejs";
 import { useStageAssist } from "../contexts/StageAssistContext";
 import {
   loadRecorderSettings,
@@ -334,12 +336,14 @@ const RecorderPage: React.FC = () => {
   const videoStreamRef = useRef<MediaStream | null>(null);
   const videoRecordingAudioCleanupRef = useRef<(() => void) | null>(null);
   const videoStreamingFilePathRef = useRef<string | null>(null); // Path for streaming recording
+  const videoChunkPromisesRef = useRef<Promise<void>[]>([]); // Track pending chunk writes to avoid race condition
   const audioRecorderRef = useRef<MediaRecorder | null>(null);
   // NOTE: We no longer accumulate audio chunks in memory for web recording
   // Chunks are streamed to disk for crash safety
   const audioStreamRef = useRef<MediaStream | null>(null);
   const audioStreamingTempPathRef = useRef<string | null>(null); // Temp WebM path for streaming
   const audioFinalMp3PathRef = useRef<string | null>(null); // Final MP3 path
+  const audioChunkPromisesRef = useRef<Promise<void>[]>([]); // Track pending chunk writes to avoid race condition
   const audioAnalyzerRef = useRef<ReturnType<typeof createAudioAnalyzer> | null>(null);
   const audioMeterStreamRef = useRef<MediaStream | null>(null);
   const audioMeterFrameRef = useRef<number | null>(null);
@@ -691,21 +695,35 @@ const RecorderPage: React.FC = () => {
     }
 
     // Stream each chunk directly to disk - NO memory accumulation
-    recorder.ondataavailable = async (e: BlobEvent) => {
+    // Track pending promises to avoid race condition with onstop
+    videoChunkPromisesRef.current = [];
+    recorder.ondataavailable = (e: BlobEvent) => {
       if (e.data.size > 0) {
-        try {
-          // Convert blob to base64 and stream to Rust backend
-          const base64Chunk = await blobToBase64(e.data);
-          await appendVideoChunk(base64Chunk);
-          // Chunk is now on disk - memory is freed
-        } catch (err) {
-          console.error("[VideoRecording] Failed to stream chunk:", err);
-          // Continue recording even if one chunk fails
-        }
+        // Track the async operation to ensure it completes before finalize
+        const chunkPromise = (async () => {
+          try {
+            // Convert blob to base64 and stream to Rust backend
+            const base64Chunk = await blobToBase64(e.data);
+            await appendVideoChunk(base64Chunk);
+            // Chunk is now on disk - memory is freed
+          } catch (err) {
+            console.error("[VideoRecording] Failed to stream chunk:", err);
+            // Continue recording even if one chunk fails
+          }
+        })();
+        videoChunkPromisesRef.current.push(chunkPromise);
       }
     };
 
     recorder.onstop = async () => {
+      // Wait for all pending chunk writes to complete before finalizing
+      // This prevents a race condition where finalize closes the file before chunks are written
+      if (videoChunkPromisesRef.current.length > 0) {
+        console.log(`[VideoRecording] Waiting for ${videoChunkPromisesRef.current.length} pending chunks...`);
+        await Promise.all(videoChunkPromisesRef.current);
+        videoChunkPromisesRef.current = [];
+      }
+
       // Clean up the recording audio stream (mono mixer) but keep the camera live
       if (videoRecordingAudioCleanupRef.current) {
         videoRecordingAudioCleanupRef.current();
@@ -942,12 +960,16 @@ const RecorderPage: React.FC = () => {
       setAudioRecordedPath(null);
 
       const filePath = generateNativeAudioFilePath(settings, currentSession?.session);
+      console.log("[NativeAudioRecording] Starting native recording...");
+      console.log("[NativeAudioRecording] File path:", filePath);
+      console.log("[NativeAudioRecording] Device ID:", settings.selectedAudioDeviceId);
       await startNativeAudioRecordingService(
         settings.selectedAudioDeviceId,
         filePath,
         48000,
         800
       );
+      console.log("[NativeAudioRecording] Native recording started successfully");
 
       setAudioStatus("recording");
       setAudioElapsedTime(0);
@@ -1070,19 +1092,37 @@ const RecorderPage: React.FC = () => {
       };
 
       // Stream each chunk directly to disk - NO memory accumulation
-      recorder.ondataavailable = async (e) => {
+      // Track pending promises to avoid race condition with onstop
+      audioChunkPromisesRef.current = [];
+      let audioChunkCount = 0;
+      recorder.ondataavailable = (e) => {
+        console.log(`[AudioRecording] ondataavailable fired, data size: ${e.data.size} bytes`);
         if (e.data.size > 0) {
-          try {
-            const base64Chunk = await blobToBase64(e.data);
-            await appendWebAudioChunk(base64Chunk);
-            // Chunk is now on disk - memory freed
-          } catch (err) {
-            console.error("[AudioRecording] Failed to stream chunk:", err);
-          }
+          audioChunkCount++;
+          const chunkNum = audioChunkCount;
+          // Track the async operation to ensure it completes before finalize
+          const chunkPromise = (async () => {
+            try {
+              const base64Chunk = await blobToBase64(e.data);
+              const bytesWritten = await appendWebAudioChunk(base64Chunk);
+              console.log(`[AudioRecording] Chunk ${chunkNum} written, total: ${bytesWritten} bytes`);
+            } catch (err) {
+              console.error(`[AudioRecording] Failed to stream chunk ${chunkNum}:`, err);
+            }
+          })();
+          audioChunkPromisesRef.current.push(chunkPromise);
         }
       };
 
       recorder.onstop = async () => {
+        // Wait for all pending chunk writes to complete before finalizing
+        // This prevents a race condition where finalize closes the file before chunks are written
+        if (audioChunkPromisesRef.current.length > 0) {
+          console.log(`[AudioRecording] Waiting for ${audioChunkPromisesRef.current.length} pending chunks...`);
+          await Promise.all(audioChunkPromisesRef.current);
+          audioChunkPromisesRef.current = [];
+        }
+
         // Clean up audio context used for mono conversion
         cleanupAudioContext();
 
@@ -1111,6 +1151,14 @@ const RecorderPage: React.FC = () => {
         if (settings.audioFormat === "mp3" && webmResult) {
           try {
             console.log("[AudioRecording] Converting WebM to MP3...");
+            console.log("[AudioRecording] WebM source path:", webmResult.file_path);
+            console.log("[AudioRecording] WebM bytes written:", webmResult.bytes_written);
+            
+            // Check if WebM has data
+            if (webmResult.bytes_written === 0) {
+              console.error("[AudioRecording] ERROR: WebM file has 0 bytes! No audio data was captured.");
+              console.error("[AudioRecording] This usually means ondataavailable events were not firing or chunks failed to write.");
+            }
             
             // Read the WebM file
             const webmBase64 = await readFileAsBase64(webmResult.file_path);
@@ -1120,6 +1168,8 @@ const RecorderPage: React.FC = () => {
             const mp3Blob = await encodeMp3FromBlob(webmBlob);
             
             // Save the MP3 file
+            console.log("[AudioRecording] MP3 blob size:", mp3Blob.size, "bytes");
+            console.log("[AudioRecording] Settings outputBasePath:", settings.outputBasePath);
             const result = await saveRecordingToFile(
               mp3Blob,
               "audio",
@@ -1127,8 +1177,9 @@ const RecorderPage: React.FC = () => {
               currentSession?.session
             );
 
+            console.log("[AudioRecording] saveRecordingToFile result:", result);
             if (result.success) {
-              console.log("[AudioRecording] MP3 saved:", result.filePath);
+              console.log("[AudioRecording] MP3 saved successfully to:", result.filePath);
               setAudioRecordedPath(result.filePath || null);
               
               // Create preview from MP3
@@ -1201,6 +1252,15 @@ const RecorderPage: React.FC = () => {
   const startAudioRecording = useCallback(async () => {
     if (!settings) return;
 
+    // If there's a previous recording, clean it up first
+    if (audioStatus === "stopped") {
+      revokeAudioPreviewObjectUrl();
+      setAudioRecordedPath(null);
+      setAudioRecordedUrl(null);
+      setAudioElapsedTime(0);
+      setAudioLevels(new Array(60).fill(0.1));
+    }
+
     // Warn if mic is disabled
     if (!isMicEnabled) {
       const proceed = window.confirm("Microphone is currently disabled. Enable microphone and start recording?");
@@ -1208,12 +1268,16 @@ const RecorderPage: React.FC = () => {
       setIsMicEnabled(true);
     }
 
+    console.log("[AudioRecording] Audio format:", settings.audioFormat);
+    console.log("[AudioRecording] Output base path:", settings.outputBasePath);
     if (settings.audioFormat === "mp3") {
+      console.log("[AudioRecording] Using WEB audio recording (MP3)");
       await startWebAudioRecording();
     } else {
+      console.log("[AudioRecording] Using NATIVE audio recording (WAV)");
       await startNativeAudioRecording();
     }
-  }, [settings, startWebAudioRecording, startNativeAudioRecording, isMicEnabled]);
+  }, [settings, startWebAudioRecording, startNativeAudioRecording, isMicEnabled, audioStatus, revokeAudioPreviewObjectUrl]);
 
   const stopAudioRecordingCore = useCallback(async () => {
     if (audioStatus !== "recording") return;
@@ -1227,24 +1291,30 @@ const RecorderPage: React.FC = () => {
     setAudioLevels(new Array(60).fill(0.1));
 
     if (audioRecordingModeRef.current === "native") {
+      console.log("[NativeAudioRecording] Stopping native recording...");
       try {
         const result = await stopNativeAudioRecordingService();
+        console.log("[NativeAudioRecording] Stop result:", result);
+        console.log("[NativeAudioRecording] File saved to:", result.file_path);
+        console.log("[NativeAudioRecording] Duration:", result.duration_seconds, "seconds");
         setAudioRecordedPath(result.file_path);
         // Prefer blob URL preview for WAV (more reliable than passing file paths / asset URLs)
         revokeAudioPreviewObjectUrl();
         try {
           const fs = await import("@tauri-apps/plugin-fs");
           const bytes = await (fs as any).readFile(result.file_path as any);
+          console.log("[NativeAudioRecording] WAV file size:", bytes.length, "bytes");
           const wavBlob = new Blob([bytes], { type: "audio/wav" });
           audioPreviewObjectUrlRef.current = URL.createObjectURL(wavBlob);
           setAudioRecordedUrl(audioPreviewObjectUrlRef.current);
         } catch (e) {
+          console.warn("[NativeAudioRecording] Failed to read file for preview:", e);
           // Fallback: try asset protocol
           setAudioRecordedUrl(convertFileSrc(result.file_path, "asset"));
         }
         setAudioStatus("stopped");
       } catch (err) {
-        console.error("Failed to stop audio recording:", err);
+        console.error("[NativeAudioRecording] Failed to stop audio recording:", err);
       } finally {
         resolveAudioStop();
       }
@@ -1272,14 +1342,6 @@ const RecorderPage: React.FC = () => {
     [audioStatus, stopAudioRecordingCore, closeStopConfirm]
   );
 
-  const startNewAudioRecording = useCallback(() => {
-    revokeAudioPreviewObjectUrl();
-    setAudioRecordedPath(null);
-    setAudioRecordedUrl(null);
-    setAudioStatus("idle");
-    setAudioElapsedTime(0);
-    setAudioLevels(new Array(60).fill(0.1));
-  }, [revokeAudioPreviewObjectUrl]);
 
   // ============================================================================
   // Automation Event Handlers (for Follow Master Timer feature)
@@ -1778,8 +1840,13 @@ const RecorderPage: React.FC = () => {
                 </button>
               ) : audioStatus === "stopped" ? (
                 <button
-                  style={{ ...styles.controlBtn, ...styles.recordBtn }}
-                  onClick={startNewAudioRecording}
+                  style={{
+                    ...styles.controlBtn,
+                    ...styles.recordBtn,
+                    ...(isAudioStarting ? styles.recordBtnDisabled : {}),
+                  }}
+                  onClick={startAudioRecording}
+                  disabled={isAudioStarting}
                   title="Start new recording"
                 >
                   <FaCircle size={24} />
@@ -1807,15 +1874,6 @@ const RecorderPage: React.FC = () => {
               </button>
             </div>
 
-            {/* New Recording Button */}
-            {audioStatus === "stopped" && (
-              <button
-                style={styles.newRecordingBtn}
-                onClick={startNewAudioRecording}
-              >
-                New Recording
-              </button>
-            )}
           </div>
         </div>
 
