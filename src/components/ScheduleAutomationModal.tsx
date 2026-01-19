@@ -11,6 +11,7 @@ import {
   FaMicrophone,
   FaPlay,
   FaStop,
+  FaMusic,
 } from "react-icons/fa";
 import {
   getEnabledConnections,
@@ -18,6 +19,7 @@ import {
   getStageScreens,
   getStageLayouts,
 } from "../services/propresenterService";
+import { listMidiOutputDevices, type MidiDevice } from "../services/midiService";
 import {
   ScheduleItemAutomation,
   SmartAutomationRule,
@@ -49,7 +51,7 @@ interface ScheduleAutomationModalProps {
   sessionName: string;
 }
 
-type AutomationType = "slide" | "stageLayout" | "recording";
+type AutomationType = "slide" | "stageLayout" | "recording" | "midi";
 
 const ScheduleAutomationModal: React.FC<ScheduleAutomationModalProps> = ({
   isOpen,
@@ -97,6 +99,14 @@ const ScheduleAutomationModal: React.FC<ScheduleAutomationModalProps> = ({
   // Recording automation state
   const [selectedRecordingAction, setSelectedRecordingAction] = useState<RecordingAutomationType | null>(null);
 
+  // MIDI automation state
+  const [midiDevices, setMidiDevices] = useState<MidiDevice[]>([]);
+  const [selectedMidiDeviceId, setSelectedMidiDeviceId] = useState<string>("");
+  const [midiChannel, setMidiChannel] = useState<number>(1);
+  const [midiNote, setMidiNote] = useState<number>(60);
+  const [midiVelocity, setMidiVelocity] = useState<number>(127);
+  const [isLoadingMidiDevices, setIsLoadingMidiDevices] = useState(false);
+
   // Track if modal was just opened to prevent re-initialization
   const [hasInitialized, setHasInitialized] = useState(false);
 
@@ -131,6 +141,49 @@ const ScheduleAutomationModal: React.FC<ScheduleAutomationModalProps> = ({
     }
   }, [automationType, isOpen]);
 
+  // Load MIDI devices when type is midi
+  useEffect(() => {
+    if (automationType === "midi" && isOpen) {
+      loadMidiDevices();
+    }
+  }, [automationType, isOpen]);
+
+  const loadMidiDevices = async () => {
+    setIsLoadingMidiDevices(true);
+    try {
+      const devices = await listMidiOutputDevices();
+      setMidiDevices(devices);
+      // Load default MIDI settings
+      const midiSettingsKey = "proassist-midi-settings";
+      try {
+        const saved = localStorage.getItem(midiSettingsKey);
+        if (saved) {
+          const settings = JSON.parse(saved);
+          if (settings.selectedDeviceId && devices.find(d => d.id === settings.selectedDeviceId)) {
+            setSelectedMidiDeviceId(settings.selectedDeviceId);
+            setMidiChannel(settings.defaultChannel || 1);
+            setMidiNote(settings.defaultNote || 60);
+            setMidiVelocity(settings.defaultVelocity || 127);
+          } else if (devices.length > 0) {
+            setSelectedMidiDeviceId(devices[0].id);
+          }
+        } else if (devices.length > 0) {
+          setSelectedMidiDeviceId(devices[0].id);
+        }
+      } catch (e) {
+        // Use defaults
+        if (devices.length > 0) {
+          setSelectedMidiDeviceId(devices[0].id);
+        }
+      }
+    } catch (error) {
+      console.error("[AutomationModal] Failed to load MIDI devices:", error);
+      setError("Failed to load MIDI devices");
+    } finally {
+      setIsLoadingMidiDevices(false);
+    }
+  };
+
   // Load enabled connections when modal opens
   useEffect(() => {
     if (isOpen) {
@@ -159,16 +212,19 @@ const ScheduleAutomationModal: React.FC<ScheduleAutomationModalProps> = ({
         "stopBothRecording",
       ];
 
-      // default to slide tab unless only stageLayout or recording exists
+      // default to slide tab unless only stageLayout, recording, or midi exists
       const hasSlide = initialAutomations.some((a) => a.type === "slide");
       const hasStage = initialAutomations.some((a) => a.type === "stageLayout");
       const hasRecording = initialAutomations.some((a) => recordingTypes.includes(a.type as RecordingAutomationType));
+      const hasMidi = initialAutomations.some((a) => a.type === "midi");
       const initialType: AutomationType = hasSlide
         ? "slide"
         : hasStage
         ? "stageLayout"
         : hasRecording
         ? "recording"
+        : hasMidi
+        ? "midi"
         : "slide";
       setAutomationType(initialType);
 
@@ -195,6 +251,15 @@ const ScheduleAutomationModal: React.FC<ScheduleAutomationModalProps> = ({
         recordingTypes.includes(a.type as RecordingAutomationType)
       );
       setSelectedRecordingAction(existingRecording?.type as RecordingAutomationType || null);
+
+      // Initialize MIDI automation state
+      const existingMidi = initialAutomations.find((a) => a.type === "midi");
+      if (existingMidi?.type === "midi") {
+        setSelectedMidiDeviceId(existingMidi.deviceId);
+        setMidiChannel(existingMidi.channel);
+        setMidiNote(existingMidi.note);
+        setMidiVelocity(existingMidi.velocity || 127);
+      }
 
       setSuccess(false);
       setError(null);
@@ -361,6 +426,8 @@ const ScheduleAutomationModal: React.FC<ScheduleAutomationModalProps> = ({
   const handleRemoveCurrentType = () => {
     if (automationType === "recording") {
       handleRemoveRecordingAutomation();
+    } else if (automationType === "midi") {
+      handleRemoveMidiAutomation();
     } else {
       setSavedAutomations((prev) =>
         prev.filter((a) => a.type !== automationType)
@@ -484,6 +551,44 @@ const ScheduleAutomationModal: React.FC<ScheduleAutomationModalProps> = ({
     setSuccess(false);
   };
 
+  const handleMidiNoteChange = () => {
+    if (!selectedMidiDeviceId) {
+      setError("Please select a MIDI device");
+      return;
+    }
+
+    const device = midiDevices.find((d) => d.id === selectedMidiDeviceId);
+    if (!device) {
+      setError("Selected MIDI device not found");
+      return;
+    }
+
+    const automation: ScheduleItemAutomation = {
+      type: "midi",
+      deviceId: selectedMidiDeviceId,
+      deviceName: device.name,
+      channel: midiChannel,
+      note: midiNote,
+      velocity: midiVelocity !== 127 ? midiVelocity : undefined,
+    };
+
+    setSavedAutomations((prev) => {
+      const others = prev.filter((a) => a.type !== "midi");
+      return [...others, automation];
+    });
+    setSuccess(true);
+    setError(null);
+  };
+
+  const handleRemoveMidiAutomation = () => {
+    setSavedAutomations((prev) => prev.filter((a) => a.type !== "midi"));
+    setSelectedMidiDeviceId("");
+    setMidiChannel(1);
+    setMidiNote(60);
+    setMidiVelocity(127);
+    setSuccess(false);
+  };
+
   if (!isOpen) return null;
 
   const getAutomationTypeLabel = (automation: ScheduleItemAutomation) => {
@@ -495,6 +600,8 @@ const ScheduleAutomationModal: React.FC<ScheduleAutomationModalProps> = ({
       return `Stage Layout: ${
         automation.screenName || `Screen ${automation.screenIndex}`
       } → ${automation.layoutName || `Layout ${automation.layoutIndex}`}`;
+    } else if (automation.type === "midi") {
+      return `MIDI: ${automation.deviceName || automation.deviceId} - Channel ${automation.channel}, Note ${automation.note}${automation.velocity !== undefined ? `, Velocity ${automation.velocity}` : ""}`;
     } else {
       // Recording automations
       const recordingLabels: Record<string, string> = {
@@ -651,6 +758,39 @@ const ScheduleAutomationModal: React.FC<ScheduleAutomationModalProps> = ({
               <FaVideo />
               <span>Recording</span>
             </label>
+            <label
+              style={{
+                flex: 1,
+                minWidth: "140px",
+                padding: "10px",
+                border: `2px solid ${
+                  automationType === "midi"
+                    ? "var(--app-primary-color)"
+                    : "var(--app-border-color)"
+                }`,
+                borderRadius: "6px",
+                cursor: "pointer",
+                backgroundColor:
+                  automationType === "midi"
+                    ? "rgba(59, 130, 246, 0.1)"
+                    : "transparent",
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+                fontSize: "0.9em",
+              }}
+            >
+              <input
+                type="radio"
+                name="automationType"
+                value="midi"
+                checked={automationType === "midi"}
+                onChange={() => handleTypeChange("midi")}
+                style={{ width: "16px", height: "16px" }}
+              />
+              <FaMusic />
+              <span>MIDI Note</span>
+            </label>
           </div>
         </div>
 
@@ -761,6 +901,21 @@ const ScheduleAutomationModal: React.FC<ScheduleAutomationModalProps> = ({
               <li>Click "Set Layout" to save the configuration</li>
               <li>
                 Optionally save as a smart rule to auto-apply to future sessions
+              </li>
+            </ol>
+          ) : automationType === "midi" ? (
+            <ol
+              style={{
+                margin: "0",
+                paddingLeft: "20px",
+                color: "var(--app-text-color-secondary)",
+              }}
+            >
+              <li>Select a MIDI output device</li>
+              <li>Configure the MIDI channel, note, and velocity</li>
+              <li>Click "Set MIDI Note" to save the automation</li>
+              <li>
+                <strong>Tip:</strong> The MIDI note will be sent when this session starts
               </li>
             </ol>
           ) : (
@@ -1249,6 +1404,181 @@ const ScheduleAutomationModal: React.FC<ScheduleAutomationModalProps> = ({
               >
                 <FaTimes />
                 Remove Recording Automation
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* MIDI Configuration */}
+        {automationType === "midi" && (
+          <div
+            style={{
+              marginBottom: "12px",
+              padding: "10px",
+              backgroundColor: "var(--app-header-bg)",
+              border: "1px solid var(--app-border-color)",
+              borderRadius: "6px",
+            }}
+          >
+            <div style={{ marginBottom: "12px" }}>
+              <label
+                style={{
+                  fontSize: "0.85em",
+                  display: "block",
+                  marginBottom: "8px",
+                  color: "var(--app-text-color-secondary)",
+                }}
+              >
+                MIDI Device:
+              </label>
+              <select
+                value={selectedMidiDeviceId}
+                onChange={(e) => {
+                  setSelectedMidiDeviceId(e.target.value);
+                  setSuccess(false);
+                }}
+                disabled={isLoadingMidiDevices}
+                style={{
+                  width: "100%",
+                  padding: "6px 8px",
+                  fontSize: "0.9em",
+                  backgroundColor: "var(--app-input-bg-color)",
+                  color: "var(--app-input-text-color)",
+                  border: "1px solid var(--app-border-color)",
+                  borderRadius: "4px",
+                }}
+              >
+                <option value="">Select a MIDI device...</option>
+                {midiDevices.map((device) => (
+                  <option key={device.id} value={device.id}>
+                    {device.name}
+                  </option>
+                ))}
+              </select>
+              {isLoadingMidiDevices && (
+                <div style={{ marginTop: "8px", fontSize: "0.85em", color: "var(--app-text-color-secondary)" }}>
+                  <FaSpinner style={{ animation: "spin 1s linear infinite", marginRight: "6px" }} />
+                  Loading MIDI devices...
+                </div>
+              )}
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "12px", marginBottom: "12px" }}>
+              <div>
+                <label
+                  style={{
+                    fontSize: "0.85em",
+                    display: "block",
+                    marginBottom: "4px",
+                    color: "var(--app-text-color-secondary)",
+                  }}
+                >
+                  Channel (1-16):
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  max="16"
+                  value={midiChannel}
+                  onChange={(e) => {
+                    setMidiChannel(Math.max(1, Math.min(16, parseInt(e.target.value) || 1)));
+                    setSuccess(false);
+                  }}
+                  style={{
+                    width: "100%",
+                    padding: "4px 8px",
+                    fontSize: "0.9em",
+                    backgroundColor: "var(--app-input-bg-color)",
+                    color: "var(--app-input-text-color)",
+                    border: "1px solid var(--app-border-color)",
+                    borderRadius: "4px",
+                  }}
+                />
+              </div>
+
+              <div>
+                <label
+                  style={{
+                    fontSize: "0.85em",
+                    display: "block",
+                    marginBottom: "4px",
+                    color: "var(--app-text-color-secondary)",
+                  }}
+                >
+                  Note (0-127):
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  max="127"
+                  value={midiNote}
+                  onChange={(e) => {
+                    setMidiNote(Math.max(0, Math.min(127, parseInt(e.target.value) || 60)));
+                    setSuccess(false);
+                  }}
+                  style={{
+                    width: "100%",
+                    padding: "4px 8px",
+                    fontSize: "0.9em",
+                    backgroundColor: "var(--app-input-bg-color)",
+                    color: "var(--app-input-text-color)",
+                    border: "1px solid var(--app-border-color)",
+                    borderRadius: "4px",
+                  }}
+                />
+              </div>
+
+              <div>
+                <label
+                  style={{
+                    fontSize: "0.85em",
+                    display: "block",
+                    marginBottom: "4px",
+                    color: "var(--app-text-color-secondary)",
+                  }}
+                >
+                  Velocity (0-127):
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  max="127"
+                  value={midiVelocity}
+                  onChange={(e) => {
+                    setMidiVelocity(Math.max(0, Math.min(127, parseInt(e.target.value) || 127)));
+                    setSuccess(false);
+                  }}
+                  style={{
+                    width: "100%",
+                    padding: "4px 8px",
+                    fontSize: "0.9em",
+                    backgroundColor: "var(--app-input-bg-color)",
+                    color: "var(--app-input-text-color)",
+                    border: "1px solid var(--app-border-color)",
+                    borderRadius: "4px",
+                  }}
+                />
+              </div>
+            </div>
+
+            <button
+              onClick={handleMidiNoteChange}
+              disabled={!selectedMidiDeviceId || isLoadingMidiDevices}
+              className="secondary"
+              style={{ width: "100%", marginTop: "8px" }}
+            >
+              <FaCheck />
+              Set MIDI Note
+            </button>
+
+            {savedAutomations.some((a) => a.type === "midi") && (
+              <button
+                onClick={handleRemoveMidiAutomation}
+                className="secondary"
+                style={{ width: "100%", marginTop: "8px", color: "#ef4444" }}
+              >
+                <FaTimes />
+                Remove MIDI Automation
               </button>
             )}
           </div>

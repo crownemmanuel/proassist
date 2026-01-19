@@ -517,6 +517,22 @@ const StageAssistPage: React.FC = () => {
                 automationResult.errors
               );
             }
+          } else if (automation.type === "midi") {
+            // MIDI automations - send MIDI note
+            try {
+              const { sendMidiNote } = await import("../services/midiService");
+              await sendMidiNote(
+                automation.deviceId,
+                automation.channel,
+                automation.note,
+                automation.velocity || 127
+              );
+              console.log(
+                `Session automation: Sent MIDI note ${automation.note} on channel ${automation.channel} to device ${automation.deviceId}`
+              );
+            } catch (err) {
+              console.error("Failed to send MIDI note:", err);
+            }
           } else {
             // Recording automations - dispatch events
             const eventMap: Record<string, string> = {

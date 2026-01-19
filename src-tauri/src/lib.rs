@@ -2595,6 +2595,105 @@ async fn update_sync_playlists(playlists: serde_json::Value) -> Result<(), Strin
     Ok(())
 }
 
+// ============================================================================
+// MIDI Support
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize)]
+pub struct MidiDevice {
+    pub id: String,
+    pub name: String,
+}
+
+#[tauri::command]
+fn list_midi_output_devices() -> Result<Vec<MidiDevice>, String> {
+    use midir::MidiOutput;
+    
+    let midi_out = MidiOutput::new("ProAssist MIDI Output")
+        .map_err(|e| format!("Failed to create MIDI output: {}", e))?;
+    
+    let ports = midi_out.ports();
+    let mut devices = Vec::new();
+    
+    for (i, port) in ports.iter().enumerate() {
+        if let Ok(name) = midi_out.port_name(port) {
+            devices.push(MidiDevice {
+                id: i.to_string(),
+                name,
+            });
+        }
+    }
+    
+    Ok(devices)
+}
+
+#[tauri::command]
+fn send_midi_note(
+    device_id: String,
+    channel: u8,
+    note: u8,
+    velocity: u8,
+) -> Result<(), String> {
+    use midir::MidiOutput;
+    
+    // Validate channel (0-15, but we'll use 1-16 for user input)
+    let channel = if channel == 0 || channel > 16 {
+        return Err("Channel must be between 1 and 16".to_string());
+    } else {
+        channel - 1 // Convert to 0-15 for MIDI
+    };
+    
+    // Validate note (0-127)
+    if note > 127 {
+        return Err("Note must be between 0 and 127".to_string());
+    }
+    
+    // Validate velocity (0-127)
+    if velocity > 127 {
+        return Err("Velocity must be between 0 and 127".to_string());
+    }
+    
+    let midi_out = MidiOutput::new("ProAssist MIDI Output")
+        .map_err(|e| format!("Failed to create MIDI output: {}", e))?;
+    
+    let ports = midi_out.ports();
+    let device_index: usize = device_id.parse()
+        .map_err(|_| format!("Invalid device ID: {}", device_id))?;
+    
+    if device_index >= ports.len() {
+        return Err(format!("Device ID {} out of range ({} devices available)", device_index, ports.len()));
+    }
+    
+    let port = &ports[device_index];
+    
+    // Create connection
+    let mut conn_out = midi_out.connect(port, "proassist-midi-out")
+        .map_err(|e| format!("Failed to connect to MIDI device: {}", e))?;
+    
+    // Send Note On message: 0x90 + channel (0-15), note (0-127), velocity (0-127)
+    let status = 0x90 | channel;
+    let message = [status, note, velocity];
+    
+    conn_out.send(&message)
+        .map_err(|e| format!("Failed to send MIDI message: {}", e))?;
+    
+    // Send Note Off message immediately (0x80 + channel, note, 0)
+    // This creates a short note trigger
+    let status_off = 0x80 | channel;
+    let message_off = [status_off, note, 0];
+    
+    // Small delay to ensure note is registered
+    std::thread::sleep(std::time::Duration::from_millis(10));
+    
+    conn_out.send(&message_off)
+        .map_err(|e| format!("Failed to send MIDI note off: {}", e))?;
+    
+    // Connection is dropped here, which closes it
+    drop(conn_out);
+    
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -2655,7 +2754,10 @@ pub fn run() {
             broadcast_sync_message,
             update_sync_playlists,
             // Live Slides generic broadcast
-            broadcast_live_slides_message
+            broadcast_live_slides_message,
+            // MIDI commands
+            list_midi_output_devices,
+            send_midi_note
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

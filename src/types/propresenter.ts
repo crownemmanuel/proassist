@@ -144,7 +144,16 @@ export type ScheduleItemAutomation =
   | { type: "startAudioRecording" }
   | { type: "stopAudioRecording" }
   | { type: "startBothRecording" }  // Start both video and audio
-  | { type: "stopBothRecording" };  // Stop both video and audio
+  | { type: "stopBothRecording" }  // Stop both video and audio
+  // MIDI automations
+  | {
+      type: "midi";
+      deviceId: string;
+      deviceName?: string;
+      channel: number; // 1-16
+      note: number; // 0-127
+      velocity?: number; // 0-127 (default: 127)
+    };
 
 // Smart automation rule - trigger based on session name matching
 export interface SmartAutomationRule {

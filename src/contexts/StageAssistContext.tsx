@@ -409,6 +409,20 @@ export const StageAssistProvider: React.FC<{ children: React.ReactNode }> = ({ c
             100
           );
           console.log(`[FollowMaster] Slide automation: ${result.success} success, ${result.failed} failed`);
+        } else if (automation.type === "midi") {
+          // MIDI automations
+          try {
+            const { sendMidiNote } = await import("../services/midiService");
+            await sendMidiNote(
+              automation.deviceId,
+              automation.channel,
+              automation.note,
+              automation.velocity || 127
+            );
+            console.log(`[FollowMaster] MIDI automation: Sent note ${automation.note} on channel ${automation.channel}`);
+          } catch (err) {
+            console.error(`[FollowMaster] MIDI automation error:`, err);
+          }
         } else {
           // Recording automations
           dispatchRecordingAutomation(automation.type);

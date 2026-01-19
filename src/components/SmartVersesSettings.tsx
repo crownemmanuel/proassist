@@ -43,6 +43,7 @@ import {
   fetchGeminiModels,
   fetchGroqModels,
 } from "../services/aiService";
+import { formatGroqModelLabel } from "../utils/groqModelLimits";
 import { useDebouncedEffect } from "../hooks/useDebouncedEffect";
 import "../App.css";
 
@@ -758,7 +759,7 @@ const SmartVersesSettings: React.FC = () => {
                   </option>
                   {bibleSearchModels.map((model) => (
                     <option key={model} value={model}>
-                      {model}
+                      {settings.bibleSearchProvider === "groq" ? formatGroqModelLabel(model) : model}
                     </option>
                   ))}
                 </select>

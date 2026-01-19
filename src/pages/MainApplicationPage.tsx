@@ -98,7 +98,8 @@ const MainApplicationPage: React.FC = () => {
   const [copyStatusMain, setCopyStatusMain] = useState<string>(""); // Added state for feedback
   const [proofreadCorrectedSlideIds, setProofreadCorrectedSlideIds] = useState<
     string[]
-  >([]); // Track slides corrected by AI proofreading
+  >([]);
+  const [windowWidth, setWindowWidth] = useState<number>(window.innerWidth); // Track slides corrected by AI proofreading
   const [typingUrlModal, setTypingUrlModal] = useState<{ url: string } | null>(
     null
   );
@@ -212,6 +213,18 @@ const MainApplicationPage: React.FC = () => {
       window.removeEventListener("templates-updated", handleTemplatesUpdated);
     };
   }, [reloadTemplates]);
+
+  // Track window width for responsive UI
+  useEffect(() => {
+    const handleResize = () => {
+      setWindowWidth(window.innerWidth);
+    };
+
+    window.addEventListener("resize", handleResize);
+    return () => {
+      window.removeEventListener("resize", handleResize);
+    };
+  }, []);
 
   // Listen for AI-created slides event (from Global AI Chat Assistant)
   useEffect(() => {
@@ -2340,9 +2353,14 @@ const MainApplicationPage: React.FC = () => {
               disabled={!currentPlaylist}
               className="secondary"
               title="Import from Live Slides session"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: windowWidth <= 1000 ? "0" : "6px",
+              }}
             >
               <FaDesktop />
-              Live Slides
+              {windowWidth > 1000 && <span>Live Slides</span>}
             </button>
             <button
               onClick={handleToggleTranscriptionPanel}
@@ -2351,11 +2369,11 @@ const MainApplicationPage: React.FC = () => {
               style={{
                 display: "flex",
                 alignItems: "center",
-                gap: "6px",
+                gap: windowWidth <= 1000 ? "0" : "6px",
               }}
             >
               <FaMicrophone />
-              Live Transcription
+              {windowWidth > 1000 && <span>Live Transcription</span>}
             </button>
             <button
               onClick={() => {

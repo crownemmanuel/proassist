@@ -48,3 +48,6 @@ lazy_static = "1.4"
 
 # HTTP client for AssemblyAI API
 reqwest = { version = "0.11", features = ["json"] }
+
+# MIDI support
+midir = "0.10"

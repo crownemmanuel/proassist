@@ -10,6 +10,7 @@ import VersionSettings from "../components/VersionSettings";
 import SmartVersesSettings from "../components/SmartVersesSettings";
 import RecorderSettings from "../components/RecorderSettings";
 import FeaturesSettings from "../components/FeaturesSettings";
+import MidiSettings from "../components/MidiSettings";
 import { FaList, FaRobot, FaStickyNote, FaNetworkWired, FaClock, FaInfoCircle, FaBible, FaGlobe, FaCircle, FaToggleOn } from "react-icons/fa";
 import "../App.css"; // Ensure global styles are applied
 import {
@@ -20,7 +21,7 @@ import {
 import TemplateListView from "../components/TemplateListView";
 import ConfirmDialog from "../components/ConfirmDialog";
 
-type SettingsView = "templates" | "aiConfiguration" | "liveTestimonies" | "liveSlides" | "smartVerses" | "recorder" | "network" | "proPresenter" | "features" | "version";
+type SettingsView = "templates" | "aiConfiguration" | "liveTestimonies" | "liveSlides" | "smartVerses" | "recorder" | "network" | "proPresenter" | "features" | "midi" | "version";
 
 const SettingsPage: React.FC = () => {
   const [templates, setTemplates] = useState<Template[]>(() => {
@@ -42,7 +43,7 @@ const SettingsPage: React.FC = () => {
   const [currentView, setCurrentView] = useState<SettingsView>(() => {
     try {
       const saved = localStorage.getItem("proassist-settings-current-view");
-      if (saved && ["templates", "aiConfiguration", "liveTestimonies", "liveSlides", "smartVerses", "recorder", "network", "proPresenter", "features", "version"].includes(saved)) {
+      if (saved && ["templates", "aiConfiguration", "liveTestimonies", "liveSlides", "smartVerses", "recorder", "network", "proPresenter", "features", "midi", "version"].includes(saved)) {
         return saved as SettingsView;
       }
     } catch {
@@ -372,6 +373,7 @@ const SettingsPage: React.FC = () => {
         {currentView === "network" && <NetworkSettings />}
         {currentView === "proPresenter" && <ProPresenterSettings />}
         {currentView === "features" && <FeaturesSettings />}
+        {currentView === "midi" && <MidiSettings />}
         {currentView === "version" && <VersionSettings />}
       </div>
       {deletingTemplateId && (

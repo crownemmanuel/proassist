@@ -2,6 +2,20 @@
 
 All notable changes to ProAssist will be documented in this file.
 
+## [0.6.6] - 2026-01-20
+
+### Added
+- **Groq Model Token Limits Display**: Added token limits (TPD and RPD) to all Groq model selector labels
+  - Model dropdowns now show "Free tokens per day" and "Free requests per day" for each Groq model
+  - Helps users understand rate limits when selecting models
+  - Updated tip text to explain RPD (free request per day) and TPD (free token per day)
+
+### Changed
+- **Minimum App Width**: Increased minimum window width from 800px to 1000px for better UI layout
+- **Responsive Button Labels**: "Live Slides" and "Live Transcription" buttons now hide text labels when window width is 1000px or less
+  - Shows only icons on smaller widths to prevent UI from looking cramped
+  - Full labels displayed when window is wider than 1000px
+
 ## [0.6.5] - 2026-01-19
 
 ### Fixed

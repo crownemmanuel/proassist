@@ -2,6 +2,7 @@ import React, { useEffect, useCallback, useRef, useState } from "react";
 import { AppSettings, AIProvider, AIProviderType, AIModelSetting } from "../types";
 import { getAppSettings, saveAppSettings } from "../utils/aiConfig";
 import { fetchOpenAIModels, fetchGeminiModels, fetchGroqModels } from "../services/aiService";
+import { formatGroqModelLabel } from "../utils/groqModelLimits";
 import { FaSpinner, FaChevronDown, FaChevronUp, FaPlus, FaTrash, FaMagic, FaDownload } from "react-icons/fa";
 import {
   ProPresenterAITemplate,
@@ -637,7 +638,7 @@ const AISettingsForm: React.FC<AISettingsFormProps> = () => {
                   )}
                   {spellCheckModels.map((model) => (
                     <option key={model} value={model}>
-                      {model}
+                      {spellCheckProvider === "groq" ? formatGroqModelLabel(model) : model}
                     </option>
                   ))}
                 </select>
@@ -727,7 +728,7 @@ const AISettingsForm: React.FC<AISettingsFormProps> = () => {
                   )}
                   {timerAssistantModels.map((model) => (
                     <option key={model} value={model}>
-                      {model}
+                      {timerAssistantProvider === "groq" ? formatGroqModelLabel(model) : model}
                     </option>
                   ))}
                 </select>
@@ -758,7 +759,7 @@ const AISettingsForm: React.FC<AISettingsFormProps> = () => {
           >
             💡 <strong>Tip:</strong>{" "}
             {timerAssistantProvider === "groq" ? (
-              <>For image/schedule parsing, use vision models like <strong>Llama 4 Scout</strong> or <strong>Llama 4 Maverick</strong>.</>
+              <>For image/schedule parsing, use vision models like <strong>Llama 4 Scout</strong> or <strong>Llama 4 Maverick</strong>. RPD (free request per day) (TPD free token per day)</>
             ) : timerAssistantProvider === "gemini" ? (
               <>For image/schedule parsing, use vision models like <strong>Gemini 1.5 Flash</strong>, <strong>Gemini 1.5 Pro</strong>, or <strong>Gemini 2.0 Flash</strong>.</>
             ) : timerAssistantProvider === "openai" ? (
@@ -838,7 +839,7 @@ const AISettingsForm: React.FC<AISettingsFormProps> = () => {
                   )}
                   {globalAssistantModels.map((model) => (
                     <option key={model} value={model}>
-                      {model}
+                      {globalAssistantProvider === "groq" ? formatGroqModelLabel(model) : model}
                     </option>
                   ))}
                 </select>
