@@ -2,6 +2,17 @@
 
 All notable changes to ProAssist will be documented in this file.
 
+## [0.6.4] - 2026-01-19
+
+### Added
+- **Crash-Safe Streaming Recording**: Production-grade video and audio recording with real-time disk streaming
+  - Video chunks streamed directly to disk (no memory accumulation)
+  - MP3 audio streams to temp WebM file, converts after recording
+  - WAV audio flushes to disk every second
+  - Record for 10+ hours without memory issues
+  - All recordings preserved even if app crashes or power is lost
+  - Recovery documentation and FFmpeg commands in Help section
+
 ## [0.6.3] - 2026-01-18
 
 ### Fixed
