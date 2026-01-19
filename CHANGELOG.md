@@ -2,6 +2,25 @@
 
 All notable changes to ProAssist will be documented in this file.
 
+## [0.6.5] - 2026-01-19
+
+### Fixed
+- **Audio Recording Race Condition**: Fixed critical bug where audio files were not being saved to disk
+  - Fixed race condition between chunk writes and file finalization in streaming audio recording
+  - Added promise tracking to ensure all chunks are written before closing file
+  - Audio recordings now properly save to disk in the correct location
+- **MP3 Encoding Error**: Fixed "MPEGMode is not defined" error during MP3 conversion
+  - Replaced `lamejs` with `@breezystack/lamejs` for ES module bundler compatibility
+  - MP3 conversion now works correctly after recording stops
+- **Recording UX**: Fixed two-click issue when starting new recording after previous recording
+  - Record button now starts recording immediately (no second click needed)
+  - Automatically cleans up previous recording state when starting new recording
+  - Removed redundant "New Recording" button
+
+### Changed
+- **Audio Recording Logging**: Added comprehensive logging for debugging audio recording issues
+- **Vite Configuration**: Updated build config for better CommonJS module handling
+
 ## [0.6.4] - 2026-01-19
 
 ### Added
