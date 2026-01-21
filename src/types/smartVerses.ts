@@ -8,7 +8,7 @@
 // TRANSCRIPTION TYPES
 // =============================================================================
 
-export type TranscriptionEngine = 'assemblyai' | 'elevenlabs' | 'whisper';
+export type TranscriptionEngine = 'assemblyai' | 'elevenlabs' | 'whisper' | 'groq';
 
 export type AudioCaptureMode = 'webrtc' | 'native';
 
@@ -144,6 +144,8 @@ export interface SmartVersesSettings {
   // Transcription settings
   transcriptionEngine: TranscriptionEngine;
   assemblyAIApiKey?: string;
+  groqApiKey?: string;
+  groqModel?: string;
   selectedMicrophoneId?: string;
   audioCaptureMode?: AudioCaptureMode;
   selectedNativeMicrophoneId?: string;

@@ -36,6 +36,8 @@ import {
 import {
   AssemblyAITranscriptionService,
   loadSmartVersesSettings,
+  createTranscriptionService,
+  ITranscriptionService,
 } from "../services/transcriptionService";
 import {
   analyzeTranscriptChunk,
@@ -111,7 +113,7 @@ const SmartVersesPage: React.FC = () => {
   const [transcriptHistory, setTranscriptHistory] = useState<TranscriptionSegment[]>([]);
   const [detectedReferences, setDetectedReferences] = useState<DetectedBibleReference[]>([]);
   const [transcriptKeyPoints, setTranscriptKeyPoints] = useState<Record<string, KeyPoint[]>>({});
-  const transcriptionServiceRef = useRef<AssemblyAITranscriptionService | null>(null);
+  const transcriptionServiceRef = useRef<ITranscriptionService | null>(null);
   const detectedReferencesRef = useRef<DetectedBibleReference[]>([]);
   
   // Browser transcription WebSocket
@@ -1183,8 +1185,14 @@ const SmartVersesPage: React.FC = () => {
   }, []);
 
   const handleStartTranscription = useCallback(async () => {
-    if (!settings.assemblyAIApiKey) {
+    // Validate API keys based on selected engine
+    if (settings.transcriptionEngine === "assemblyai" && !settings.assemblyAIApiKey) {
       alert("Please configure your AssemblyAI API key in Settings > SmartVerses");
+      return;
+    }
+
+    if (settings.transcriptionEngine === "groq" && !settings.groqApiKey) {
+      alert("Please configure your Groq API key in Settings > SmartVerses");
       return;
     }
 
@@ -1211,8 +1219,8 @@ const SmartVersesPage: React.FC = () => {
     setTranscriptionStatus("connecting");
 
     try {
-      const service = new AssemblyAITranscriptionService(
-        settings.assemblyAIApiKey,
+      const service = createTranscriptionService(
+        settings,
         {
           onInterimTranscript: (text) => {
             setInterimTranscript(text);

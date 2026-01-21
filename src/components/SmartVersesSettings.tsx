@@ -69,6 +69,7 @@ const SmartVersesSettings: React.FC = () => {
   const [bibleSearchModelsLoading, setBibleSearchModelsLoading] =
     useState(false);
 
+
   // ProPresenter activation state
   const [enabledConnections, setEnabledConnections] = useState<
     ProPresenterConnection[]
@@ -169,6 +170,7 @@ const SmartVersesSettings: React.FC = () => {
     ],
     { delayMs: 600, enabled: settingsLoaded, skipFirstRun: true }
   );
+
 
   // Load models when provider changes
   const loadBibleSearchModels = useCallback(async (provider: string) => {
@@ -449,49 +451,101 @@ const SmartVersesSettings: React.FC = () => {
             style={inputStyle}
           >
             <option value="assemblyai">AssemblyAI (Recommended)</option>
+            <option value="groq">Groq Whisper (Fastest)</option>
             <option value="elevenlabs" disabled>
               ElevenLabs (Coming Soon)
             </option>
             <option value="whisper" disabled>
-              Whisper (Coming Soon)
+              OpenAI Whisper (Coming Soon)
             </option>
           </select>
           <p style={helpTextStyle}>
-            AssemblyAI provides high-accuracy real-time transcription.
+            {settings.transcriptionEngine === "assemblyai"
+              ? "AssemblyAI provides high-accuracy real-time transcription."
+              : "Groq provides ultra-fast transcription using Whisper models."}
           </p>
         </div>
 
-        <div style={fieldStyle}>
-          <label style={labelStyle}>AssemblyAI API Key</label>
-          <div style={{ display: "flex", gap: "var(--spacing-2)" }}>
-            <input
-              type="password"
-              value={settings.assemblyAIApiKey || ""}
-              onChange={(e) => handleChange("assemblyAIApiKey", e.target.value)}
-              placeholder="Enter your AssemblyAI API key"
-              style={{ ...inputStyle, flex: 1 }}
-            />
-            <button
-              onClick={testAssemblyAIKey}
-              className="secondary"
-              style={{ whiteSpace: "nowrap" }}
-            >
-              <FaKey style={{ marginRight: "4px" }} />
-              Test
-            </button>
+        {settings.transcriptionEngine === "assemblyai" && (
+          <div style={fieldStyle}>
+            <label style={labelStyle}>AssemblyAI API Key</label>
+            <div style={{ display: "flex", gap: "var(--spacing-2)" }}>
+              <input
+                type="password"
+                value={settings.assemblyAIApiKey || ""}
+                onChange={(e) =>
+                  handleChange("assemblyAIApiKey", e.target.value)
+                }
+                placeholder="Enter your AssemblyAI API key"
+                style={{ ...inputStyle, flex: 1 }}
+              />
+              <button
+                onClick={testAssemblyAIKey}
+                className="secondary"
+                style={{ whiteSpace: "nowrap" }}
+              >
+                <FaKey style={{ marginRight: "4px" }} />
+                Test
+              </button>
+            </div>
+            <p style={helpTextStyle}>
+              Get your API key from{" "}
+              <a
+                href="https://www.assemblyai.com/dashboard"
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ color: "var(--app-primary-color)" }}
+              >
+                assemblyai.com/dashboard
+              </a>
+            </p>
           </div>
-          <p style={helpTextStyle}>
-            Get your API key from{" "}
-            <a
-              href="https://www.assemblyai.com/dashboard"
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{ color: "var(--app-primary-color)" }}
-            >
-              assemblyai.com/dashboard
-            </a>
-          </p>
-        </div>
+        )}
+
+        {settings.transcriptionEngine === "groq" && (
+          <>
+            <div style={fieldStyle}>
+              <label style={labelStyle}>Groq API Key</label>
+              <input
+                type="password"
+                value={settings.groqApiKey || ""}
+                onChange={(e) => handleChange("groqApiKey", e.target.value)}
+                placeholder="Enter your Groq API key"
+                style={inputStyle}
+              />
+              <p style={helpTextStyle}>
+                Get your API key from{" "}
+                <a
+                  href="https://console.groq.com/keys"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ color: "var(--app-primary-color)" }}
+                >
+                  console.groq.com
+                </a>
+              </p>
+            </div>
+
+            <div style={fieldStyle}>
+              <label style={labelStyle}>Groq Model</label>
+              <select
+                value={settings.groqModel || "whisper-large-v3"}
+                onChange={(e) => handleChange("groqModel", e.target.value)}
+                style={inputStyle}
+              >
+                <option value="whisper-large-v3">
+                  whisper-large-v3 (Best Accuracy)
+                </option>
+                <option value="whisper-large-v3-turbo">
+                  whisper-large-v3-turbo (Fastest)
+                </option>
+                <option value="distil-whisper-large-v3-en">
+                  distil-whisper-large-v3-en (English Only)
+                </option>
+              </select>
+            </div>
+          </>
+        )}
 
         <div style={fieldStyle}>
           <label style={labelStyle}>Audio Capture</label>
