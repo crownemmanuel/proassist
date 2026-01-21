@@ -2119,7 +2119,7 @@ fn delete_file(file_path: String) -> Result<(), String> {
 }
 
 // ============================================================================
-// AssemblyAI Token Generation (Tauri Backend)
+// AssemblyAI Token Generation (Tauri Backend) - Universal Streaming v3
 // ============================================================================
 
 #[derive(Debug, Deserialize)]
@@ -2127,19 +2127,28 @@ struct AssemblyAiTokenResponse {
     token: String,
 }
 
+/// Generate a temporary token for AssemblyAI Universal Streaming (v3).
+/// 
+/// The v3 API uses GET https://streaming.assemblyai.com/v3/token with query params.
+/// Maximum expires_in_seconds is 600 (10 minutes).
 #[tauri::command]
-async fn assemblyai_create_realtime_token(
+async fn assemblyai_create_streaming_token(
     api_key: String,
-    expires_in: Option<u64>,
+    expires_in_seconds: Option<u64>,
 ) -> Result<String, String> {
-    let expires_in = expires_in.unwrap_or(3600);
+    // v3 API limits expires_in_seconds to max 600 seconds (10 minutes)
+    let expires_in = expires_in_seconds.unwrap_or(600).min(600);
 
     let client = reqwest::Client::new();
+    // v3 uses GET with query parameters instead of POST with JSON body
+    let url = format!(
+        "https://streaming.assemblyai.com/v3/token?expires_in_seconds={}",
+        expires_in
+    );
+
     let resp = client
-        .post("https://api.assemblyai.com/v2/realtime/token")
+        .get(&url)
         .header("Authorization", api_key)
-        .header("Content-Type", "application/json")
-        .json(&serde_json::json!({ "expires_in": expires_in }))
         .send()
         .await
         .map_err(|e| format!("assemblyai_token_request_failed:{}", e))?;
@@ -2162,6 +2171,15 @@ async fn assemblyai_create_realtime_token(
         .map_err(|e| format!("assemblyai_token_parse_failed:{}:{}", e, body))?;
 
     Ok(parsed.token)
+}
+
+// Keep old function name as alias for backward compatibility during transition
+#[tauri::command]
+async fn assemblyai_create_realtime_token(
+    api_key: String,
+    expires_in: Option<u64>,
+) -> Result<String, String> {
+    assemblyai_create_streaming_token(api_key, expires_in).await
 }
 
 #[tauri::command]
@@ -2734,7 +2752,9 @@ pub fn run() {
             // File utilities for audio conversion
             read_file_as_base64,
             delete_file,
-            assemblyai_create_realtime_token,
+            // AssemblyAI Universal Streaming v3 token
+            assemblyai_create_streaming_token,
+            assemblyai_create_realtime_token, // backward compat alias
             write_text_to_file,
             write_binary_to_file,
             ensure_output_folder,
