@@ -215,6 +215,20 @@ const SmartVersesSettings: React.FC = () => {
     }
   }, [settings.bibleSearchProvider, loadBibleSearchModels]);
 
+  const formatBibleSearchModelLabel = useCallback(
+    (modelId: string) => {
+      if (settings.bibleSearchProvider !== "groq") {
+        return modelId;
+      }
+      const baseLabel = formatGroqModelLabel(modelId);
+      if (modelId === "llama-3.1-8b-instant") {
+        return `${baseLabel} - Recommended`;
+      }
+      return baseLabel;
+    },
+    [settings.bibleSearchProvider]
+  );
+
   // Load available microphones
   const loadMicrophones = async () => {
     try {
@@ -759,7 +773,7 @@ const SmartVersesSettings: React.FC = () => {
                   </option>
                   {bibleSearchModels.map((model) => (
                     <option key={model} value={model}>
-                      {settings.bibleSearchProvider === "groq" ? formatGroqModelLabel(model) : model}
+                      {formatBibleSearchModelLabel(model)}
                     </option>
                   ))}
                 </select>
