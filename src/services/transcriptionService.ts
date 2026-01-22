@@ -211,8 +211,8 @@ export class AssemblyAITranscriptionService implements ITranscriptionService {
    * Clean up existing connections and recorder
    */
   private async cleanup(): Promise<void> {
-    // Stop native capture if active
-    await this.stopNativeAudioCapture();
+    // Clean up all audio resources (native and WebRTC)
+    await this.cleanupAudioResources();
 
     // Clean up existing WebSocket
     if (this.websocket) {
@@ -223,33 +223,6 @@ export class AssemblyAITranscriptionService implements ITranscriptionService {
         console.error("Error closing existing WebSocket:", error);
       }
       this.websocket = null;
-    }
-
-    // Clean up Web Audio processing
-    if (this.scriptProcessor) {
-      this.scriptProcessor.disconnect();
-      this.scriptProcessor = null;
-    }
-
-    if (this.mediaStreamSource) {
-      this.mediaStreamSource.disconnect();
-      this.mediaStreamSource = null;
-    }
-
-    if (this.audioContext) {
-      try {
-        await this.audioContext.close();
-      } catch {
-        // ignore
-      }
-      this.audioContext = null;
-    }
-
-    if (this.mediaStream) {
-      this.mediaStream
-        .getTracks()
-        .forEach((track: MediaStreamTrack) => track.stop());
-      this.mediaStream = null;
     }
   }
 
@@ -269,6 +242,44 @@ export class AssemblyAITranscriptionService implements ITranscriptionService {
       // ignore
     }
     this.nativeUnlisten = null;
+  }
+
+  /**
+   * Clean up all audio resources (both native and WebRTC)
+   * This should be called whenever the connection closes unexpectedly
+   * to prevent resource leaks (microphone stays active, AudioContext keeps running, etc.)
+   */
+  private async cleanupAudioResources(): Promise<void> {
+    // Stop native audio capture (if used)
+    await this.stopNativeAudioCapture();
+
+    // Stop Web Audio processing (WebRTC mode)
+    if (this.scriptProcessor) {
+      this.scriptProcessor.disconnect();
+      this.scriptProcessor = null;
+    }
+
+    if (this.mediaStreamSource) {
+      this.mediaStreamSource.disconnect();
+      this.mediaStreamSource = null;
+    }
+
+    if (this.audioContext) {
+      try {
+        await this.audioContext.close();
+      } catch {
+        // ignore
+      }
+      this.audioContext = null;
+    }
+
+    // Stop all media stream tracks (releases microphone)
+    if (this.mediaStream) {
+      this.mediaStream.getTracks().forEach((track: MediaStreamTrack) => {
+        track.stop();
+      });
+      this.mediaStream = null;
+    }
   }
 
   /**
@@ -355,6 +366,11 @@ export class AssemblyAITranscriptionService implements ITranscriptionService {
       case "Error":
         console.error("❌ AssemblyAI error:", data.error);
         this.callbacks.onError?.(new Error(data.error || "AssemblyAI error"));
+        // Stop transcription on server errors (authentication failure, rate limit, etc.)
+        // to clean up resources and release the microphone
+        this.stopTranscription().catch((err) => {
+          console.error("Error stopping transcription after server error:", err);
+        });
         break;
 
       default:
@@ -365,6 +381,9 @@ export class AssemblyAITranscriptionService implements ITranscriptionService {
 
   /**
    * Start live transcription using v3 Universal Streaming
+   * 
+   * Returns a Promise that resolves when the WebSocket is connected and audio capture has started.
+   * Rejects if connection fails or audio capture cannot be started.
    */
   async startTranscription(): Promise<void> {
     if (this._isRecording) {
@@ -378,74 +397,112 @@ export class AssemblyAITranscriptionService implements ITranscriptionService {
 
     this.callbacks.onStatusChange?.("connecting");
 
-    try {
-      // Clean up any existing connections
-      await this.cleanup();
+    // Create a Promise that resolves when connection is established and audio capture starts
+    return new Promise<void>(async (resolve, reject) => {
+      try {
+        // Clean up any existing connections
+        await this.cleanup();
 
-      console.log("🎬 Connecting to AssemblyAI Universal Streaming (v3)...");
+        console.log("🎬 Connecting to AssemblyAI Universal Streaming (v3)...");
 
-      // Get temporary token
-      const token = await this.getTemporaryToken();
+        // Get temporary token
+        const token = await this.getTemporaryToken();
 
-      // Build v3 WebSocket URL with query parameters
-      const wsUrl = new URL(AssemblyAITranscriptionService.V3_STREAMING_ENDPOINT);
-      wsUrl.searchParams.set("sample_rate", "16000");
-      wsUrl.searchParams.set("token", token);
-      // format_turns=true gives us formatted text (punctuation, casing) on end_of_turn
-      wsUrl.searchParams.set("format_turns", this.formatTurns ? "true" : "false");
-      wsUrl.searchParams.set("encoding", "pcm_s16le");
+        // Build v3 WebSocket URL with query parameters
+        const wsUrl = new URL(AssemblyAITranscriptionService.V3_STREAMING_ENDPOINT);
+        wsUrl.searchParams.set("sample_rate", "16000");
+        wsUrl.searchParams.set("token", token);
+        // format_turns=true gives us formatted text (punctuation, casing) on end_of_turn
+        wsUrl.searchParams.set("format_turns", this.formatTurns ? "true" : "false");
+        wsUrl.searchParams.set("encoding", "pcm_s16le");
 
-      // Create WebSocket connection
-      this.websocket = new WebSocket(wsUrl.toString());
+        // Create WebSocket connection
+        this.websocket = new WebSocket(wsUrl.toString());
 
-      // Handle WebSocket events
-      this.websocket.onopen = async () => {
-        console.log("✅ WebSocket connected to v3 endpoint");
+        // Track if we've resolved/rejected to prevent multiple calls
+        let isResolved = false;
 
-        // Start audio capture after connection is established
-        try {
-          await this.startAudioCapture();
-          this._isRecording = true;
-          this.callbacks.onStatusChange?.("recording");
-          console.log("✅ AssemblyAI v3 transcription started successfully");
-        } catch (error) {
-          console.error("Failed to start audio capture:", error);
+        // Handle WebSocket events
+        this.websocket.onopen = async () => {
+          console.log("✅ WebSocket connected to v3 endpoint");
+
+          // Start audio capture after connection is established
+          try {
+            await this.startAudioCapture();
+            this._isRecording = true;
+            this.callbacks.onStatusChange?.("recording");
+            console.log("✅ AssemblyAI v3 transcription started successfully");
+            
+            // Resolve the Promise now that everything is ready
+            if (!isResolved) {
+              isResolved = true;
+              resolve();
+            }
+          } catch (error) {
+            console.error("Failed to start audio capture:", error);
+            this._isRecording = false;
+            this.callbacks.onStatusChange?.("error");
+            this.callbacks.onError?.(error as Error);
+            await this.cleanup();
+            
+            // Reject the Promise if audio capture fails
+            if (!isResolved) {
+              isResolved = true;
+              reject(error);
+            }
+          }
+        };
+
+        this.websocket.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            this.handleV3Message(data);
+          } catch (error) {
+            console.error("Error parsing WebSocket message:", error);
+          }
+        };
+
+        this.websocket.onerror = (event) => {
+          console.error("❌ WebSocket error:", event);
+          const error = new Error("WebSocket connection error");
+          this.callbacks.onError?.(error);
+          
+          // Reject the Promise if connection fails
+          if (!isResolved) {
+            isResolved = true;
+            reject(error);
+          }
+        };
+
+        this.websocket.onclose = (event) => {
+          console.log(`🔌 WebSocket closed: ${event.code} ${event.reason}`);
           this._isRecording = false;
-          this.callbacks.onStatusChange?.("error");
-          this.callbacks.onError?.(error as Error);
-          await this.cleanup();
-        }
-      };
-
-      this.websocket.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          this.handleV3Message(data);
-        } catch (error) {
-          console.error("Error parsing WebSocket message:", error);
-        }
-      };
-
-      this.websocket.onerror = (event) => {
-        console.error("❌ WebSocket error:", event);
-        this.callbacks.onError?.(new Error("WebSocket connection error"));
-      };
-
-      this.websocket.onclose = (event) => {
-        console.log(`🔌 WebSocket closed: ${event.code} ${event.reason}`);
+          
+          // Clean up all audio resources to prevent leaks when connection drops unexpectedly
+          // This ensures microphone is released, AudioContext is closed, and ScriptProcessor stops
+          this.cleanupAudioResources().catch((err) => {
+            console.error("Error cleaning up audio resources on WebSocket close:", err);
+          });
+          
+          this.callbacks.onConnectionClose?.(event.code, event.reason);
+          this.callbacks.onStatusChange?.("idle");
+          
+          // Reject if closed before connection was established and audio capture started
+          // (i.e., before the Promise was resolved)
+          if (!isResolved) {
+            isResolved = true;
+            reject(new Error(`WebSocket closed before connection established: ${event.code} ${event.reason || ""}`));
+          }
+        };
+      } catch (error) {
+        console.error("Failed to start transcription:", error);
         this._isRecording = false;
-        this.stopNativeAudioCapture().catch(() => {});
-        this.callbacks.onConnectionClose?.(event.code, event.reason);
-        this.callbacks.onStatusChange?.("idle");
-      };
-    } catch (error) {
-      console.error("Failed to start transcription:", error);
-      this._isRecording = false;
-      this.callbacks.onStatusChange?.("error");
-      this.callbacks.onError?.(error as Error);
-      await this.cleanup();
-      throw error;
-    }
+        this.callbacks.onStatusChange?.("error");
+        this.callbacks.onError?.(error as Error);
+        await this.cleanup();
+        reject(error);
+      }
+    });
   }
 
   /**
@@ -543,37 +600,8 @@ export class AssemblyAITranscriptionService implements ITranscriptionService {
     console.log("🛑 Stopping transcription...");
     this._isRecording = false;
 
-    // Stop native audio capture (if used)
-    await this.stopNativeAudioCapture();
-
-    // Stop Web Audio processing
-    if (this.scriptProcessor) {
-      this.scriptProcessor.disconnect();
-      this.scriptProcessor = null;
-    }
-
-    if (this.mediaStreamSource) {
-      this.mediaStreamSource.disconnect();
-      this.mediaStreamSource = null;
-    }
-
-    if (this.audioContext) {
-      try {
-        await this.audioContext.close();
-      } catch {
-        // ignore
-      }
-      this.audioContext = null;
-    }
-
-    // Stop all media stream tracks
-    if (this.mediaStream) {
-      this.mediaStream.getTracks().forEach((track: MediaStreamTrack) => {
-        console.log("🛑 Stopping track:", track.kind);
-        track.stop();
-      });
-      this.mediaStream = null;
-    }
+    // Clean up all audio resources (native and WebRTC)
+    await this.cleanupAudioResources();
 
     // Close WebSocket connection
     if (this.websocket) {
