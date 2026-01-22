@@ -866,14 +866,19 @@ export class OfflineWhisperTranscriptionService implements ITranscriptionService
   private mediaStream: MediaStream | null = null;
   private mediaRecorder: MediaRecorder | null = null;
   private audioContext: AudioContext | null = null;
-  private chunks: Blob[] = [];
   private selectedMicId: string = "";
   private audioCaptureMode: "webrtc" | "native" = "webrtc";
   private selectedNativeDeviceId: string | null = null;
   private nativeUnlisten: null | (() => void) = null;
   private nativeBuffer: Float32Array = new Float32Array(0);
-  private processingInterval: NodeJS.Timeout | null = null;
-  private readonly CHUNK_DURATION_MS = 3000; // 3 seconds chunks
+  private rollingAudioBuffer: Float32Array = new Float32Array(0);
+  private hasPendingAudio: boolean = false;
+  private isProcessing: boolean = false;
+  private decodeQueue: Promise<void> = Promise.resolve();
+  private recorderRequestTimeout: ReturnType<typeof setTimeout> | null = null;
+  private accumulatedInterimText: string = ""; // Track accumulated interim text for current session
+  private lastProcessedBufferLength: number = 0; // Track how much audio was in the buffer when we last processed it
+  private readonly CONTEXT_OVERLAP_SAMPLES = WHISPER_SAMPLING_RATE * 3; // Keep last 3 seconds (in samples) for context
 
   constructor(
     modelId: string,
@@ -966,21 +971,37 @@ export class OfflineWhisperTranscriptionService implements ITranscriptionService
           this.isModelReady = true;
           if (this._isRecording) {
             this.callbacks.onStatusChange?.("recording");
+            if (this.audioCaptureMode === "webrtc") {
+              this.requestRecorderData(0);
+              this.maybeProcessWebRTCAudio();
+            } else {
+              this.maybeProcessNativeAudio();
+            }
           }
           break;
 
         case "start":
           console.log("🎙️ Whisper processing...");
+          this.isProcessing = true;
+          // Reset accumulated text for new transcription chunk
+          this.accumulatedInterimText = "";
+          if (this.audioCaptureMode === "webrtc") {
+            this.requestRecorderData(0);
+          }
           break;
 
         case "update":
-          // Streaming update
+          // Streaming update - output now contains only the new chunk
           if (output) {
-            this.callbacks.onInterimTranscript?.(output);
+            // Accumulate the new chunk
+            this.accumulatedInterimText += (this.accumulatedInterimText ? " " : "") + output;
+            // Send the full accumulated text to maintain compatibility
+            this.callbacks.onInterimTranscript?.(this.accumulatedInterimText);
           }
           break;
 
         case "complete":
+          this.isProcessing = false;
           if (text) {
             console.log("📝 Whisper transcript:", text);
             const segment: TranscriptionSegment = {
@@ -989,12 +1010,24 @@ export class OfflineWhisperTranscriptionService implements ITranscriptionService
               timestamp: Date.now(),
               isFinal: true,
             };
+            // Clear accumulated interim text when final transcript arrives
+            this.accumulatedInterimText = "";
             this.callbacks.onFinalTranscript?.(text, segment);
+            
+            // Clear processed audio from buffer, keeping only context overlap
+            // This prevents re-transcribing the same audio in the next segment
+            this.clearProcessedAudio();
+          }
+          if (this.audioCaptureMode === "webrtc") {
+            this.maybeProcessWebRTCAudio();
+          } else {
+            this.maybeProcessNativeAudio();
           }
           break;
 
         case "error":
           console.error("❌ Whisper error:", message);
+          this.isProcessing = false;
           this.callbacks.onError?.(new Error(message));
           break;
       }
@@ -1009,9 +1042,9 @@ export class OfflineWhisperTranscriptionService implements ITranscriptionService
   private async cleanup(): Promise<void> {
     await this.stopNativeAudioCapture();
 
-    if (this.processingInterval) {
-      clearInterval(this.processingInterval);
-      this.processingInterval = null;
+    if (this.recorderRequestTimeout) {
+      clearTimeout(this.recorderRequestTimeout);
+      this.recorderRequestTimeout = null;
     }
 
     if (this.mediaRecorder) {
@@ -1031,8 +1064,13 @@ export class OfflineWhisperTranscriptionService implements ITranscriptionService
       this.audioContext = null;
     }
 
-    this.chunks = [];
     this.nativeBuffer = new Float32Array(0);
+    this.rollingAudioBuffer = new Float32Array(0);
+    this.hasPendingAudio = false;
+    this.isProcessing = false;
+    this.decodeQueue = Promise.resolve();
+    this.accumulatedInterimText = "";
+    this.lastProcessedBufferLength = 0;
   }
 
   private async stopNativeAudioCapture(): Promise<void> {
@@ -1095,51 +1133,104 @@ export class OfflineWhisperTranscriptionService implements ITranscriptionService
     });
 
     this.mediaRecorder = new MediaRecorder(this.mediaStream);
-    this.chunks = [];
 
     this.mediaRecorder.ondataavailable = (e) => {
       if (e.data.size > 0) {
-        this.chunks.push(e.data);
+        this.enqueueWebRTCAudioChunk(e.data);
+      } else {
+        this.requestRecorderData(25);
       }
     };
 
     this.mediaRecorder.start();
-
-    // Process audio chunks periodically
-    this.processingInterval = setInterval(() => {
-      this.processWebRTCAudio();
-    }, this.CHUNK_DURATION_MS);
+    this.requestRecorderData(0);
   }
 
-  private async processWebRTCAudio(): Promise<void> {
-    if (!this._isRecording || !this.isModelReady || !this.mediaRecorder) return;
-    if (this.chunks.length === 0) return;
-
-    // Request data from recorder
-    this.mediaRecorder.requestData();
-
-    // Process accumulated chunks
-    const blob = new Blob(this.chunks, { type: this.mediaRecorder.mimeType });
-    this.chunks = [];
-
-    try {
-      const arrayBuffer = await blob.arrayBuffer();
-      const decoded = await this.audioContext!.decodeAudioData(arrayBuffer);
-      let audio = decoded.getChannelData(0);
-
-      // Limit to max samples
-      if (audio.length > MAX_SAMPLES) {
-        audio = audio.slice(-MAX_SAMPLES);
+  private requestRecorderData(delayMs: number): void {
+    if (!this.mediaRecorder || this.mediaRecorder.state !== "recording") return;
+    if (this.recorderRequestTimeout) return;
+    this.recorderRequestTimeout = setTimeout(() => {
+      this.recorderRequestTimeout = null;
+      try {
+        this.mediaRecorder?.requestData();
+      } catch {
+        // Ignore transient request errors when recorder stops.
       }
+    }, delayMs);
+  }
 
-      // Send to worker for transcription
-      this.worker?.postMessage({
-        type: "transcribe",
-        data: { audio, language: this.language },
-      });
-    } catch (error) {
-      console.error("Error processing audio:", error);
+  private enqueueWebRTCAudioChunk(blob: Blob): void {
+    this.decodeQueue = this.decodeQueue.then(async () => {
+      if (!this.audioContext || !this._isRecording) return;
+      try {
+        const arrayBuffer = await blob.arrayBuffer();
+        const decoded = await this.audioContext.decodeAudioData(arrayBuffer);
+        this.appendToRollingBuffer(decoded.getChannelData(0));
+        this.hasPendingAudio = true;
+        this.maybeProcessWebRTCAudio();
+      } catch (error) {
+        console.error("Error decoding Whisper audio chunk:", error);
+      }
+    });
+  }
+
+  private appendToRollingBuffer(samples: Float32Array): void {
+    if (samples.length === 0) return;
+    const combined = new Float32Array(this.rollingAudioBuffer.length + samples.length);
+    combined.set(this.rollingAudioBuffer);
+    combined.set(samples, this.rollingAudioBuffer.length);
+    this.rollingAudioBuffer =
+      combined.length > MAX_SAMPLES ? combined.slice(-MAX_SAMPLES) : combined;
+  }
+
+  /**
+   * Clear processed audio from the buffer, keeping only a small context overlap.
+   * This prevents re-transcribing the same audio in subsequent segments.
+   */
+  private clearProcessedAudio(): void {
+    if (this.rollingAudioBuffer.length === 0) return;
+    
+    // Calculate how much audio to keep for context
+    // We want to keep the last CONTEXT_OVERLAP_SECONDS of audio
+    const samplesToKeep = Math.min(
+      this.CONTEXT_OVERLAP_SAMPLES,
+      this.rollingAudioBuffer.length
+    );
+    
+    // Keep only the last N seconds for context
+    this.rollingAudioBuffer = this.rollingAudioBuffer.slice(-samplesToKeep);
+    // Set the processed length to the size of the remaining buffer
+    // This way we know the entire remaining buffer is context, not new audio
+    this.lastProcessedBufferLength = this.rollingAudioBuffer.length;
+    
+    console.log(`🧹 Cleared processed audio, kept ${samplesToKeep} samples (${(samplesToKeep / WHISPER_SAMPLING_RATE).toFixed(1)}s) for context`);
+  }
+
+  private maybeProcessWebRTCAudio(): void {
+    if (this.audioCaptureMode !== "webrtc") return;
+    if (!this._isRecording || !this.isModelReady || this.isProcessing) return;
+    if (!this.hasPendingAudio || this.rollingAudioBuffer.length === 0) return;
+
+    // Only process if we have new audio beyond what we've already processed
+    // We need at least a few seconds of new audio to make it worth processing
+    const MIN_NEW_AUDIO_SECONDS = 2;
+    const MIN_NEW_AUDIO_SAMPLES = WHISPER_SAMPLING_RATE * MIN_NEW_AUDIO_SECONDS;
+    
+    const newAudioLength = this.rollingAudioBuffer.length - this.lastProcessedBufferLength;
+    
+    if (newAudioLength < MIN_NEW_AUDIO_SAMPLES) {
+      // Not enough new audio yet, wait for more
+      return;
     }
+
+    this.hasPendingAudio = false;
+    this.isProcessing = true;
+    this.lastProcessedBufferLength = this.rollingAudioBuffer.length;
+    
+    this.worker?.postMessage({
+      type: "transcribe",
+      data: { audio: this.rollingAudioBuffer, language: this.language },
+    });
   }
 
   private async startNativeCapture(): Promise<void> {
@@ -1168,6 +1259,8 @@ export class OfflineWhisperTranscriptionService implements ITranscriptionService
           tmp.set(this.nativeBuffer);
           tmp.set(newSamples, this.nativeBuffer.length);
           this.nativeBuffer = tmp;
+          this.hasPendingAudio = true;
+          this.maybeProcessNativeAudio();
         } catch (e) {
           console.error("Error processing native audio chunk:", e);
         }
@@ -1178,30 +1271,35 @@ export class OfflineWhisperTranscriptionService implements ITranscriptionService
     await core.invoke("start_native_audio_stream", {
       deviceId: this.selectedNativeDeviceId ?? undefined,
     });
-
-    // Process native audio periodically
-    this.processingInterval = setInterval(() => {
-      this.processNativeAudio();
-    }, this.CHUNK_DURATION_MS);
   }
 
-  private processNativeAudio(): void {
-    if (!this._isRecording || !this.isModelReady) return;
-    if (this.nativeBuffer.length === 0) return;
+  private maybeProcessNativeAudio(): void {
+    if (this.audioCaptureMode !== "native") return;
+    if (!this._isRecording || !this.isModelReady || this.isProcessing) return;
+    if (!this.hasPendingAudio || this.nativeBuffer.length === 0) return;
 
-    // Get and clear buffer
-    let audio = this.nativeBuffer;
+    this.appendToRollingBuffer(this.nativeBuffer);
     this.nativeBuffer = new Float32Array(0);
-
-    // Limit to max samples
-    if (audio.length > MAX_SAMPLES) {
-      audio = audio.slice(-MAX_SAMPLES);
+    
+    // Only process if we have new audio beyond what we've already processed
+    const MIN_NEW_AUDIO_SECONDS = 2;
+    const MIN_NEW_AUDIO_SAMPLES = WHISPER_SAMPLING_RATE * MIN_NEW_AUDIO_SECONDS;
+    
+    const newAudioLength = this.rollingAudioBuffer.length - this.lastProcessedBufferLength;
+    
+    if (newAudioLength < MIN_NEW_AUDIO_SAMPLES) {
+      // Not enough new audio yet, wait for more
+      this.hasPendingAudio = true; // Keep flag set so we check again when more audio arrives
+      return;
     }
 
-    // Send to worker for transcription
+    this.hasPendingAudio = false;
+    this.isProcessing = true;
+    this.lastProcessedBufferLength = this.rollingAudioBuffer.length;
+
     this.worker?.postMessage({
       type: "transcribe",
-      data: { audio, language: this.language },
+      data: { audio: this.rollingAudioBuffer, language: this.language },
     });
   }
 
