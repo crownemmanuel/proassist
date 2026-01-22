@@ -122,6 +122,8 @@ export async function analyzeTranscriptChunk(
   extractKeyPoints: boolean = false,
   options?: {
     keyPointInstructions?: string;
+    overrideProvider?: AIProviderType;
+    overrideModel?: string;
   }
 ): Promise<TranscriptAnalysisResult> {
   const debugAI =
@@ -157,7 +159,10 @@ export async function analyzeTranscriptChunk(
   }
 
   // Get the default AI provider and key
-  const provider = appSettings.defaultAIProvider;
+  const provider = (options?.overrideProvider ?? appSettings.defaultAIProvider) as
+    | AIProviderType
+    | null
+    | undefined;
   if (!provider) {
     console.error("No AI provider configured");
     return { paraphrasedVerses: [], keyPoints: [] };
@@ -247,7 +252,7 @@ ${extractKeyPoints ? "Extract any quotable key points." : ""}
 Return ONLY valid JSON, no other text.`;
 
   try {
-    const llm = getLLM(provider, apiKey, 0.7);
+    const llm = getLLM(provider, apiKey, 0.7, options?.overrideModel);
     if (debugAI) {
       console.log("[SmartVerses][AI] provider:", provider);
       console.log("[SmartVerses][AI] systemPrompt chars:", systemPrompt.length);

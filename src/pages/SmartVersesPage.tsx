@@ -1060,6 +1060,8 @@ const SmartVersesPage: React.FC = () => {
                   settings.enableKeyPointExtraction,
                   {
                     keyPointInstructions: settings.keyPointExtractionInstructions,
+                    overrideProvider: settings.bibleSearchProvider,
+                    overrideModel: settings.bibleSearchModel,
                   }
                 );
 
@@ -1281,6 +1283,8 @@ const SmartVersesPage: React.FC = () => {
                 settings.enableKeyPointExtraction,
                 {
                   keyPointInstructions: settings.keyPointExtractionInstructions,
+                  overrideProvider: settings.bibleSearchProvider,
+                  overrideModel: settings.bibleSearchModel,
                 }
               );
               keyPoints = analysis.keyPoints || [];
