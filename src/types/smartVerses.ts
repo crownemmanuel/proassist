@@ -8,7 +8,7 @@
 // TRANSCRIPTION TYPES
 // =============================================================================
 
-export type TranscriptionEngine = 'assemblyai' | 'elevenlabs' | 'whisper' | 'groq';
+export type TranscriptionEngine = 'assemblyai' | 'elevenlabs' | 'whisper' | 'groq' | 'offline-whisper' | 'offline-moonshine';
 
 export type AudioCaptureMode = 'webrtc' | 'native';
 
@@ -140,6 +140,84 @@ export interface SmartVersesChatMessage {
 // SETTINGS TYPES
 // =============================================================================
 
+// =============================================================================
+// OFFLINE MODEL TYPES
+// =============================================================================
+
+export type OfflineModelType = 'whisper' | 'moonshine';
+
+export interface OfflineModelInfo {
+  id: string;
+  name: string;
+  type: OfflineModelType;
+  modelId: string; // HuggingFace model ID (e.g., 'onnx-community/whisper-base')
+  size: string; // Human-readable size (e.g., '~150MB')
+  description: string;
+  isDownloaded: boolean;
+  downloadProgress?: number; // 0-100
+  isDownloading?: boolean;
+  supportsWebGPU: boolean;
+  supportsWASM: boolean;
+}
+
+export const AVAILABLE_OFFLINE_MODELS: OfflineModelInfo[] = [
+  {
+    id: 'whisper-tiny-en',
+    name: 'Whisper Tiny (English)',
+    type: 'whisper',
+    modelId: 'onnx-community/whisper-tiny.en',
+    size: '~40MB',
+    description: 'Fastest, English only, lowest accuracy',
+    isDownloaded: false,
+    supportsWebGPU: true,
+    supportsWASM: true,
+  },
+  {
+    id: 'whisper-base',
+    name: 'Whisper Base',
+    type: 'whisper',
+    modelId: 'onnx-community/whisper-base',
+    size: '~150MB',
+    description: 'Good balance of speed and accuracy, multilingual',
+    isDownloaded: false,
+    supportsWebGPU: true,
+    supportsWASM: true,
+  },
+  {
+    id: 'whisper-small',
+    name: 'Whisper Small',
+    type: 'whisper',
+    modelId: 'onnx-community/whisper-small',
+    size: '~500MB',
+    description: 'Better accuracy, slower, multilingual',
+    isDownloaded: false,
+    supportsWebGPU: true,
+    supportsWASM: true,
+  },
+  {
+    id: 'moonshine-base',
+    name: 'Moonshine Base',
+    type: 'moonshine',
+    modelId: 'onnx-community/moonshine-base-ONNX',
+    size: '~200MB',
+    description: 'Fast and accurate, optimized for real-time use',
+    isDownloaded: false,
+    supportsWebGPU: true,
+    supportsWASM: true,
+  },
+  {
+    id: 'moonshine-tiny',
+    name: 'Moonshine Tiny',
+    type: 'moonshine',
+    modelId: 'onnx-community/moonshine-tiny-ONNX',
+    size: '~50MB',
+    description: 'Fastest Moonshine model, good for low-powered devices',
+    isDownloaded: false,
+    supportsWebGPU: true,
+    supportsWASM: true,
+  },
+];
+
 export interface SmartVersesSettings {
   // Transcription settings
   transcriptionEngine: TranscriptionEngine;
@@ -154,6 +232,11 @@ export interface SmartVersesSettings {
   remoteTranscriptionEnabled?: boolean;
   remoteTranscriptionHost?: string;
   remoteTranscriptionPort?: number;
+  
+  // Offline transcription settings
+  offlineWhisperModel?: string; // Model ID for offline Whisper
+  offlineMoonshineModel?: string; // Model ID for offline Moonshine
+  offlineLanguage?: string; // Language code for offline transcription (e.g., 'en')
   
   // AI Search settings
   enableAISearch: boolean;
@@ -201,6 +284,9 @@ export const DEFAULT_SMART_VERSES_SETTINGS: SmartVersesSettings = {
   remoteTranscriptionEnabled: false,
   remoteTranscriptionHost: "",
   remoteTranscriptionPort: 9876,
+  offlineWhisperModel: 'onnx-community/whisper-base',
+  offlineMoonshineModel: 'onnx-community/moonshine-base-ONNX',
+  offlineLanguage: 'en',
   enableAISearch: false, // Off by default - uses text search instead
   bibleSearchProvider: 'groq',
   bibleSearchModel: 'llama-3.3-70b-versatile',

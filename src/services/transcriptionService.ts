@@ -72,6 +72,8 @@ export interface ITranscriptionService {
   stopTranscription(): Promise<void>;
   getMicrophoneDevices(): Promise<MediaDeviceInfo[]>;
   setMicrophone(deviceId: string): void;
+  setAudioCaptureMode?(mode: "webrtc" | "native"): void;
+  setNativeMicrophoneDeviceId?(deviceId: string | null): void;
 }
 
 // =============================================================================
@@ -836,6 +838,773 @@ function writeString(view: DataView, offset: number, string: string) {
 }
 
 // =============================================================================
+// OFFLINE WHISPER TRANSCRIPTION SERVICE
+// =============================================================================
+
+const WHISPER_SAMPLING_RATE = 16000;
+const MAX_AUDIO_LENGTH = 30; // seconds
+const MAX_SAMPLES = WHISPER_SAMPLING_RATE * MAX_AUDIO_LENGTH;
+
+/**
+ * Offline Whisper Transcription Service
+ *
+ * Uses @huggingface/transformers with a Web Worker for offline transcription.
+ * Processes audio in chunks and sends to the worker for inference.
+ */
+export class OfflineWhisperTranscriptionService implements ITranscriptionService {
+  readonly engine: TranscriptionEngine = "offline-whisper";
+
+  private worker: Worker | null = null;
+  private modelId: string;
+  private language: string;
+  private callbacks: TranscriptionCallbacks = {};
+  private _isRecording: boolean = false;
+  private isModelReady: boolean = false;
+  private segmentCounter: number = 0;
+
+  // Audio capture
+  private mediaStream: MediaStream | null = null;
+  private mediaRecorder: MediaRecorder | null = null;
+  private audioContext: AudioContext | null = null;
+  private chunks: Blob[] = [];
+  private selectedMicId: string = "";
+  private audioCaptureMode: "webrtc" | "native" = "webrtc";
+  private selectedNativeDeviceId: string | null = null;
+  private nativeUnlisten: null | (() => void) = null;
+  private nativeBuffer: Float32Array = new Float32Array(0);
+  private processingInterval: NodeJS.Timeout | null = null;
+  private readonly CHUNK_DURATION_MS = 3000; // 3 seconds chunks
+
+  constructor(
+    modelId: string,
+    language: string = "en",
+    callbacks: TranscriptionCallbacks = {}
+  ) {
+    this.modelId = modelId || "onnx-community/whisper-base";
+    this.language = language;
+    this.callbacks = callbacks;
+  }
+
+  get isRecording(): boolean {
+    return this._isRecording;
+  }
+
+  setModelId(modelId: string): void {
+    this.modelId = modelId;
+  }
+
+  setLanguage(language: string): void {
+    this.language = language;
+  }
+
+  setCallbacks(callbacks: TranscriptionCallbacks): void {
+    this.callbacks = callbacks;
+  }
+
+  setAudioCaptureMode(mode: "webrtc" | "native"): void {
+    this.audioCaptureMode = mode;
+  }
+
+  setNativeMicrophoneDeviceId(deviceId: string | null): void {
+    this.selectedNativeDeviceId = deviceId;
+  }
+
+  async getNativeMicrophoneDevices(): Promise<NativeAudioInputDevice[]> {
+    try {
+      const mod = await import("@tauri-apps/api/core");
+      return await mod.invoke<NativeAudioInputDevice[]>(
+        "list_native_audio_input_devices"
+      );
+    } catch {
+      return [];
+    }
+  }
+
+  async getMicrophoneDevices(): Promise<MediaDeviceInfo[]> {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.getTracks().forEach((track) => track.stop());
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      return devices.filter((device) => device.kind === "audioinput");
+    } catch (error) {
+      console.error("Error getting microphone devices:", error);
+      return [];
+    }
+  }
+
+  setMicrophone(deviceId: string): void {
+    this.selectedMicId = deviceId;
+  }
+
+  private initWorker(): void {
+    if (this.worker) return;
+
+    this.worker = new Worker(
+      new URL("../workers/whisperWorker.ts", import.meta.url),
+      { type: "module" }
+    );
+
+    this.worker.addEventListener("message", (event) => {
+      const { type, message, text, output, file, progress } = event.data;
+
+      switch (type) {
+        case "loading":
+          console.log("📦 Whisper:", message);
+          this.callbacks.onStatusChange?.("connecting");
+          break;
+
+        case "info":
+          console.log("ℹ️ Whisper:", message);
+          break;
+
+        case "progress":
+          console.log(`📥 ${file}: ${progress?.toFixed(1)}%`);
+          break;
+
+        case "ready":
+          console.log("✅ Whisper model ready");
+          this.isModelReady = true;
+          if (this._isRecording) {
+            this.callbacks.onStatusChange?.("recording");
+          }
+          break;
+
+        case "start":
+          console.log("🎙️ Whisper processing...");
+          break;
+
+        case "update":
+          // Streaming update
+          if (output) {
+            this.callbacks.onInterimTranscript?.(output);
+          }
+          break;
+
+        case "complete":
+          if (text) {
+            console.log("📝 Whisper transcript:", text);
+            const segment: TranscriptionSegment = {
+              id: `segment-${++this.segmentCounter}`,
+              text: text,
+              timestamp: Date.now(),
+              isFinal: true,
+            };
+            this.callbacks.onFinalTranscript?.(text, segment);
+          }
+          break;
+
+        case "error":
+          console.error("❌ Whisper error:", message);
+          this.callbacks.onError?.(new Error(message));
+          break;
+      }
+    });
+
+    this.worker.addEventListener("error", (error) => {
+      console.error("Worker error:", error);
+      this.callbacks.onError?.(new Error(error.message));
+    });
+  }
+
+  private async cleanup(): Promise<void> {
+    await this.stopNativeAudioCapture();
+
+    if (this.processingInterval) {
+      clearInterval(this.processingInterval);
+      this.processingInterval = null;
+    }
+
+    if (this.mediaRecorder) {
+      if (this.mediaRecorder.state !== "inactive") {
+        this.mediaRecorder.stop();
+      }
+      this.mediaRecorder = null;
+    }
+
+    if (this.mediaStream) {
+      this.mediaStream.getTracks().forEach((track) => track.stop());
+      this.mediaStream = null;
+    }
+
+    if (this.audioContext) {
+      await this.audioContext.close();
+      this.audioContext = null;
+    }
+
+    this.chunks = [];
+    this.nativeBuffer = new Float32Array(0);
+  }
+
+  private async stopNativeAudioCapture(): Promise<void> {
+    if (!this.nativeUnlisten) return;
+    try {
+      const core = await import("@tauri-apps/api/core");
+      await core.invoke("stop_native_audio_stream");
+    } catch {}
+    try {
+      this.nativeUnlisten();
+    } catch {}
+    this.nativeUnlisten = null;
+  }
+
+  async startTranscription(): Promise<void> {
+    if (this._isRecording) return;
+
+    this.callbacks.onStatusChange?.("connecting");
+
+    try {
+      await this.cleanup();
+
+      // Initialize worker and load model
+      this.initWorker();
+      this.worker!.postMessage({
+        type: "load",
+        data: { modelId: this.modelId },
+      });
+
+      // Set up audio capture
+      if (this.audioCaptureMode === "native") {
+        await this.startNativeCapture();
+      } else {
+        await this.startWebRTCCapture();
+      }
+
+      this._isRecording = true;
+      console.log("✅ Offline Whisper transcription started");
+
+    } catch (error) {
+      console.error("Failed to start offline Whisper transcription:", error);
+      this._isRecording = false;
+      this.callbacks.onStatusChange?.("error");
+      this.callbacks.onError?.(error as Error);
+      await this.cleanup();
+      throw error;
+    }
+  }
+
+  private async startWebRTCCapture(): Promise<void> {
+    const constraints: MediaStreamConstraints = {
+      audio: this.selectedMicId
+        ? { deviceId: { exact: this.selectedMicId } }
+        : true,
+    };
+
+    this.mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+    this.audioContext = new AudioContext({
+      sampleRate: WHISPER_SAMPLING_RATE,
+    });
+
+    this.mediaRecorder = new MediaRecorder(this.mediaStream);
+    this.chunks = [];
+
+    this.mediaRecorder.ondataavailable = (e) => {
+      if (e.data.size > 0) {
+        this.chunks.push(e.data);
+      }
+    };
+
+    this.mediaRecorder.start();
+
+    // Process audio chunks periodically
+    this.processingInterval = setInterval(() => {
+      this.processWebRTCAudio();
+    }, this.CHUNK_DURATION_MS);
+  }
+
+  private async processWebRTCAudio(): Promise<void> {
+    if (!this._isRecording || !this.isModelReady || !this.mediaRecorder) return;
+    if (this.chunks.length === 0) return;
+
+    // Request data from recorder
+    this.mediaRecorder.requestData();
+
+    // Process accumulated chunks
+    const blob = new Blob(this.chunks, { type: this.mediaRecorder.mimeType });
+    this.chunks = [];
+
+    try {
+      const arrayBuffer = await blob.arrayBuffer();
+      const decoded = await this.audioContext!.decodeAudioData(arrayBuffer);
+      let audio = decoded.getChannelData(0);
+
+      // Limit to max samples
+      if (audio.length > MAX_SAMPLES) {
+        audio = audio.slice(-MAX_SAMPLES);
+      }
+
+      // Send to worker for transcription
+      this.worker?.postMessage({
+        type: "transcribe",
+        data: { audio, language: this.language },
+      });
+    } catch (error) {
+      console.error("Error processing audio:", error);
+    }
+  }
+
+  private async startNativeCapture(): Promise<void> {
+    console.log("🎛️ Using native audio capture for offline Whisper...");
+    const events = await import("@tauri-apps/api/event");
+    const core = await import("@tauri-apps/api/core");
+
+    const base64ToFloat32Array = (b64: string): Float32Array => {
+      const bin = atob(b64);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      const int16View = new Int16Array(bytes.buffer);
+      const float32 = new Float32Array(int16View.length);
+      for (let i = 0; i < int16View.length; i++) {
+        float32[i] = int16View[i] / 32768.0;
+      }
+      return float32;
+    };
+
+    const unlisten = await events.listen<{ data_b64: string }>(
+      "native_audio_chunk",
+      (evt) => {
+        try {
+          const newSamples = base64ToFloat32Array(evt.payload.data_b64);
+          const tmp = new Float32Array(this.nativeBuffer.length + newSamples.length);
+          tmp.set(this.nativeBuffer);
+          tmp.set(newSamples, this.nativeBuffer.length);
+          this.nativeBuffer = tmp;
+        } catch (e) {
+          console.error("Error processing native audio chunk:", e);
+        }
+      }
+    );
+
+    this.nativeUnlisten = unlisten;
+    await core.invoke("start_native_audio_stream", {
+      deviceId: this.selectedNativeDeviceId ?? undefined,
+    });
+
+    // Process native audio periodically
+    this.processingInterval = setInterval(() => {
+      this.processNativeAudio();
+    }, this.CHUNK_DURATION_MS);
+  }
+
+  private processNativeAudio(): void {
+    if (!this._isRecording || !this.isModelReady) return;
+    if (this.nativeBuffer.length === 0) return;
+
+    // Get and clear buffer
+    let audio = this.nativeBuffer;
+    this.nativeBuffer = new Float32Array(0);
+
+    // Limit to max samples
+    if (audio.length > MAX_SAMPLES) {
+      audio = audio.slice(-MAX_SAMPLES);
+    }
+
+    // Send to worker for transcription
+    this.worker?.postMessage({
+      type: "transcribe",
+      data: { audio, language: this.language },
+    });
+  }
+
+  async stopTranscription(): Promise<void> {
+    console.log("🛑 Stopping offline Whisper transcription...");
+    this._isRecording = false;
+    await this.cleanup();
+    this.callbacks.onStatusChange?.("idle");
+  }
+
+  destroy(): void {
+    this.stopTranscription();
+    if (this.worker) {
+      this.worker.postMessage({ type: "unload" });
+      this.worker.terminate();
+      this.worker = null;
+    }
+    this.isModelReady = false;
+  }
+}
+
+// =============================================================================
+// OFFLINE MOONSHINE TRANSCRIPTION SERVICE
+// =============================================================================
+
+/**
+ * Offline Moonshine Transcription Service
+ *
+ * Uses @huggingface/transformers with a Web Worker for offline transcription.
+ * Includes Voice Activity Detection (VAD) for automatic speech segmentation.
+ */
+export class OfflineMoonshineTranscriptionService implements ITranscriptionService {
+  readonly engine: TranscriptionEngine = "offline-moonshine";
+
+  private worker: Worker | null = null;
+  private modelId: string;
+  private callbacks: TranscriptionCallbacks = {};
+  private _isRecording: boolean = false;
+  private isModelReady: boolean = false;
+  private segmentCounter: number = 0;
+
+  // Audio capture
+  private mediaStream: MediaStream | null = null;
+  private audioContext: AudioContext | null = null;
+  private workletNode: AudioWorkletNode | null = null;
+  private sourceNode: MediaStreamAudioSourceNode | null = null;
+  private selectedMicId: string = "";
+  private audioCaptureMode: "webrtc" | "native" = "webrtc";
+  private selectedNativeDeviceId: string | null = null;
+  private nativeUnlisten: null | (() => void) = null;
+  
+  private readonly SAMPLE_RATE = 16000;
+
+  constructor(
+    modelId: string,
+    callbacks: TranscriptionCallbacks = {}
+  ) {
+    this.modelId = modelId || "onnx-community/moonshine-base-ONNX";
+    this.callbacks = callbacks;
+  }
+
+  get isRecording(): boolean {
+    return this._isRecording;
+  }
+
+  setModelId(modelId: string): void {
+    this.modelId = modelId;
+  }
+
+  setCallbacks(callbacks: TranscriptionCallbacks): void {
+    this.callbacks = callbacks;
+  }
+
+  setAudioCaptureMode(mode: "webrtc" | "native"): void {
+    this.audioCaptureMode = mode;
+  }
+
+  setNativeMicrophoneDeviceId(deviceId: string | null): void {
+    this.selectedNativeDeviceId = deviceId;
+  }
+
+  async getNativeMicrophoneDevices(): Promise<NativeAudioInputDevice[]> {
+    try {
+      const mod = await import("@tauri-apps/api/core");
+      return await mod.invoke<NativeAudioInputDevice[]>(
+        "list_native_audio_input_devices"
+      );
+    } catch {
+      return [];
+    }
+  }
+
+  async getMicrophoneDevices(): Promise<MediaDeviceInfo[]> {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.getTracks().forEach((track) => track.stop());
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      return devices.filter((device) => device.kind === "audioinput");
+    } catch (error) {
+      console.error("Error getting microphone devices:", error);
+      return [];
+    }
+  }
+
+  setMicrophone(deviceId: string): void {
+    this.selectedMicId = deviceId;
+  }
+
+  private initWorker(): void {
+    if (this.worker) return;
+
+    this.worker = new Worker(
+      new URL("../workers/moonshineWorker.ts", import.meta.url),
+      { type: "module" }
+    );
+
+    this.worker.addEventListener("message", (event) => {
+      const { type, message, text } = event.data;
+      const eventStatus = event.data.status as string | undefined;
+
+      switch (type) {
+        case "loading":
+          console.log("📦 Moonshine:", message);
+          this.callbacks.onStatusChange?.("connecting");
+          break;
+
+        case "info":
+          console.log("ℹ️ Moonshine:", message);
+          break;
+
+        case "progress":
+          const { file, progress } = event.data;
+          console.log(`📥 ${file}: ${progress?.toFixed(1)}%`);
+          break;
+
+        case "ready":
+          console.log("✅ Moonshine model ready");
+          this.isModelReady = true;
+          if (this._isRecording) {
+            this.callbacks.onStatusChange?.("recording");
+          }
+          break;
+
+        case "status":
+          if (eventStatus === "recording_start") {
+            console.log("🎙️ Speech detected");
+          } else if (eventStatus === "recording_end") {
+            console.log("⏸️ Speech ended, transcribing...");
+          }
+          break;
+
+        case "output":
+        case "complete":
+          const transcriptText = text || message;
+          if (transcriptText) {
+            console.log("📝 Moonshine transcript:", transcriptText);
+            const segment: TranscriptionSegment = {
+              id: `segment-${++this.segmentCounter}`,
+              text: transcriptText,
+              timestamp: Date.now(),
+              isFinal: true,
+            };
+            this.callbacks.onFinalTranscript?.(transcriptText, segment);
+          }
+          break;
+
+        case "error":
+          console.error("❌ Moonshine error:", message);
+          this.callbacks.onError?.(new Error(message));
+          break;
+      }
+    });
+
+    this.worker.addEventListener("error", (error) => {
+      console.error("Worker error:", error);
+      this.callbacks.onError?.(new Error(error.message));
+    });
+  }
+
+  private async cleanup(): Promise<void> {
+    await this.stopNativeAudioCapture();
+
+    if (this.workletNode) {
+      this.workletNode.disconnect();
+      this.workletNode = null;
+    }
+
+    if (this.sourceNode) {
+      this.sourceNode.disconnect();
+      this.sourceNode = null;
+    }
+
+    if (this.audioContext) {
+      await this.audioContext.close();
+      this.audioContext = null;
+    }
+
+    if (this.mediaStream) {
+      this.mediaStream.getTracks().forEach((track) => track.stop());
+      this.mediaStream = null;
+    }
+  }
+
+  private async stopNativeAudioCapture(): Promise<void> {
+    if (!this.nativeUnlisten) return;
+    try {
+      const core = await import("@tauri-apps/api/core");
+      await core.invoke("stop_native_audio_stream");
+    } catch {}
+    try {
+      this.nativeUnlisten();
+    } catch {}
+    this.nativeUnlisten = null;
+  }
+
+  async startTranscription(): Promise<void> {
+    if (this._isRecording) return;
+
+    this.callbacks.onStatusChange?.("connecting");
+
+    try {
+      await this.cleanup();
+
+      // Initialize worker and load model
+      this.initWorker();
+      this.worker!.postMessage({
+        type: "load",
+        data: { modelId: this.modelId },
+      });
+
+      // Set up audio capture
+      if (this.audioCaptureMode === "native") {
+        await this.startNativeCapture();
+      } else {
+        await this.startWebRTCCapture();
+      }
+
+      this._isRecording = true;
+      console.log("✅ Offline Moonshine transcription started");
+
+    } catch (error) {
+      console.error("Failed to start offline Moonshine transcription:", error);
+      this._isRecording = false;
+      this.callbacks.onStatusChange?.("error");
+      this.callbacks.onError?.(error as Error);
+      await this.cleanup();
+      throw error;
+    }
+  }
+
+  private async startWebRTCCapture(): Promise<void> {
+    const constraints: MediaStreamConstraints = {
+      audio: this.selectedMicId
+        ? {
+            deviceId: { exact: this.selectedMicId },
+            channelCount: 1,
+            echoCancellation: true,
+            autoGainControl: true,
+            noiseSuppression: true,
+            sampleRate: this.SAMPLE_RATE,
+          }
+        : {
+            channelCount: 1,
+            echoCancellation: true,
+            autoGainControl: true,
+            noiseSuppression: true,
+            sampleRate: this.SAMPLE_RATE,
+          },
+    };
+
+    this.mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+
+    this.audioContext = new AudioContext({
+      sampleRate: this.SAMPLE_RATE,
+      latencyHint: "interactive",
+    });
+
+    // Create source node
+    this.sourceNode = this.audioContext.createMediaStreamSource(this.mediaStream);
+
+    // Load and connect audio worklet for VAD processing
+    // We need to create a simple processor that buffers audio and sends to worker
+    await this.audioContext.audioWorklet.addModule(
+      this.createVADProcessorBlob()
+    );
+
+    this.workletNode = new AudioWorkletNode(this.audioContext, "vad-processor", {
+      numberOfInputs: 1,
+      numberOfOutputs: 0,
+      channelCount: 1,
+      channelCountMode: "explicit",
+      channelInterpretation: "discrete",
+    });
+
+    this.sourceNode.connect(this.workletNode);
+
+    this.workletNode.port.onmessage = (event) => {
+      const { buffer } = event.data;
+      if (this.worker && this._isRecording && this.isModelReady) {
+        this.worker.postMessage({ type: "buffer", data: { buffer } });
+      }
+    };
+  }
+
+  private createVADProcessorBlob(): string {
+    const processorCode = `
+      const MIN_CHUNK_SIZE = 512;
+      let globalPointer = 0;
+      let globalBuffer = new Float32Array(MIN_CHUNK_SIZE);
+
+      class VADProcessor extends AudioWorkletProcessor {
+        process(inputs, outputs, parameters) {
+          const buffer = inputs[0][0];
+          if (!buffer) return true;
+
+          if (buffer.length > MIN_CHUNK_SIZE) {
+            this.port.postMessage({ buffer: new Float32Array(buffer) });
+          } else {
+            const remaining = MIN_CHUNK_SIZE - globalPointer;
+            if (buffer.length >= remaining) {
+              globalBuffer.set(buffer.subarray(0, remaining), globalPointer);
+              this.port.postMessage({ buffer: new Float32Array(globalBuffer) });
+              globalBuffer.fill(0);
+              globalBuffer.set(buffer.subarray(remaining), 0);
+              globalPointer = buffer.length - remaining;
+            } else {
+              globalBuffer.set(buffer, globalPointer);
+              globalPointer += buffer.length;
+            }
+          }
+
+          return true;
+        }
+      }
+
+      registerProcessor("vad-processor", VADProcessor);
+    `;
+
+    const blob = new Blob([processorCode], { type: "application/javascript" });
+    return URL.createObjectURL(blob);
+  }
+
+  private async startNativeCapture(): Promise<void> {
+    console.log("🎛️ Using native audio capture for offline Moonshine...");
+    const events = await import("@tauri-apps/api/event");
+    const core = await import("@tauri-apps/api/core");
+
+    const base64ToFloat32Array = (b64: string): Float32Array => {
+      const bin = atob(b64);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      const int16View = new Int16Array(bytes.buffer);
+      const float32 = new Float32Array(int16View.length);
+      for (let i = 0; i < int16View.length; i++) {
+        float32[i] = int16View[i] / 32768.0;
+      }
+      return float32;
+    };
+
+    const unlisten = await events.listen<{ data_b64: string }>(
+      "native_audio_chunk",
+      (evt) => {
+        if (!this.worker || !this._isRecording || !this.isModelReady) return;
+        try {
+          const buffer = base64ToFloat32Array(evt.payload.data_b64);
+          this.worker.postMessage({ type: "buffer", data: { buffer } });
+        } catch (e) {
+          console.error("Error processing native audio chunk:", e);
+        }
+      }
+    );
+
+    this.nativeUnlisten = unlisten;
+    await core.invoke("start_native_audio_stream", {
+      deviceId: this.selectedNativeDeviceId ?? undefined,
+    });
+  }
+
+  async stopTranscription(): Promise<void> {
+    console.log("🛑 Stopping offline Moonshine transcription...");
+    this._isRecording = false;
+    
+    // Tell worker to reset VAD state
+    if (this.worker) {
+      this.worker.postMessage({ type: "reset" });
+    }
+    
+    await this.cleanup();
+    this.callbacks.onStatusChange?.("idle");
+  }
+
+  destroy(): void {
+    this.stopTranscription();
+    if (this.worker) {
+      this.worker.postMessage({ type: "unload" });
+      this.worker.terminate();
+      this.worker = null;
+    }
+    this.isModelReady = false;
+  }
+}
+
+// =============================================================================
 // FACTORY FUNCTION
 // =============================================================================
 
@@ -858,11 +1627,20 @@ export function createTranscriptionService(
         settings.groqModel || "whisper-large-v3",
         callbacks
       );
+    case "offline-whisper":
+      return new OfflineWhisperTranscriptionService(
+        settings.offlineWhisperModel || "onnx-community/whisper-base",
+        settings.offlineLanguage || "en",
+        callbacks
+      );
+    case "offline-moonshine":
+      return new OfflineMoonshineTranscriptionService(
+        settings.offlineMoonshineModel || "onnx-community/moonshine-base-ONNX",
+        callbacks
+      );
     // Future engines can be added here
     // case 'elevenlabs':
     //   return new ElevenLabsTranscriptionService(settings, callbacks);
-    // case 'whisper':
-    //   return new WhisperTranscriptionService(settings, callbacks);
     default:
       return new AssemblyAITranscriptionService(
         settings.assemblyAIApiKey || "",

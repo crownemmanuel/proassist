@@ -34,11 +34,11 @@ import {
   loadVerseByComponents,
 } from "../services/smartVersesBibleService";
 import {
-  AssemblyAITranscriptionService,
   loadSmartVersesSettings,
   createTranscriptionService,
   ITranscriptionService,
 } from "../services/transcriptionService";
+import { isModelDownloaded } from "../services/offlineModelService";
 import {
   analyzeTranscriptChunk,
   searchBibleWithAI,
@@ -1196,6 +1196,27 @@ const SmartVersesPage: React.FC = () => {
       return;
     }
 
+    // Validate offline models are downloaded
+    if (settings.transcriptionEngine === "offline-whisper") {
+      const modelId = settings.offlineWhisperModel || "onnx-community/whisper-base";
+      if (!isModelDownloaded(modelId)) {
+        alert(
+          "The selected Whisper model is not downloaded. Please go to Settings > SmartVerses and click 'Manage Models' to download it first."
+        );
+        return;
+      }
+    }
+
+    if (settings.transcriptionEngine === "offline-moonshine") {
+      const modelId = settings.offlineMoonshineModel || "onnx-community/moonshine-base-ONNX";
+      if (!isModelDownloaded(modelId)) {
+        alert(
+          "The selected Moonshine model is not downloaded. Please go to Settings > SmartVerses and click 'Manage Models' to download it first."
+        );
+        return;
+      }
+    }
+
     // Reset interim parse state for a fresh session
     latestInterimTextRef.current = "";
     lastInterimDirectSignatureRef.current = "";
@@ -1406,9 +1427,9 @@ const SmartVersesPage: React.FC = () => {
       );
 
       // Configure audio capture mode (WebRTC vs Native)
-      service.setAudioCaptureMode(settings.audioCaptureMode === "native" ? "native" : "webrtc");
+      service.setAudioCaptureMode?.(settings.audioCaptureMode === "native" ? "native" : "webrtc");
       if (settings.audioCaptureMode === "native") {
-        service.setNativeMicrophoneDeviceId(settings.selectedNativeMicrophoneId || null);
+        service.setNativeMicrophoneDeviceId?.(settings.selectedNativeMicrophoneId || null);
       }
 
       if (settings.selectedMicrophoneId) {
