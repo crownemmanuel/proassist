@@ -509,6 +509,11 @@ export class GroqTranscriptionService implements ITranscriptionService {
   private nativeBuffer: Float32Array = new Float32Array(0);
   private readonly SAMPLE_RATE = 16000;
   private readonly CHUNK_DURATION_MS = 3000; // 3 seconds chunks
+  
+  // Sequence tracking for ensuring ordered transcript delivery
+  private chunkSequence: number = 0; // Increments when chunks are captured
+  private nextExpectedSequence: number = 0; // Next sequence number we expect to receive
+  private pendingResponses: Map<number, { text: string; timestamp: number }> = new Map(); // Buffer for out-of-order responses
 
   constructor(
     apiKey: string,
@@ -612,6 +617,11 @@ export class GroqTranscriptionService implements ITranscriptionService {
 
     try {
       await this.cleanup();
+
+      // Reset sequence tracking for a new transcription session
+      this.chunkSequence = 0;
+      this.nextExpectedSequence = 0;
+      this.pendingResponses.clear();
 
       if (this.audioCaptureMode === "native") {
         await this.startNativeCapture();
@@ -742,11 +752,15 @@ export class GroqTranscriptionService implements ITranscriptionService {
     }
 
     if (audioBlob && audioBlob.size > 0) {
-      this.sendToGroq(audioBlob);
+      // Assign sequence number and capture timestamp when chunk is captured
+      // This ensures chronological ordering regardless of network latency
+      const sequence = this.chunkSequence++;
+      const captureTimestamp = Date.now();
+      this.sendToGroq(audioBlob, sequence, captureTimestamp);
     }
   }
 
-  private async sendToGroq(blob: Blob) {
+  private async sendToGroq(blob: Blob, sequence: number, captureTimestamp: number) {
     try {
       const formData = new FormData();
       formData.append("file", blob, "audio.wav");
@@ -765,6 +779,9 @@ export class GroqTranscriptionService implements ITranscriptionService {
       if (!response.ok) {
         const errText = await response.text();
         console.error("Groq API error:", errText);
+        // Skip this sequence and continue processing
+        this.nextExpectedSequence = Math.max(this.nextExpectedSequence, sequence + 1);
+        this.processBufferedResponses();
         return;
       }
 
@@ -772,23 +789,58 @@ export class GroqTranscriptionService implements ITranscriptionService {
       const text = data.text?.trim();
 
       if (text) {
-        console.log("📝 Groq Transcript:", text);
-        const segment: TranscriptionSegment = {
-          id: `segment-${++this.segmentCounter}`,
-          text: text,
-          timestamp: Date.now(),
-          isFinal: true,
-        };
-        this.callbacks.onFinalTranscript?.(text, segment);
+        console.log(`📝 Groq Transcript [seq ${sequence}]:`, text);
+        // Store response with its sequence number
+        this.pendingResponses.set(sequence, { text, timestamp: captureTimestamp });
+        // Process responses in order
+        this.processBufferedResponses();
+      } else {
+        // Empty response, skip this sequence
+        this.nextExpectedSequence = Math.max(this.nextExpectedSequence, sequence + 1);
+        this.processBufferedResponses();
       }
     } catch (error) {
       console.error("Error sending audio to Groq:", error);
+      // Skip this sequence and continue processing
+      this.nextExpectedSequence = Math.max(this.nextExpectedSequence, sequence + 1);
+      this.processBufferedResponses();
+    }
+  }
+
+  /**
+   * Process buffered responses in order, delivering transcripts sequentially
+   * even if API responses arrive out of order due to network latency.
+   */
+  private processBufferedResponses() {
+    // Process responses in sequence order
+    while (this.pendingResponses.has(this.nextExpectedSequence)) {
+      const response = this.pendingResponses.get(this.nextExpectedSequence)!;
+      this.pendingResponses.delete(this.nextExpectedSequence);
+
+      const segment: TranscriptionSegment = {
+        id: `segment-${++this.segmentCounter}`,
+        text: response.text,
+        timestamp: response.timestamp, // Use capture timestamp, not response timestamp
+        isFinal: true,
+      };
+      
+      console.log(`✅ Delivering transcript [seq ${this.nextExpectedSequence}]:`, response.text);
+      this.callbacks.onFinalTranscript?.(response.text, segment);
+      
+      this.nextExpectedSequence++;
     }
   }
 
   async stopTranscription(): Promise<void> {
     console.log("🛑 Stopping Groq transcription...");
     this._isRecording = false;
+    
+    // Process any remaining buffered responses before stopping
+    this.processBufferedResponses();
+    
+    // Clear pending responses
+    this.pendingResponses.clear();
+    
     await this.cleanup();
     this.callbacks.onStatusChange?.("idle");
   }
@@ -878,6 +930,7 @@ export class OfflineWhisperTranscriptionService implements ITranscriptionService
   private recorderRequestTimeout: ReturnType<typeof setTimeout> | null = null;
   private accumulatedInterimText: string = ""; // Track accumulated interim text for current session
   private lastProcessedBufferLength: number = 0; // Track how much audio was in the buffer when we last processed it
+  private lastTranscriptionText: string = ""; // Track last transcription to detect and remove overlap
   private readonly CONTEXT_OVERLAP_SAMPLES = WHISPER_SAMPLING_RATE * 3; // Keep last 3 seconds (in samples) for context
 
   constructor(
@@ -1003,16 +1056,27 @@ export class OfflineWhisperTranscriptionService implements ITranscriptionService
         case "complete":
           this.isProcessing = false;
           if (text) {
-            console.log("📝 Whisper transcript:", text);
-            const segment: TranscriptionSegment = {
-              id: `segment-${++this.segmentCounter}`,
-              text: text,
-              timestamp: Date.now(),
-              isFinal: true,
-            };
-            // Clear accumulated interim text when final transcript arrives
-            this.accumulatedInterimText = "";
-            this.callbacks.onFinalTranscript?.(text, segment);
+            // Extract only the new portion, removing overlap from context audio
+            const newText = this.extractNewTranscriptionText(text);
+            
+            // Only report if there's actually new text (not just overlap)
+            if (newText.trim()) {
+              console.log("📝 Whisper transcript (new portion):", newText);
+              const segment: TranscriptionSegment = {
+                id: `segment-${++this.segmentCounter}`,
+                text: newText,
+                timestamp: Date.now(),
+                isFinal: true,
+              };
+              // Clear accumulated interim text when final transcript arrives
+              this.accumulatedInterimText = "";
+              this.callbacks.onFinalTranscript?.(newText, segment);
+              
+              // Update last transcription text for next overlap detection
+              this.lastTranscriptionText = text;
+            } else {
+              console.log("📝 Whisper transcript (overlap only, skipping)");
+            }
             
             // Clear processed audio from buffer, keeping only context overlap
             // This prevents re-transcribing the same audio in the next segment
@@ -1071,6 +1135,7 @@ export class OfflineWhisperTranscriptionService implements ITranscriptionService
     this.decodeQueue = Promise.resolve();
     this.accumulatedInterimText = "";
     this.lastProcessedBufferLength = 0;
+    this.lastTranscriptionText = ""; // Reset transcription tracking
   }
 
   private async stopNativeAudioCapture(): Promise<void> {
@@ -1181,6 +1246,102 @@ export class OfflineWhisperTranscriptionService implements ITranscriptionService
     combined.set(samples, this.rollingAudioBuffer.length);
     this.rollingAudioBuffer =
       combined.length > MAX_SAMPLES ? combined.slice(-MAX_SAMPLES) : combined;
+  }
+
+  /**
+   * Extract only the new portion of transcription, removing overlap from context.
+   * Finds the longest common suffix/prefix match between last and new transcription,
+   * then returns only the new portion.
+   * 
+   * Uses word-based matching to handle cases where transcription might vary slightly
+   * at character level but match at word level.
+   */
+  private extractNewTranscriptionText(newText: string): string {
+    if (!this.lastTranscriptionText) {
+      // First transcription, return it all
+      return newText;
+    }
+
+    const lastTrimmed = this.lastTranscriptionText.trim();
+    const newTrimmed = newText.trim();
+
+    if (!lastTrimmed || !newTrimmed) {
+      return newText;
+    }
+
+    // Normalize for comparison (lowercase, normalize whitespace)
+    const lastNormalized = lastTrimmed.toLowerCase().replace(/\s+/g, ' ');
+    const newNormalized = newTrimmed.toLowerCase().replace(/\s+/g, ' ');
+
+    // Try word-based matching first (more reliable)
+    const lastWords = lastNormalized.split(/\s+/);
+    const newWords = newNormalized.split(/\s+/);
+    
+    // Find the longest suffix of last transcription that matches a prefix of new transcription
+    let maxOverlapWords = 0;
+    const minOverlapWords = 2; // Minimum words to consider as overlap (avoid false matches)
+
+    // Check all possible suffix lengths of last transcription
+    for (let i = Math.min(lastWords.length, newWords.length); i >= minOverlapWords; i--) {
+      const lastSuffix = lastWords.slice(-i).join(' ');
+      const newPrefix = newWords.slice(0, i).join(' ');
+      
+      if (lastSuffix === newPrefix) {
+        maxOverlapWords = i;
+        break;
+      }
+    }
+
+    if (maxOverlapWords > 0) {
+      // Extract only the new portion (everything after the overlapping words)
+      // Map back to original case by finding the position in the original text
+      const originalWords = newTrimmed.split(/\s+/);
+      const remainingWords = originalWords.slice(maxOverlapWords);
+      const result = remainingWords.join(' ').trim();
+      
+      console.log(`✂️ Removed ${maxOverlapWords} word overlap from transcription`);
+      return result;
+    }
+
+    // Fallback to character-based matching if word matching fails
+    let maxOverlapLength = 0;
+    const minOverlapLength = 20; // Minimum characters to consider as overlap
+
+    // Check all possible suffix lengths of last transcription
+    for (let i = Math.min(lastNormalized.length, newNormalized.length); i >= minOverlapLength; i--) {
+      const lastSuffix = lastNormalized.slice(-i);
+      const newPrefix = newNormalized.slice(0, i);
+      
+      if (lastSuffix === newPrefix) {
+        maxOverlapLength = i;
+        break;
+      }
+    }
+
+    if (maxOverlapLength > 0) {
+      // Extract only the new portion (everything after the overlap)
+      // Try to align at word boundary
+      const words = newTrimmed.split(/\s+/);
+      let charCount = 0;
+      let wordIndex = 0;
+      
+      // Find which word the overlap ends at
+      for (let i = 0; i < words.length; i++) {
+        const wordLength = words[i].toLowerCase().replace(/\s+/g, ' ').length + 1; // +1 for space
+        if (charCount + wordLength > maxOverlapLength) {
+          wordIndex = i;
+          break;
+        }
+        charCount += wordLength;
+      }
+      
+      const result = words.slice(wordIndex).join(' ').trim();
+      console.log(`✂️ Removed ${maxOverlapLength} character overlap from transcription`);
+      return result;
+    }
+
+    // No overlap found, return the full new text
+    return newText;
   }
 
   /**
