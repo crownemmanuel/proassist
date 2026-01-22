@@ -27,6 +27,9 @@ let isProcessing = false;
 // Current model ID
 let currentModelId: string = '';
 
+// Track last output for incremental updates
+let lastOutput: string = '';
+
 /**
  * Check if WebGPU is available
  */
@@ -157,6 +160,9 @@ async function transcribe(audio: Float32Array, language: string = 'en'): Promise
   self.postMessage({ type: 'start' });
 
   try {
+    // Reset last output for this transcription session
+    lastOutput = '';
+    
     let startTime: number | null = null;
     let numTokens = 0;
     let tps = 0;
@@ -172,12 +178,21 @@ async function transcribe(audio: Float32Array, language: string = 'en'): Promise
     };
 
     const callbackFunction = (output: string) => {
-      self.postMessage({
-        type: 'update',
-        output,
-        tps,
-        numTokens,
-      });
+      // Extract only the new portion by comparing with last output
+      const newText = output.startsWith(lastOutput) 
+        ? output.slice(lastOutput.length).trim()
+        : output.trim();
+      
+      // Only send update if there's new text
+      if (newText) {
+        lastOutput = output;
+        self.postMessage({
+          type: 'update',
+          output: newText, // Send only the new chunk
+          tps,
+          numTokens,
+        });
+      }
     };
 
     const streamer = new TextStreamer(tokenizer, {
@@ -200,14 +215,26 @@ async function transcribe(audio: Float32Array, language: string = 'en'): Promise
       skip_special_tokens: true,
     });
 
+    const finalText = Array.isArray(decoded) ? decoded.join(' ').trim() : String(decoded).trim();
+    
+    // Extract any remaining text that wasn't sent in updates
+    const remainingText = finalText.startsWith(lastOutput)
+      ? finalText.slice(lastOutput.length).trim()
+      : finalText.trim();
+    
+    // Reset last output for next transcription
+    lastOutput = '';
+
     self.postMessage({
       type: 'complete',
       output: decoded,
-      text: Array.isArray(decoded) ? decoded.join(' ').trim() : String(decoded).trim(),
+      text: finalText,
+      remainingText: remainingText || undefined, // Send any remaining text if there's a gap
     });
 
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    lastOutput = ''; // Reset on error
     self.postMessage({
       type: 'error',
       message: `Transcription failed: ${errorMessage}`,

@@ -585,9 +585,12 @@ const SmartVersesSettings: React.FC = () => {
                     {AVAILABLE_OFFLINE_MODELS.filter((m) => m.type === "whisper").map(
                       (model) => {
                         const isDownloaded = downloadedModelIds.includes(model.modelId);
+                        const isRecommended =
+                          model.modelId === "onnx-community/whisper-base";
                         return (
                           <option key={model.id} value={model.modelId}>
-                            {model.name} ({model.size})
+                            {model.name}
+                            {isRecommended ? " (Recommended)" : ""} ({model.size})
                             {isDownloaded ? " ✓" : " - Not Downloaded"}
                           </option>
                         );
