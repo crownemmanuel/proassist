@@ -233,23 +233,6 @@ const FeaturesSettings: React.FC = () => {
         })}
       </div>
 
-      {/* Warning */}
-      <div
-        style={{
-          marginTop: "var(--spacing-5)",
-          padding: "var(--spacing-3)",
-          backgroundColor: "rgba(251, 191, 36, 0.1)",
-          borderRadius: "10px",
-          border: "1px solid rgba(251, 191, 36, 0.2)",
-          fontSize: "0.9rem",
-          color: "var(--app-text-color-secondary)",
-        }}
-      >
-        <strong style={{ color: "#fbbf24" }}>Note:</strong> Disabling a feature will hide it
-        from the navigation bar. Any background processes for that feature will also be stopped.
-        You can re-enable features at any time.
-      </div>
-
       {/* Save Status */}
       {saveMessage && (
         <div

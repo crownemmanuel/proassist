@@ -13,8 +13,9 @@
  */
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useNavigate } from "react-router-dom";
 import { invoke } from "@tauri-apps/api/core";
-import { FaMicrophone, FaStop, FaPaperPlane, FaRobot, FaPlay, FaSearch, FaChevronDown, FaChevronUp, FaTrash, FaStopCircle, FaExternalLinkAlt, FaEllipsisH, FaDownload, FaSpinner } from "react-icons/fa";
+import { FaMicrophone, FaStop, FaPaperPlane, FaRobot, FaPlay, FaSearch, FaChevronDown, FaChevronUp, FaTrash, FaStopCircle, FaExternalLinkAlt, FaEllipsisH, FaDownload, FaSpinner, FaCog } from "react-icons/fa";
 import {
   SmartVersesSettings,
   SmartVersesChatMessage,
@@ -89,6 +90,57 @@ function saveChatHistory(history: SmartVersesChatMessage[]): void {
   }
 }
 
+const SMART_VERSES_TRANSCRIPT_DISPLAY_KEY = "proassist-smartverses-transcript-display";
+
+type TranscriptDisplayOptions = {
+  showTranscript: boolean;
+  showScriptureRefs: boolean;
+  showKeyPoints: boolean;
+};
+
+const DEFAULT_TRANSCRIPT_DISPLAY_OPTIONS: TranscriptDisplayOptions = {
+  showTranscript: true,
+  showScriptureRefs: true,
+  showKeyPoints: false,
+};
+
+function loadTranscriptDisplayOptions(): TranscriptDisplayOptions {
+  try {
+    const stored = localStorage.getItem(SMART_VERSES_TRANSCRIPT_DISPLAY_KEY);
+    if (stored) {
+      const parsed = JSON.parse(stored) as Partial<TranscriptDisplayOptions>;
+      return {
+        showTranscript:
+          typeof parsed.showTranscript === "boolean"
+            ? parsed.showTranscript
+            : DEFAULT_TRANSCRIPT_DISPLAY_OPTIONS.showTranscript,
+        showScriptureRefs:
+          typeof parsed.showScriptureRefs === "boolean"
+            ? parsed.showScriptureRefs
+            : DEFAULT_TRANSCRIPT_DISPLAY_OPTIONS.showScriptureRefs,
+        showKeyPoints:
+          typeof parsed.showKeyPoints === "boolean"
+            ? parsed.showKeyPoints
+            : DEFAULT_TRANSCRIPT_DISPLAY_OPTIONS.showKeyPoints,
+      };
+    }
+  } catch (err) {
+    console.error("Failed to load transcript display options:", err);
+  }
+  return DEFAULT_TRANSCRIPT_DISPLAY_OPTIONS;
+}
+
+function saveTranscriptDisplayOptions(options: TranscriptDisplayOptions): void {
+  try {
+    localStorage.setItem(
+      SMART_VERSES_TRANSCRIPT_DISPLAY_KEY,
+      JSON.stringify(options)
+    );
+  } catch (err) {
+    console.error("Failed to save transcript display options:", err);
+  }
+}
+
 // =============================================================================
 // MAIN COMPONENT
 // =============================================================================
@@ -138,6 +190,9 @@ const SmartVersesPage: React.FC = () => {
   const [transcriptMenuOpen, setTranscriptMenuOpen] = useState(false);
   const [transcriptSearchQuery, setTranscriptSearchQuery] = useState("");
   const transcriptMenuRef = useRef<HTMLDivElement | null>(null);
+  const [transcriptDisplayOptions, setTranscriptDisplayOptions] = useState<TranscriptDisplayOptions>(
+    () => loadTranscriptDisplayOptions()
+  );
 
   // Live state - tracks which reference is currently live (only one at a time)
   const [liveReferenceId, setLiveReferenceId] = useState<string | null>(null);
@@ -148,6 +203,7 @@ const SmartVersesPage: React.FC = () => {
   const chatEndRef = useRef<HTMLDivElement>(null);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const navigate = useNavigate();
 
   // =============================================================================
   // TRANSCRIPTION EVENT BRIDGE (for Slides page)
@@ -383,6 +439,35 @@ const SmartVersesPage: React.FC = () => {
       document.removeEventListener("keydown", handleKeyDown);
     };
   }, [transcriptMenuOpen]);
+
+  useEffect(() => {
+    saveTranscriptDisplayOptions(transcriptDisplayOptions);
+  }, [transcriptDisplayOptions]);
+
+  const handleToggleTranscriptOption = useCallback(
+    (key: keyof TranscriptDisplayOptions) => {
+      setTranscriptDisplayOptions((prev) => ({
+        ...prev,
+        [key]: !prev[key],
+      }));
+    },
+    []
+  );
+
+  const handleOpenSmartVersesSettings = useCallback(() => {
+    try {
+      localStorage.setItem("proassist-settings-current-view", "smartVerses");
+    } catch (err) {
+      console.error("Failed to persist settings view:", err);
+    }
+    navigate("/settings");
+    window.setTimeout(() => {
+      window.dispatchEvent(
+        new CustomEvent("navigate-to-settings", { detail: "smartVerses" })
+      );
+    }, 0);
+    setTranscriptMenuOpen(false);
+  }, [navigate]);
 
   const filteredTranscriptHistory = useMemo(() => {
     const query = transcriptSearchQuery.trim().toLowerCase();
@@ -667,14 +752,6 @@ const SmartVersesPage: React.FC = () => {
           100
         );
       }
-
-      // Add system message
-      setChatHistory(prev => [...prev, {
-        id: `live-${Date.now()}`,
-        type: "system",
-        content: `📺 Went live: ${reference.displayRef}`,
-        timestamp: Date.now(),
-      }]);
 
       // Auto-clear text AFTER a delay (do NOT clear immediately at 0ms; that causes blank files)
       const clearDelay = settings.clearTextDelay ?? 0;
@@ -2513,6 +2590,40 @@ const SmartVersesPage: React.FC = () => {
                     </button>
                   )}
                 </div>
+                <div style={{ marginBottom: "10px" }}>
+                  <div style={{ fontSize: "0.75rem", color: "var(--app-text-color-secondary)" }}>
+                    Display options
+                  </div>
+                  <div style={{ display: "grid", gap: "6px", marginTop: "6px" }}>
+                    <label style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer", fontSize: "0.85rem" }}>
+                      <input
+                        type="checkbox"
+                        checked={transcriptDisplayOptions.showTranscript}
+                        onChange={() => handleToggleTranscriptOption("showTranscript")}
+                        style={{ cursor: "pointer", accentColor: "var(--accent)" }}
+                      />
+                      Transcript
+                    </label>
+                    <label style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer", fontSize: "0.85rem" }}>
+                      <input
+                        type="checkbox"
+                        checked={transcriptDisplayOptions.showScriptureRefs}
+                        onChange={() => handleToggleTranscriptOption("showScriptureRefs")}
+                        style={{ cursor: "pointer", accentColor: "var(--accent)" }}
+                      />
+                      Scripture refs
+                    </label>
+                    <label style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer", fontSize: "0.85rem" }}>
+                      <input
+                        type="checkbox"
+                        checked={transcriptDisplayOptions.showKeyPoints}
+                        onChange={() => handleToggleTranscriptOption("showKeyPoints")}
+                        style={{ cursor: "pointer", accentColor: "var(--accent)" }}
+                      />
+                      Key points
+                    </label>
+                  </div>
+                </div>
                 <div style={{ display: "grid", gap: "6px" }}>
                   <button
                     onClick={() => {
@@ -2546,6 +2657,15 @@ const SmartVersesPage: React.FC = () => {
                   >
                     <FaDownload size={12} />
                     Download as JSON
+                  </button>
+                  <div style={{ height: "1px", backgroundColor: "var(--app-border-color)" }} />
+                  <button
+                    onClick={handleOpenSmartVersesSettings}
+                    className="secondary"
+                    style={{ display: "flex", alignItems: "center", gap: "8px", padding: "8px 10px" }}
+                  >
+                    <FaCog size={12} />
+                    SmartVerses settings
                   </button>
                 </div>
               </div>
@@ -2602,6 +2722,20 @@ const SmartVersesPage: React.FC = () => {
                 const segmentRefs = detectedReferences.filter(
                   ref => ref.transcriptText === segment.text
                 );
+                const segmentKeyPoints = transcriptKeyPoints[segment.id] || [];
+                const showTranscriptText = transcriptDisplayOptions.showTranscript;
+                const showRefs = transcriptDisplayOptions.showScriptureRefs;
+                const showKeyPoints = transcriptDisplayOptions.showKeyPoints;
+                const hasRefsToShow = showRefs && segmentRefs.length > 0;
+                const hasKeyPointsToShow = showKeyPoints && segmentKeyPoints.length > 0;
+                const shouldRenderSegment =
+                  (showTranscriptText && segment.text) ||
+                  hasRefsToShow ||
+                  hasKeyPointsToShow;
+
+                if (!shouldRenderSegment) {
+                  return null;
+                }
                 
                 return (
                   <div
@@ -2614,16 +2748,18 @@ const SmartVersesPage: React.FC = () => {
                       border: "1px solid var(--app-border-color)",
                     }}
                   >
-                    <p
-                      style={{
-                        margin: 0,
-                        lineHeight: 1.6,
-                        color: "var(--app-text-color)",
-                      }}
-                    >
-                      {segment.text}
-                    </p>
-                    {segmentRefs.length > 0 && (
+                    {showTranscriptText && (
+                      <p
+                        style={{
+                          margin: 0,
+                          lineHeight: 1.6,
+                          color: "var(--app-text-color)",
+                        }}
+                      >
+                        {segment.text}
+                      </p>
+                    )}
+                    {hasRefsToShow && (
                       <div style={{ marginTop: "var(--spacing-2)" }}>
                         <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
                           {segmentRefs.map((ref) => {
@@ -2765,12 +2901,76 @@ const SmartVersesPage: React.FC = () => {
                         )}
                       </div>
                     )}
+                    {hasKeyPointsToShow && (
+                      <div
+                        style={{
+                          marginTop:
+                            showTranscriptText || hasRefsToShow ? "var(--spacing-2)" : 0,
+                        }}
+                      >
+                        <div
+                          style={{
+                            fontSize: "0.75rem",
+                            fontWeight: 700,
+                            color: "var(--app-text-color-secondary)",
+                            textTransform: "uppercase",
+                            letterSpacing: "0.04em",
+                            marginBottom: "6px",
+                          }}
+                        >
+                          Key points
+                        </div>
+                        <div style={{ display: "grid", gap: "6px" }}>
+                          {segmentKeyPoints.map((point, index) => (
+                            <div
+                              key={`${segment.id}-key-point-${index}`}
+                              style={{
+                                border: "1px solid #f59e0b",
+                                borderLeft: "4px solid #f59e0b",
+                                borderRadius: "8px",
+                                padding: "8px 10px",
+                                backgroundColor: "rgba(245, 158, 11, 0.12)",
+                                display: "flex",
+                                alignItems: "flex-start",
+                                gap: "10px",
+                              }}
+                            >
+                              <div style={{ display: "flex", flexDirection: "column", gap: "4px", flex: 1 }}>
+                                {point.category && (
+                                  <span
+                                    style={{
+                                      fontSize: "0.7rem",
+                                      fontWeight: 700,
+                                      letterSpacing: "0.04em",
+                                      color: "#f59e0b",
+                                      textTransform: "uppercase",
+                                    }}
+                                  >
+                                    {point.category}
+                                  </span>
+                                )}
+                                <span
+                                  style={{
+                                    fontSize: "0.85rem",
+                                    lineHeight: "1.4",
+                                    color: "var(--app-text-color)",
+                                    wordBreak: "break-word",
+                                  }}
+                                >
+                                  {point.text}
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 );
               })}
               
               {/* Interim transcript */}
-              {matchesInterimSearch && (
+              {transcriptDisplayOptions.showTranscript && matchesInterimSearch && (
                 <div
                   style={{
                     marginBottom: "var(--spacing-3)",

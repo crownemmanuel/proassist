@@ -29,6 +29,7 @@ import LiveSlidesNotepad from "./pages/LiveSlidesNotepad";
 import StageAssistPage from "./pages/StageAssistPage";
 import SmartVersesPage from "./pages/SmartVersesPage";
 import RecorderPage from "./pages/RecorderPage";
+import ErrorBoundary from "./components/ErrorBoundary";
 import { loadEnabledFeatures } from "./services/recorderService";
 import { EnabledFeatures } from "./types/recorder";
 import {
@@ -404,7 +405,9 @@ function AppContent({
           <SettingsPage />
         </div>
         <div style={{ display: isLiveTestimoniesPage ? "block" : "none" }}>
-          <MediaView />
+          <ErrorBoundary>
+            <MediaView />
+          </ErrorBoundary>
         </div>
         <div style={{ display: isSmartVersesPage ? "block" : "none" }}>
           <SmartVersesPage />
@@ -412,9 +415,12 @@ function AppContent({
         <div style={{ display: isStageAssistPage ? "block" : "none" }}>
           <StageAssistPage />
         </div>
-        <div style={{ display: isRecorderPage ? "block" : "none" }}>
-          <RecorderPage />
-        </div>
+        {/* Only render RecorderPage when the feature is enabled to prevent camera access when disabled */}
+        {enabledFeatures.recorder && (
+          <div style={{ display: isRecorderPage ? "block" : "none" }}>
+            <RecorderPage />
+          </div>
+        )}
         <div style={{ display: isHelpPage ? "block" : "none" }}>
           <HelpPage />
         </div>

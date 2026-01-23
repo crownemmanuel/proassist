@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { checkForUpdates, downloadAndInstallUpdate, UpdateResult } from '../utils/updater';
+import { checkForUpdates, clearSkippedVersion, downloadAndInstallUpdate, UpdateResult } from '../utils/updater';
 import LogViewer from './LogViewer';
 import '../App.css';
 
@@ -64,6 +64,8 @@ const VersionSettings: React.FC = () => {
     setUpdateResult(null);
     
     try {
+      // If the user manually checks for updates, they may be reconsidering a previously skipped version.
+      clearSkippedVersion();
       const result = await checkForUpdates();
       setUpdateResult(result);
     } catch (err) {

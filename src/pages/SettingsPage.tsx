@@ -23,6 +23,20 @@ import ConfirmDialog from "../components/ConfirmDialog";
 
 type SettingsView = "templates" | "aiConfiguration" | "liveTestimonies" | "liveSlides" | "smartVerses" | "recorder" | "network" | "proPresenter" | "features" | "midi" | "version";
 
+const SETTINGS_VIEWS: SettingsView[] = [
+  "templates",
+  "aiConfiguration",
+  "liveTestimonies",
+  "liveSlides",
+  "smartVerses",
+  "recorder",
+  "network",
+  "proPresenter",
+  "features",
+  "midi",
+  "version",
+];
+
 const SettingsPage: React.FC = () => {
   const [templates, setTemplates] = useState<Template[]>(() => {
     try {
@@ -43,7 +57,7 @@ const SettingsPage: React.FC = () => {
   const [currentView, setCurrentView] = useState<SettingsView>(() => {
     try {
       const saved = localStorage.getItem("proassist-settings-current-view");
-      if (saved && ["templates", "aiConfiguration", "liveTestimonies", "liveSlides", "smartVerses", "recorder", "network", "proPresenter", "features", "midi", "version"].includes(saved)) {
+      if (saved && SETTINGS_VIEWS.includes(saved as SettingsView)) {
         return saved as SettingsView;
       }
     } catch {
@@ -55,8 +69,9 @@ const SettingsPage: React.FC = () => {
   // Listen for navigation to recorder settings
   useEffect(() => {
     const handleNavigateToSettings = (event: CustomEvent<string>) => {
-      if (event.detail === "recorder") {
-        setCurrentView("recorder");
+      const targetView = event.detail as SettingsView;
+      if (SETTINGS_VIEWS.includes(targetView)) {
+        setCurrentView(targetView);
       }
     };
     window.addEventListener("navigate-to-settings", handleNavigateToSettings as EventListener);

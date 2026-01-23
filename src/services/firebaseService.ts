@@ -21,6 +21,27 @@ let app: FirebaseApp | null = null;
 let database: Database | null = null;
 let currentConfig: FirebaseConfig | null = null;
 
+/**
+ * Validates that a Firebase config has all required fields and a valid databaseURL
+ */
+export function isValidFirebaseConfig(config: FirebaseConfig | null): config is FirebaseConfig {
+  if (!config) return false;
+  
+  // Check for required fields
+  if (!config.apiKey || !config.projectId || !config.databaseURL) {
+    return false;
+  }
+  
+  // Validate databaseURL format - must be a valid Firebase Realtime Database URL
+  // Format: https://<project-id>.firebaseio.com or https://<project-id>.firebasedatabase.app
+  const urlPattern = /^https:\/\/([a-zA-Z0-9-]+)\.(firebaseio\.com|firebasedatabase\.app)(\/.*)?$/;
+  if (!urlPattern.test(config.databaseURL)) {
+    return false;
+  }
+  
+  return true;
+}
+
 function getFirebaseApp(config: FirebaseConfig): FirebaseApp {
   // Check if config has changed by comparing key fields
   const configChanged =
@@ -47,6 +68,13 @@ function getFirebaseApp(config: FirebaseConfig): FirebaseApp {
 }
 
 function getFirebaseDatabase(config: FirebaseConfig): Database {
+  // Validate config before attempting to use it
+  if (!isValidFirebaseConfig(config)) {
+    throw new Error(
+      "Invalid Firebase configuration. Please ensure all required fields are set and databaseURL is in the format: https://<YOUR-FIREBASE>.firebaseio.com"
+    );
+  }
+
   const configChanged =
     !currentConfig ||
     currentConfig.apiKey !== config.apiKey ||
@@ -54,7 +82,15 @@ function getFirebaseDatabase(config: FirebaseConfig): Database {
     currentConfig.databaseURL !== config.databaseURL;
 
   if (!database || configChanged) {
-    database = getDatabase(getFirebaseApp(config));
+    try {
+      database = getDatabase(getFirebaseApp(config));
+    } catch (error) {
+      // Reset state on error
+      database = null;
+      app = null;
+      currentConfig = null;
+      throw error;
+    }
   }
   return database;
 }
