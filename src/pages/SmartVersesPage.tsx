@@ -799,10 +799,7 @@ const SmartVersesPage: React.FC = () => {
             }
             const displaySettings = loadDisplaySettings();
             if (displaySettings.enabled || displaySettings.webEnabled) {
-              const displaySettings = loadDisplaySettings();
-        if (displaySettings.enabled || displaySettings.webEnabled) {
-          await sendScriptureToDisplay({ verseText: "", reference: "" });
-        }
+              await sendScriptureToDisplay({ verseText: "", reference: "" });
             }
             setLiveReferenceId(null);
           } catch (e) {
@@ -852,11 +849,8 @@ const SmartVersesPage: React.FC = () => {
       }
 
       const displaySettings = loadDisplaySettings();
-      if (displaySettings.enabled) {
-        const displaySettings = loadDisplaySettings();
-        if (displaySettings.enabled || displaySettings.webEnabled) {
-          await sendScriptureToDisplay({ verseText: "", reference: "" });
-        }
+      if (displaySettings.enabled || displaySettings.webEnabled) {
+        await sendScriptureToDisplay({ verseText: "", reference: "" });
       }
 
       // Trigger ProPresenter take off if configured

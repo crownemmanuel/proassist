@@ -30,6 +30,7 @@ import StageAssistPage from "./pages/StageAssistPage";
 import SmartVersesPage from "./pages/SmartVersesPage";
 import RecorderPage from "./pages/RecorderPage";
 import AudienceDisplayPage from "./pages/AudienceDisplayPage";
+import ErrorBoundary from "./components/ErrorBoundary";
 import { loadEnabledFeatures } from "./services/recorderService";
 import { EnabledFeatures } from "./types/recorder";
 import {
@@ -413,7 +414,9 @@ function AppContent({
           <SettingsPage />
         </div>
         <div style={{ display: isLiveTestimoniesPage ? "block" : "none" }}>
-          <MediaView />
+          <ErrorBoundary>
+            <MediaView />
+          </ErrorBoundary>
         </div>
         <div style={{ display: isSmartVersesPage ? "block" : "none" }}>
           <SmartVersesPage />
