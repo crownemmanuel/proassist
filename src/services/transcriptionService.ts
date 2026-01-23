@@ -74,6 +74,7 @@ export interface ITranscriptionService {
   setMicrophone(deviceId: string): void;
   setAudioCaptureMode?(mode: "webrtc" | "native"): void;
   setNativeMicrophoneDeviceId?(deviceId: string | null): void;
+  destroy?(): void; // Optional cleanup method to terminate workers and release resources
 }
 
 // =============================================================================

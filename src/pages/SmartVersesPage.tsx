@@ -263,6 +263,8 @@ const SmartVersesPage: React.FC = () => {
       // Cleanup transcription on unmount
       if (transcriptionServiceRef.current) {
         transcriptionServiceRef.current.stopTranscription();
+        // Call destroy() to properly terminate workers and release resources
+        transcriptionServiceRef.current.destroy?.();
       }
       // Cleanup browser transcription WebSocket on unmount
       if (browserTranscriptionWsRef.current) {
@@ -1450,6 +1452,9 @@ const SmartVersesPage: React.FC = () => {
     try {
       if (transcriptionServiceRef.current) {
         await transcriptionServiceRef.current.stopTranscription();
+        // Call destroy() to properly terminate workers and release resources
+        // This is especially important for offline transcription services that use web workers
+        transcriptionServiceRef.current.destroy?.();
         transcriptionServiceRef.current = null;
       }
       // Also disconnect browser transcription WebSocket if connected
