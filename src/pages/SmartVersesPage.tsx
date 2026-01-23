@@ -753,14 +753,6 @@ const SmartVersesPage: React.FC = () => {
         );
       }
 
-      // Add system message
-      setChatHistory(prev => [...prev, {
-        id: `live-${Date.now()}`,
-        type: "system",
-        content: `📺 Went live: ${reference.displayRef}`,
-        timestamp: Date.now(),
-      }]);
-
       // Auto-clear text AFTER a delay (do NOT clear immediately at 0ms; that causes blank files)
       const clearDelay = settings.clearTextDelay ?? 0;
       if (settings.clearTextAfterLive && basePath && clearDelay > 0) {
