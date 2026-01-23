@@ -35,9 +35,11 @@ import {
   loadVerseByComponents,
 } from "../services/smartVersesBibleService";
 import {
-  AssemblyAITranscriptionService,
   loadSmartVersesSettings,
+  createTranscriptionService,
+  ITranscriptionService,
 } from "../services/transcriptionService";
+import { isModelDownloaded } from "../services/offlineModelService";
 import {
   analyzeTranscriptChunk,
   searchBibleWithAI,
@@ -168,7 +170,7 @@ const SmartVersesPage: React.FC = () => {
   const [transcriptHistory, setTranscriptHistory] = useState<TranscriptionSegment[]>([]);
   const [detectedReferences, setDetectedReferences] = useState<DetectedBibleReference[]>([]);
   const [transcriptKeyPoints, setTranscriptKeyPoints] = useState<Record<string, KeyPoint[]>>({});
-  const transcriptionServiceRef = useRef<AssemblyAITranscriptionService | null>(null);
+  const transcriptionServiceRef = useRef<ITranscriptionService | null>(null);
   const detectedReferencesRef = useRef<DetectedBibleReference[]>([]);
   
   // Browser transcription WebSocket
@@ -322,6 +324,8 @@ const SmartVersesPage: React.FC = () => {
       // Cleanup transcription on unmount
       if (transcriptionServiceRef.current) {
         transcriptionServiceRef.current.stopTranscription();
+        // Call destroy() to properly terminate workers and release resources
+        transcriptionServiceRef.current.destroy?.();
       }
       // Cleanup browser transcription WebSocket on unmount
       if (browserTranscriptionWsRef.current) {
@@ -1302,9 +1306,36 @@ const SmartVersesPage: React.FC = () => {
   }, []);
 
   const handleStartTranscription = useCallback(async () => {
-    if (!settings.assemblyAIApiKey) {
+    // Validate API keys based on selected engine
+    if (settings.transcriptionEngine === "assemblyai" && !settings.assemblyAIApiKey) {
       alert("Please configure your AssemblyAI API key in Settings > SmartVerses");
       return;
+    }
+
+    if (settings.transcriptionEngine === "groq" && !settings.groqApiKey) {
+      alert("Please configure your Groq API key in Settings > SmartVerses");
+      return;
+    }
+
+    // Validate offline models are downloaded
+    if (settings.transcriptionEngine === "offline-whisper") {
+      const modelId = settings.offlineWhisperModel || "onnx-community/whisper-base";
+      if (!isModelDownloaded(modelId)) {
+        alert(
+          "The selected Whisper model is not downloaded. Please go to Settings > SmartVerses and click 'Manage Models' to download it first."
+        );
+        return;
+      }
+    }
+
+    if (settings.transcriptionEngine === "offline-moonshine") {
+      const modelId = settings.offlineMoonshineModel || "onnx-community/moonshine-base-ONNX";
+      if (!isModelDownloaded(modelId)) {
+        alert(
+          "The selected Moonshine model is not downloaded. Please go to Settings > SmartVerses and click 'Manage Models' to download it first."
+        );
+        return;
+      }
     }
 
     // Reset interim parse state for a fresh session
@@ -1330,8 +1361,8 @@ const SmartVersesPage: React.FC = () => {
     setTranscriptionStatus("connecting");
 
     try {
-      const service = new AssemblyAITranscriptionService(
-        settings.assemblyAIApiKey,
+      const service = createTranscriptionService(
+        settings,
         {
           onInterimTranscript: (text) => {
             setInterimTranscript(text);
@@ -1519,9 +1550,9 @@ const SmartVersesPage: React.FC = () => {
       );
 
       // Configure audio capture mode (WebRTC vs Native)
-      service.setAudioCaptureMode(settings.audioCaptureMode === "native" ? "native" : "webrtc");
+      service.setAudioCaptureMode?.(settings.audioCaptureMode === "native" ? "native" : "webrtc");
       if (settings.audioCaptureMode === "native") {
-        service.setNativeMicrophoneDeviceId(settings.selectedNativeMicrophoneId || null);
+        service.setNativeMicrophoneDeviceId?.(settings.selectedNativeMicrophoneId || null);
       }
 
       if (settings.selectedMicrophoneId) {
@@ -1542,6 +1573,9 @@ const SmartVersesPage: React.FC = () => {
     try {
       if (transcriptionServiceRef.current) {
         await transcriptionServiceRef.current.stopTranscription();
+        // Call destroy() to properly terminate workers and release resources
+        // This is especially important for offline transcription services that use web workers
+        transcriptionServiceRef.current.destroy?.();
         transcriptionServiceRef.current = null;
       }
       // Also disconnect browser transcription WebSocket if connected
