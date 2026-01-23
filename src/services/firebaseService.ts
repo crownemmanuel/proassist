@@ -36,8 +36,17 @@ function getFirebaseApp(config: FirebaseConfig): FirebaseApp {
     if (existingApps.length > 0 && !configChanged) {
       app = existingApps[0];
     } else {
+      // Validate databaseURL before initializing
+      if (!config.databaseURL || !config.databaseURL.startsWith('https://') || config.databaseURL.includes('<YOUR')) {
+        throw new Error(`Invalid Firebase database URL: ${config.databaseURL}. Please configure a valid Firebase URL in Settings > Live Testimonies.`);
+      }
       // Initialize new app - Firebase will handle multiple instances
-      app = initializeApp(config);
+      try {
+        app = initializeApp(config);
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        throw new Error(`Failed to initialize Firebase: ${errorMsg}. Please check your Firebase configuration.`);
+      }
     }
     currentConfig = { ...config };
     // Reset database when config changes

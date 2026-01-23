@@ -11,7 +11,8 @@ import SmartVersesSettings from "../components/SmartVersesSettings";
 import RecorderSettings from "../components/RecorderSettings";
 import FeaturesSettings from "../components/FeaturesSettings";
 import MidiSettings from "../components/MidiSettings";
-import { FaList, FaRobot, FaStickyNote, FaNetworkWired, FaClock, FaInfoCircle, FaBible, FaGlobe, FaCircle, FaToggleOn } from "react-icons/fa";
+import DisplaySettings from "../components/DisplaySettings";
+import { FaList, FaRobot, FaStickyNote, FaNetworkWired, FaClock, FaInfoCircle, FaBible, FaGlobe, FaCircle, FaToggleOn, FaDesktop } from "react-icons/fa";
 import "../App.css"; // Ensure global styles are applied
 import {
   exportAllTemplatesToFile,
@@ -21,7 +22,7 @@ import {
 import TemplateListView from "../components/TemplateListView";
 import ConfirmDialog from "../components/ConfirmDialog";
 
-type SettingsView = "templates" | "aiConfiguration" | "liveTestimonies" | "liveSlides" | "smartVerses" | "recorder" | "network" | "proPresenter" | "features" | "midi" | "version";
+type SettingsView = "templates" | "aiConfiguration" | "liveTestimonies" | "liveSlides" | "smartVerses" | "display" | "recorder" | "network" | "proPresenter" | "features" | "midi" | "version";
 
 const SETTINGS_VIEWS: SettingsView[] = [
   "templates",
@@ -29,6 +30,7 @@ const SETTINGS_VIEWS: SettingsView[] = [
   "liveTestimonies",
   "liveSlides",
   "smartVerses",
+  "display",
   "recorder",
   "network",
   "proPresenter",
@@ -289,6 +291,13 @@ const SettingsPage: React.FC = () => {
             SmartVerses
           </button>
           <button
+            onClick={() => setCurrentView("display")}
+            className={currentView === "display" ? "active" : ""}
+          >
+            <FaDesktop />
+            Audience Display
+          </button>
+          <button
             onClick={() => setCurrentView("recorder")}
             className={currentView === "recorder" ? "active" : ""}
           >
@@ -384,6 +393,7 @@ const SettingsPage: React.FC = () => {
         {currentView === "liveTestimonies" && <LiveTestimoniesSettings />}
         {currentView === "liveSlides" && <LiveSlidesSettings />}
         {currentView === "smartVerses" && <SmartVersesSettings />}
+        {currentView === "display" && <DisplaySettings />}
         {currentView === "recorder" && <RecorderSettings />}
         {currentView === "network" && <NetworkSettings />}
         {currentView === "proPresenter" && <ProPresenterSettings />}
