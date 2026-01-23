@@ -24,6 +24,7 @@ import {
   SMART_VERSES_SETTINGS_KEY,
   DEFAULT_SMART_VERSES_SETTINGS,
 } from "../types/smartVerses";
+import RecordRTC, { StereoAudioRecorder } from "recordrtc";
 
 type NativeAudioInputDevice = {
   id: string;
