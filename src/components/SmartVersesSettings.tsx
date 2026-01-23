@@ -170,6 +170,52 @@ const SmartVersesSettings: React.FC = () => {
     { delayMs: 600, enabled: settingsLoaded, skipFirstRun: true }
   );
 
+  // Get available providers based on API keys
+  const getAvailableProviders = useCallback(() => {
+    const appSettings = getAppSettings();
+    const available: Array<{ value: string; label: string }> = [];
+    
+    if (appSettings.openAIConfig?.apiKey) {
+      available.push({ value: "openai", label: "OpenAI" });
+    }
+    if (appSettings.geminiConfig?.apiKey) {
+      available.push({ value: "gemini", label: "Google Gemini" });
+    }
+    if (appSettings.groqConfig?.apiKey) {
+      available.push({ value: "groq", label: "Groq (Recommended - Super Fast)" });
+    }
+    
+    return available;
+  }, []);
+
+  // Check if current provider still has API key, reset if not
+  useEffect(() => {
+    if (settings.bibleSearchProvider) {
+      const appSettings = getAppSettings();
+      let hasApiKey = false;
+      
+      switch (settings.bibleSearchProvider) {
+        case "openai":
+          hasApiKey = !!appSettings.openAIConfig?.apiKey;
+          break;
+        case "gemini":
+          hasApiKey = !!appSettings.geminiConfig?.apiKey;
+          break;
+        case "groq":
+          hasApiKey = !!appSettings.groqConfig?.apiKey;
+          break;
+      }
+      
+      if (!hasApiKey) {
+        setSettings((prev) => ({
+          ...prev,
+          bibleSearchProvider: undefined,
+          bibleSearchModel: "",
+        }));
+      }
+    }
+  }, [settings.bibleSearchProvider]);
+
   // Load models when provider changes
   const loadBibleSearchModels = useCallback(async (provider: string) => {
     if (!provider) {
@@ -747,9 +793,11 @@ const SmartVersesSettings: React.FC = () => {
                 style={inputStyle}
               >
                 <option value="">Select Provider</option>
-                <option value="openai">OpenAI</option>
-                <option value="gemini">Google Gemini</option>
-                <option value="groq">Groq (Recommended - Super Fast)</option>
+                {getAvailableProviders().map((provider) => (
+                  <option key={provider.value} value={provider.value}>
+                    {provider.label}
+                  </option>
+                ))}
               </select>
             </div>
 
