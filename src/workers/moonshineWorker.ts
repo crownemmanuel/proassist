@@ -7,6 +7,9 @@
  */
 
 import { AutoModel, Tensor, pipeline, Pipeline } from '@huggingface/transformers';
+import { configureTransformersEnv } from '../utils/transformersEnv';
+
+configureTransformersEnv();
 
 // Constants for audio processing
 const SAMPLE_RATE = 16000;

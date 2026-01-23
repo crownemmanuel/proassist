@@ -130,7 +130,15 @@ export async function downloadModel(
 
   try {
     // Dynamic import to avoid loading transformers.js until needed
-    const { AutoProcessor, AutoTokenizer, WhisperForConditionalGeneration, AutoModel, pipeline } = await import('@huggingface/transformers');
+    const [
+      { AutoProcessor, AutoTokenizer, WhisperForConditionalGeneration, AutoModel, pipeline },
+      { configureTransformersEnv },
+    ] = await Promise.all([
+      import('@huggingface/transformers'),
+      import('../utils/transformersEnv'),
+    ]);
+
+    configureTransformersEnv();
 
     // Determine device based on WebGPU support
     const hasWebGPU = await supportsWebGPU();

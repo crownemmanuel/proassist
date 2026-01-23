@@ -14,8 +14,11 @@ import {
   PreTrainedTokenizer,
   Processor,
 } from '@huggingface/transformers';
+import { configureTransformersEnv } from '../utils/transformersEnv';
 
 const MAX_NEW_TOKENS = 64;
+
+configureTransformersEnv();
 
 // Model state
 let tokenizer: PreTrainedTokenizer | null = null;
