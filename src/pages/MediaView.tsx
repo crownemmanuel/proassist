@@ -8,6 +8,7 @@ import {
   subscribeToLiveTestimony,
   subscribeToTestimoniesByDateAndService,
   getServices,
+  isValidFirebaseConfig,
 } from "../services/firebaseService";
 import { Testimony, LiveTestimony, ServiceType, FirebaseConfig } from "../types/testimonies";
 import { formatNameForCopy } from "../utils/nameUtils";
@@ -87,6 +88,16 @@ const MediaView: React.FC = () => {
       setError("Firebase configuration not found. Please configure it in Settings > Live Testimonies.");
       return;
     }
+
+    // Validate config before using it
+    if (!isValidFirebaseConfig(config)) {
+      setError(
+        "Invalid Firebase configuration. Please check your databaseURL in Settings > Live Testimonies. " +
+        "It should be in the format: https://<YOUR-FIREBASE>.firebaseio.com"
+      );
+      return;
+    }
+
     setFirebaseConfig(config);
 
     // Load services
@@ -105,7 +116,7 @@ const MediaView: React.FC = () => {
         }
       } catch (err) {
         console.error("Failed to load services:", err);
-        setError("Failed to load services. Check your Firebase configuration.");
+        setError(`Failed to load services: ${describeFirebaseError(err)}`);
       }
     };
     loadServicesData();
@@ -117,28 +128,47 @@ const MediaView: React.FC = () => {
         setCurrentLive(live);
       } catch (err) {
         console.error("Failed to load current live:", err);
+        setError(`Failed to load current live testimony: ${describeFirebaseError(err)}`);
       }
     };
     loadCurrentLive();
 
     // Subscribe to live testimony changes
-    const unsubscribe = subscribeToLiveTestimony(
-      config,
-      (live) => {
-        setCurrentLive(live);
-      },
-      (err) => {
-        // Important: in production, failures here can look like "stuck loading" unless we surface them.
-        setError(`Live Testimony subscription failed: ${describeFirebaseError(err)}`);
-      }
-    );
+    let unsubscribe: (() => void) | null = null;
+    try {
+      unsubscribe = subscribeToLiveTestimony(
+        config,
+        (live) => {
+          setCurrentLive(live);
+        },
+        (err) => {
+          // Important: in production, failures here can look like "stuck loading" unless we surface them.
+          setError(`Live Testimony subscription failed: ${describeFirebaseError(err)}`);
+        }
+      );
+    } catch (err) {
+      console.error("Failed to subscribe to live testimony:", err);
+      setError(`Failed to subscribe to live testimony: ${describeFirebaseError(err)}`);
+    }
 
-    return () => unsubscribe();
+    return () => {
+      if (unsubscribe) {
+        unsubscribe();
+      }
+    };
   }, []);
 
   // Subscribe to real-time testimonies updates
   useEffect(() => {
     if (!firebaseConfig || !service || !date) return;
+
+    // Validate config again before subscribing
+    if (!isValidFirebaseConfig(firebaseConfig)) {
+      setError(
+        "Invalid Firebase configuration. Please check your databaseURL in Settings > Live Testimonies."
+      );
+      return;
+    }
 
     // Cleanup previous subscription
     if (unsubscribeTestimoniesRef.current) {
@@ -161,25 +191,32 @@ const MediaView: React.FC = () => {
     }, 15000);
 
     // Subscribe to real-time updates
-    const unsubscribe = subscribeToTestimoniesByDateAndService(
-      firebaseConfig,
-      date,
-      service,
-      (updatedTestimonies) => {
-        window.clearTimeout(timeoutId);
-        setTestimonies(updatedTestimonies);
-        setIsLoading(false);
-        setIsSubscribed(true);
-      },
-      (err) => {
-        window.clearTimeout(timeoutId);
-        setIsLoading(false);
-        setIsSubscribed(false);
-        setError(`Testimonies subscription failed: ${describeFirebaseError(err)}`);
-      }
-    );
-
-    unsubscribeTestimoniesRef.current = unsubscribe;
+    let unsubscribe: (() => void) | null = null;
+    try {
+      unsubscribe = subscribeToTestimoniesByDateAndService(
+        firebaseConfig,
+        date,
+        service,
+        (updatedTestimonies) => {
+          window.clearTimeout(timeoutId);
+          setTestimonies(updatedTestimonies);
+          setIsLoading(false);
+          setIsSubscribed(true);
+        },
+        (err) => {
+          window.clearTimeout(timeoutId);
+          setIsLoading(false);
+          setIsSubscribed(false);
+          setError(`Testimonies subscription failed: ${describeFirebaseError(err)}`);
+        }
+      );
+      unsubscribeTestimoniesRef.current = unsubscribe;
+    } catch (err) {
+      window.clearTimeout(timeoutId);
+      setIsLoading(false);
+      setIsSubscribed(false);
+      setError(`Failed to subscribe to testimonies: ${describeFirebaseError(err)}`);
+    }
 
     return () => {
       window.clearTimeout(timeoutId);
