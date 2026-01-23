@@ -83,9 +83,16 @@ const MediaView: React.FC = () => {
 
   useEffect(() => {
     // Load Firebase config
-    const config = loadFirebaseConfig();
-    if (!config) {
-      setError("Firebase configuration not found. Please configure it in Settings > Live Testimonies.");
+    let config: FirebaseConfig | null = null;
+    try {
+      config = loadFirebaseConfig();
+      if (!config) {
+        setError("Firebase configuration not found. Please configure it in Settings > Live Testimonies.");
+        return;
+      }
+    } catch (err) {
+      console.error("Failed to load Firebase config:", err);
+      setError("Firebase configuration error. Please check your Firebase settings in Settings > Live Testimonies.");
       return;
     }
 
@@ -103,7 +110,7 @@ const MediaView: React.FC = () => {
     // Load services
     const loadServicesData = async () => {
       try {
-        const loadedServices = await getServices(config);
+        const loadedServices = await getServices(config!);
         setServices(loadedServices);
         if (loadedServices.length > 0) {
           // Only set to first service if no service is currently selected or if saved service is not in the list
@@ -116,7 +123,8 @@ const MediaView: React.FC = () => {
         }
       } catch (err) {
         console.error("Failed to load services:", err);
-        setError(`Failed to load services: ${describeFirebaseError(err)}`);
+        const errorMsg = describeFirebaseError(err);
+        setError(`Failed to load services: ${errorMsg}. Check your Firebase configuration in Settings > Live Testimonies.`);
       }
     };
     loadServicesData();
@@ -124,7 +132,7 @@ const MediaView: React.FC = () => {
     // Load current live testimony
     const loadCurrentLive = async () => {
       try {
-        const live = await getLiveTestimony(config);
+        const live = await getLiveTestimony(config!);
         setCurrentLive(live);
       } catch (err) {
         console.error("Failed to load current live:", err);
@@ -137,7 +145,7 @@ const MediaView: React.FC = () => {
     let unsubscribe: (() => void) | null = null;
     try {
       unsubscribe = subscribeToLiveTestimony(
-        config,
+        config!,
         (live) => {
           setCurrentLive(live);
         },
@@ -147,8 +155,8 @@ const MediaView: React.FC = () => {
         }
       );
     } catch (err) {
-      console.error("Failed to subscribe to live testimony:", err);
-      setError(`Failed to subscribe to live testimony: ${describeFirebaseError(err)}`);
+      console.error("Failed to initialize Firebase subscriptions:", err);
+      setError(`Firebase initialization failed: ${describeFirebaseError(err)}. Please check your Firebase configuration.`);
     }
 
     return () => {

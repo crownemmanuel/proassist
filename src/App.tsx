@@ -29,6 +29,7 @@ import LiveSlidesNotepad from "./pages/LiveSlidesNotepad";
 import StageAssistPage from "./pages/StageAssistPage";
 import SmartVersesPage from "./pages/SmartVersesPage";
 import RecorderPage from "./pages/RecorderPage";
+import AudienceDisplayPage from "./pages/AudienceDisplayPage";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { loadEnabledFeatures } from "./services/recorderService";
 import { EnabledFeatures } from "./types/recorder";
@@ -380,6 +381,14 @@ function AppContent({
           path="/live-slides/notepad/:sessionId"
           element={<LiveSlidesNotepad />}
         />
+      </Routes>
+    );
+  }
+
+  if (location.pathname === "/audience-display") {
+    return (
+      <Routes>
+        <Route path="/audience-display" element={<AudienceDisplayPage />} />
       </Routes>
     );
   }

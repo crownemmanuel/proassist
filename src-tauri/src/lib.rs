@@ -86,6 +86,22 @@ pub struct TimerState {
 }
 
 // ============================================================================
+// Types for Display (Audience Display)
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DisplayScripture {
+    pub verse_text: String,
+    pub reference: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DisplayState {
+    pub scripture: DisplayScripture,
+    pub settings: serde_json::Value, // DisplaySettings as JSON
+}
+
+// ============================================================================
 // Types for Network Sync
 // ============================================================================
 
@@ -202,6 +218,13 @@ pub enum WsMessage {
     TimerUpdate { timer_state: TimerState },
     #[serde(rename = "join_timer")]
     JoinTimer,
+    #[serde(rename = "join_display")]
+    JoinDisplay,
+    #[serde(rename = "display_update")]
+    DisplayUpdate { 
+        scripture: DisplayScripture,
+        settings: serde_json::Value,
+    },
     #[serde(rename = "error")]
     Error { message: String },
 }
@@ -211,6 +234,7 @@ struct ServerState {
     sessions: RwLock<HashMap<String, LiveSlideSession>>,
     schedule: RwLock<ScheduleState>,
     timer_state: RwLock<TimerState>,
+    display_state: RwLock<DisplayState>,
     broadcast_tx: broadcast::Sender<String>,
     running: RwLock<bool>,
     port: RwLock<u16>,
@@ -245,6 +269,13 @@ lazy_static::lazy_static! {
             session_name: None,
             end_time: None,
             is_overrun: false,
+        }),
+        display_state: RwLock::new(DisplayState {
+            scripture: DisplayScripture {
+                verse_text: String::new(),
+                reference: String::new(),
+            },
+            settings: serde_json::json!({}),
         }),
         broadcast_tx: broadcast::channel(100).0,
         running: RwLock::new(false),
@@ -507,6 +538,17 @@ async fn handle_ws_connection(ws: WebSocket, state: Arc<ServerState>) {
                                 let _ = state.broadcast_tx.send(json);
                             }
                         }
+                        WsMessage::JoinDisplay => {
+                            // Send current display state to the joining client
+                            let display_state = state.display_state.read().await;
+                            let update = WsMessage::DisplayUpdate {
+                                scripture: display_state.scripture.clone(),
+                                settings: display_state.settings.clone(),
+                            };
+                            if let Ok(json) = serde_json::to_string(&update) {
+                                let _ = state.broadcast_tx.send(json);
+                            }
+                        }
                         WsMessage::TranscriptionStream { .. } => {
                             // Re-broadcast browser transcription stream messages to all clients.
                             // We forward the original JSON string so fields remain intact.
@@ -641,6 +683,27 @@ async fn run_combined_server(port: u16) -> Result<(), String> {
                 }
             }
         });
+
+    // Display route - serve display.html for web audience display
+    let display_route = warp::path("display")
+        .and(warp::path::end())
+        .map(|| {
+            match serve_embedded_file("display.html") {
+                Some((content, _)) => {
+                    warp::http::Response::builder()
+                        .header("Content-Type", "text/html")
+                        .header("Access-Control-Allow-Origin", "*")
+                        .body(content)
+                        .unwrap()
+                }
+                None => {
+                    warp::http::Response::builder()
+                        .status(404)
+                        .body(b"Display page not found".to_vec())
+                        .unwrap()
+                }
+            }
+        });
     
     // Static files route - serve embedded frontend assets
     let static_route = warp::path::tail()
@@ -706,6 +769,7 @@ async fn run_combined_server(port: u16) -> Result<(), String> {
         .or(live_slides_api_route)
         .or(schedule_view_route)
         .or(live_slides_landing_route)
+        .or(display_route)
         .or(root_route)
         .or(static_route)
         .with(cors);
@@ -899,6 +963,213 @@ fn greet(name: &str) -> String {
 fn toggle_devtools(window: tauri::WebviewWindow) -> Result<(), String> {
     window.open_devtools();
     Ok(())
+}
+
+// Safe monitor information structure for serialization
+// Note: workArea is not included as it's not available via the Monitor API
+// and was causing serialization errors when it was None
+#[derive(Debug, Clone, Serialize)]
+struct SafeMonitorInfo {
+    name: Option<String>,
+    position: (i32, i32),
+    size: (u32, u32),
+    scale_factor: f64,
+}
+
+// Get available monitors safely (avoids workArea serialization issues)
+#[tauri::command]
+fn get_available_monitors_safe(
+    window: tauri::WebviewWindow,
+) -> Result<Vec<SafeMonitorInfo>, String> {
+    match window.available_monitors() {
+        Ok(monitors) => {
+            let mut safe_monitors = Vec::new();
+            for monitor in monitors {
+                let pos = monitor.position();
+                let size = monitor.size();
+                let scale = monitor.scale_factor();
+                
+                safe_monitors.push(SafeMonitorInfo {
+                    name: monitor.name().map(|s| s.clone()),
+                    position: (pos.x, pos.y),
+                    size: (size.width, size.height),
+                    scale_factor: scale,
+                });
+            }
+            Ok(safe_monitors)
+        }
+        Err(e) => {
+            eprintln!("[Display] Failed to get monitors: {:?}", e);
+            Err(format!("Failed to get monitors: {:?}", e))
+        }
+    }
+}
+
+// Create or show the audience display window
+#[tauri::command]
+fn open_audience_display_window(
+    app_handle: tauri::AppHandle,
+    parent_window: tauri::WebviewWindow,
+    monitor_index: Option<usize>,
+) -> Result<(), String> {
+    use tauri::{Manager, WebviewWindowBuilder};
+
+    const WINDOW_LABEL: &str = "audience-display";
+
+    // Check if window already exists
+    if let Some(existing_window) = app_handle.get_webview_window(WINDOW_LABEL) {
+        // Window exists, just focus it
+        if let Err(e) = existing_window.set_focus() {
+            eprintln!("[Display] Error focusing audience display window: {:?}", e);
+            return Err(format!("Failed to focus window: {:?}", e));
+        }
+        return Ok(());
+    }
+
+    // Helper to get offset position from parent
+    let get_offset_position = || -> (f64, f64) {
+        let offset_x = 100.0;
+        match (parent_window.outer_position(), parent_window.outer_size()) {
+            (Ok(pos), Ok(size)) => {
+                (pos.x as f64 + size.width as f64 + offset_x, pos.y as f64)
+            }
+            _ => (offset_x, 100.0)
+        }
+    };
+
+    // Determine window position and size
+    let (new_x, new_y, width, height, is_fullscreen) = if let Some(index) = monitor_index {
+        // Try to find the monitor by index
+        match parent_window.available_monitors() {
+            Ok(monitors) => {
+                if let Some(monitor) = monitors.get(index) {
+                    let pos = monitor.position();
+                    let size = monitor.size();
+                    println!("[Display] Opening on monitor {}: pos=({},{}), size={}x{}", 
+                        index, pos.x, pos.y, size.width, size.height);
+                    (pos.x as f64, pos.y as f64, size.width as f64, size.height as f64, true)
+                } else {
+                    eprintln!("[Display] Monitor index {} not found, falling back to offset", index);
+                    let (x, y) = get_offset_position();
+                    (x, y, 1200.0, 800.0, false)
+                }
+            }
+            Err(e) => {
+                eprintln!("[Display] Failed to get available monitors: {:?}", e);
+                let (x, y) = get_offset_position();
+                (x, y, 1200.0, 800.0, false)
+            }
+        }
+    } else {
+        let (x, y) = get_offset_position();
+        (x, y, 1200.0, 800.0, false)
+    };
+
+    // Create new window
+    let window_builder = WebviewWindowBuilder::new(
+        &app_handle,
+        WINDOW_LABEL,
+        tauri::WebviewUrl::App("/audience-display".into())
+    )
+        .title("Audience Display")
+        .decorations(!is_fullscreen) // No decorations if fullscreen
+        .inner_size(width, height)
+        .min_inner_size(800.0, 600.0)
+        .resizable(true)
+        .visible(false) // Start hidden to avoid flickering
+        .focused(false) // Don't steal focus from main window
+        .position(new_x, new_y); // Position on selected monitor
+
+    // Try to set parent window (this helps with window management)
+    // If it fails, we'll just continue without the parent relationship
+    let window_builder = match window_builder.parent(&parent_window) {
+        Ok(builder) => builder,
+        Err(e) => {
+            eprintln!("[Display] Warning: Could not set parent window: {:?}", e);
+            // Recreate the builder without parent since parent() consumes it
+            WebviewWindowBuilder::new(
+                &app_handle,
+                WINDOW_LABEL,
+                tauri::WebviewUrl::App("/audience-display".into())
+            )
+                .title("Audience Display")
+                .decorations(!is_fullscreen)
+                .inner_size(width, height)
+                .min_inner_size(800.0, 600.0)
+                .resizable(true)
+                .visible(false)
+                .focused(false)
+                .position(new_x, new_y)
+        }
+    };
+
+    match window_builder.build() {
+        Ok(window) => {
+            if is_fullscreen {
+                // If targeting a specific monitor, maximize it to fill the screen
+                if let Err(e) = window.maximize() {
+                    eprintln!("[Display] Failed to maximize window: {:?}", e);
+                }
+            }
+            if let Err(e) = window.show() {
+                eprintln!("[Display] Failed to show window: {:?}", e);
+            }
+            println!("[Display] Audience display window created successfully");
+            Ok(())
+        },
+        Err(e) => {
+            eprintln!("[Display] Error creating audience display window: {:?}", e);
+            Err(format!("Failed to create window: {:?}", e))
+        }
+    }
+}
+
+// ============================================================================
+// Font Enumeration
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SystemFont {
+    pub family: String,
+    pub postscript_name: Option<String>,
+}
+
+// Get available system fonts
+#[tauri::command]
+fn get_available_system_fonts() -> Result<Vec<SystemFont>, String> {
+    use fontdb::Database;
+    
+    let mut db = Database::new();
+    db.load_system_fonts();
+    
+    let mut fonts: Vec<SystemFont> = Vec::new();
+    let mut seen_families = std::collections::HashSet::new();
+    
+    // Iterate through all fonts in the database
+    // db.faces() returns an iterator over FaceInfo references
+    for face in db.faces() {
+        // Get the font family name
+        let family = face
+            .families
+            .first()
+            .map(|f| f.0.clone())
+            .unwrap_or_else(|| "Unknown".to_string());
+        
+        // Only add each family once (avoid duplicates)
+        if !seen_families.contains(&family) {
+            seen_families.insert(family.clone());
+            
+            fonts.push(SystemFont {
+                family: family.clone(),
+                postscript_name: Some(face.post_script_name.clone()),
+            });
+        }
+    }
+    
+    // Sort fonts alphabetically by family name
+    fonts.sort_by(|a, b| a.family.to_lowercase().cmp(&b.family.to_lowercase()));
+    
+    Ok(fonts)
 }
 
 // ============================================================================
@@ -2470,6 +2741,39 @@ async fn update_timer_state(
     Ok(())
 }
 
+#[tauri::command]
+async fn update_display_state(
+    verse_text: String,
+    reference: String,
+    settings: serde_json::Value,
+) -> Result<(), String> {
+    let state = SERVER_STATE.clone();
+    
+    // Update display state
+    {
+        let mut display_state = state.display_state.write().await;
+        display_state.scripture = DisplayScripture {
+            verse_text: verse_text.clone(),
+            reference: reference.clone(),
+        };
+        display_state.settings = settings.clone();
+    }
+    
+    // Broadcast display update to all connected clients
+    let update = WsMessage::DisplayUpdate {
+        scripture: DisplayScripture {
+            verse_text,
+            reference,
+        },
+        settings,
+    };
+    if let Ok(json) = serde_json::to_string(&update) {
+        let _ = state.broadcast_tx.send(json);
+    }
+    
+    Ok(())
+}
+
 // ============================================================================
 // Network Sync Tauri Commands
 // ============================================================================
@@ -2727,6 +3031,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             greet,
             toggle_devtools,
+            get_available_monitors_safe,
+            open_audience_display_window,
+            get_available_system_fonts,
             list_native_audio_input_devices,
             start_native_audio_stream,
             stop_native_audio_stream,
@@ -2767,6 +3074,7 @@ pub fn run() {
             get_local_ip,
             update_schedule,
             update_timer_state,
+            update_display_state,
             // Network Sync commands
             start_sync_server,
             stop_sync_server,

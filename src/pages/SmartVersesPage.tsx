@@ -44,6 +44,11 @@ import {
   resolveParaphrasedVerses,
 } from "../services/smartVersesAIService";
 import { searchBibleTextAsReferences } from "../services/bibleTextSearchService";
+import {
+  loadDisplaySettings,
+  openDisplayWindow,
+  sendScriptureToDisplay,
+} from "../services/displayService";
 import { triggerPresentationOnConnections } from "../services/propresenterService";
 import { broadcastTranscriptionStreamMessage } from "../services/transcriptionBroadcastService";
 import { LiveSlidesWebSocket, getLiveSlidesServerInfo } from "../services/liveSlideService";
@@ -717,11 +722,12 @@ const SmartVersesPage: React.FC = () => {
       }
 
       const basePath = settings.bibleOutputPath?.replace(/\/?$/, "/") || "";
+      const verseText = reference.verseText || "";
+      const displayRef = reference.displayRef || "";
       
       // Write verse text to file
       if (basePath && settings.bibleTextFileName) {
         const textFilePath = `${basePath}${settings.bibleTextFileName}`;
-        const verseText = reference.verseText || "";
         console.log(`Writing verse text to: ${textFilePath}, Content: "${verseText}"`);
         await invoke("write_text_to_file", {
           filePath: textFilePath,
@@ -732,7 +738,6 @@ const SmartVersesPage: React.FC = () => {
       // Write reference to file
       if (basePath && settings.bibleReferenceFileName) {
         const refFilePath = `${basePath}${settings.bibleReferenceFileName}`;
-        const displayRef = reference.displayRef || "";
         console.log(`Writing reference to: ${refFilePath}, Content: "${displayRef}"`);
         await invoke("write_text_to_file", {
           filePath: refFilePath,
@@ -753,6 +758,32 @@ const SmartVersesPage: React.FC = () => {
         );
       }
 
+      // Update audience display if enabled
+      const displaySettings = loadDisplaySettings();
+      if (displaySettings.enabled || displaySettings.webEnabled) {
+        try {
+          // Only open the native window if enabled (not just webEnabled)
+          if (displaySettings.enabled) {
+            await openDisplayWindow(displaySettings);
+          }
+          // Send scripture to both native and web displays
+          await sendScriptureToDisplay({
+            verseText,
+            reference: displayRef,
+          });
+        } catch (error) {
+          console.warn("[Display] Failed to update audience screen:", error);
+        }
+      }
+
+      // Add system message
+      setChatHistory(prev => [...prev, {
+        id: `live-${Date.now()}`,
+        type: "system",
+        content: `📺 Went live: ${reference.displayRef}`,
+        timestamp: Date.now(),
+      }]);
+
       // Auto-clear text AFTER a delay (do NOT clear immediately at 0ms; that causes blank files)
       const clearDelay = settings.clearTextDelay ?? 0;
       if (settings.clearTextAfterLive && basePath && clearDelay > 0) {
@@ -765,6 +796,10 @@ const SmartVersesPage: React.FC = () => {
             if (settings.bibleReferenceFileName) {
               const refFilePath = `${basePath}${settings.bibleReferenceFileName}`;
               await invoke("write_text_to_file", { filePath: refFilePath, content: "" });
+            }
+            const displaySettings = loadDisplaySettings();
+            if (displaySettings.enabled || displaySettings.webEnabled) {
+              await sendScriptureToDisplay({ verseText: "", reference: "" });
             }
             setLiveReferenceId(null);
           } catch (e) {
@@ -811,6 +846,11 @@ const SmartVersesPage: React.FC = () => {
             content: "",
           });
         }
+      }
+
+      const displaySettings = loadDisplaySettings();
+      if (displaySettings.enabled || displaySettings.webEnabled) {
+        await sendScriptureToDisplay({ verseText: "", reference: "" });
       }
 
       // Trigger ProPresenter take off if configured
