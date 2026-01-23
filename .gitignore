@@ -27,3 +27,7 @@ tools/scripture-eval/output
 *.njsproj
 *.sln
 *.sw?
+
+# Development data and cache
+.cache/
+devdata/
