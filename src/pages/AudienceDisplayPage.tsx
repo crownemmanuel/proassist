@@ -67,6 +67,7 @@ const AudienceDisplayPage: React.FC = () => {
   const referenceBoxRef = useRef<HTMLDivElement | null>(null);
   const referenceContentRef = useRef<HTMLDivElement | null>(null);
   const mouseMoveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const mouseLeaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Load background image asynchronously
   useEffect(() => {
@@ -225,9 +226,13 @@ const AudienceDisplayPage: React.FC = () => {
         movementStartTime = now;
       }
 
-      // Clear any existing timeout
+      // Clear any existing timeouts
       if (mouseMoveTimeoutRef.current) {
         clearTimeout(mouseMoveTimeoutRef.current);
+      }
+      if (mouseLeaveTimeoutRef.current) {
+        clearTimeout(mouseLeaveTimeoutRef.current);
+        mouseLeaveTimeoutRef.current = null;
       }
 
       // Check if we've been moving for 2 seconds
@@ -249,10 +254,15 @@ const AudienceDisplayPage: React.FC = () => {
         clearTimeout(mouseMoveTimeoutRef.current);
         mouseMoveTimeoutRef.current = null;
       }
+      // Clear any existing mouse leave timeout
+      if (mouseLeaveTimeoutRef.current) {
+        clearTimeout(mouseLeaveTimeoutRef.current);
+      }
       movementStartTime = null;
       // Keep button visible briefly after leaving, then hide
-      setTimeout(() => {
+      mouseLeaveTimeoutRef.current = setTimeout(() => {
         setShowCloseButton(false);
+        mouseLeaveTimeoutRef.current = null;
       }, 1500);
     };
 
@@ -264,6 +274,9 @@ const AudienceDisplayPage: React.FC = () => {
       window.removeEventListener("mouseleave", handleMouseLeave);
       if (mouseMoveTimeoutRef.current) {
         clearTimeout(mouseMoveTimeoutRef.current);
+      }
+      if (mouseLeaveTimeoutRef.current) {
+        clearTimeout(mouseLeaveTimeoutRef.current);
       }
     };
   }, []);
