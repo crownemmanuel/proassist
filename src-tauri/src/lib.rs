@@ -1045,9 +1045,22 @@ fn open_audience_display_window(
                 if let Some(monitor) = monitors.get(index) {
                     let pos = monitor.position();
                     let size = monitor.size();
-                    println!("[Display] Opening on monitor {}: pos=({},{}), size={}x{}", 
-                        index, pos.x, pos.y, size.width, size.height);
-                    (pos.x as f64, pos.y as f64, size.width as f64, size.height as f64, true)
+                    let scale = monitor.scale_factor();
+                    let logical_x = pos.x as f64 / scale;
+                    let logical_y = pos.y as f64 / scale;
+                    let logical_width = size.width as f64 / scale;
+                    let logical_height = size.height as f64 / scale;
+                    println!(
+                        "[Display] Opening on monitor {}: pos=({},{}), size={}x{}, scale={}",
+                        index, pos.x, pos.y, size.width, size.height, scale
+                    );
+                    (
+                        logical_x,
+                        logical_y,
+                        logical_width,
+                        logical_height,
+                        true,
+                    )
                 } else {
                     eprintln!("[Display] Monitor index {} not found, falling back to offset", index);
                     let (x, y) = get_offset_position();
@@ -1080,8 +1093,10 @@ fn open_audience_display_window(
         .focused(false) // Don't steal focus from main window
         .position(new_x, new_y); // Position on selected monitor
 
-    // Try to set parent window (this helps with window management)
-    // If it fails, we'll just continue without the parent relationship
+    // Try to set parent window (helps with window management on most platforms).
+    // On macOS, parenting keeps the window tied to the same Space and makes it
+    // move with the parent, which breaks dual-monitor display behavior.
+    #[cfg(not(target_os = "macos"))]
     let window_builder = match window_builder.parent(&parent_window) {
         Ok(builder) => builder,
         Err(e) => {
@@ -1103,12 +1118,19 @@ fn open_audience_display_window(
         }
     };
 
+    #[cfg(target_os = "macos")]
+    let window_builder = window_builder;
+
     match window_builder.build() {
         Ok(window) => {
             if is_fullscreen {
-                // If targeting a specific monitor, maximize it to fill the screen
-                if let Err(e) = window.maximize() {
-                    eprintln!("[Display] Failed to maximize window: {:?}", e);
+                // On macOS, maximizing can pull the window back to the active Space.
+                // We already set position/size to the target monitor, so skip maximize there.
+                #[cfg(not(target_os = "macos"))]
+                {
+                    if let Err(e) = window.maximize() {
+                        eprintln!("[Display] Failed to maximize window: {:?}", e);
+                    }
                 }
             }
             if let Err(e) = window.show() {
