@@ -1171,23 +1171,38 @@ const SmartVersesPage: React.FC = () => {
                   transcriptText: m.text,
                 }));
 
-                setDetectedReferences((prev) => [...prev, ...resolvedWithTranscript]);
+                // De-dupe against the most recent refs to avoid repeated paraphrase entries.
+                const recent = detectedReferencesRef.current.slice(-5);
+                const recentKeys = new Set(
+                  recent.map((r) => (r.displayRef || "").trim().toLowerCase())
+                );
+                const deduped = resolvedWithTranscript.filter(
+                  (r) => !recentKeys.has((r.displayRef || "").trim().toLowerCase())
+                );
+
+                if (deduped.length > 0) {
+                  setDetectedReferences((prev) => [...prev, ...deduped]);
+                }
 
                 if (settings.autoAddDetectedToHistory) {
-                  setChatHistory((prev) => [
-                    ...prev,
-                    {
-                      id: `paraphrase-${Date.now()}`,
-                      type: "result",
-                      content: `Paraphrase detected (${Math.round((resolvedWithTranscript[0].confidence || 0) * 100)}% confidence)`,
-                      timestamp: Date.now(),
-                      references: resolvedWithTranscript,
-                    },
-                  ]);
+                  if (deduped.length > 0) {
+                    setChatHistory((prev) => [
+                      ...prev,
+                      {
+                        id: `paraphrase-${Date.now()}`,
+                        type: "result",
+                        content: `Paraphrase detected (${Math.round((deduped[0].confidence || 0) * 100)}% confidence)`,
+                        timestamp: Date.now(),
+                        references: deduped,
+                      },
+                    ]);
+                  }
                 }
 
                 if (settings.autoTriggerOnDetection) {
-                  handleGoLive(resolvedWithTranscript[0]);
+                  if (deduped.length > 0) {
+                    handleGoLive(deduped[0]);
+                  }
                 }
               }
             }

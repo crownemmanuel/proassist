@@ -214,7 +214,6 @@ const AISettingsForm: React.FC<AISettingsFormProps> = () => {
     })();
   }, [
     appSettings.defaultAIProvider,
-    defaultProviderModel,
     openAIKeyInput,
     geminiKeyInput,
     groqKeyInput,
