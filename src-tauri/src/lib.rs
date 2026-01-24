@@ -1103,8 +1103,8 @@ fn open_audience_display_window(
 
         #[cfg(target_os = "windows")]
         let window_builder = window_builder
-            .inner_size(tauri::PhysicalSize::new(physical_width, physical_height))
-            .position(tauri::PhysicalPosition::new(physical_x, physical_y));
+            .inner_size(physical_width as f64, physical_height as f64)
+            .position(physical_x as f64, physical_y as f64);
 
         #[cfg(not(target_os = "windows"))]
         let window_builder = window_builder
@@ -1144,10 +1144,16 @@ fn open_audience_display_window(
                 // We already set position/size to the target monitor, so skip maximize there.
                 #[cfg(target_os = "windows")]
                 {
-                    if let Err(e) = window.set_position(tauri::PhysicalPosition::new(physical_x, physical_y)) {
+                    if let Err(e) = window.set_position(tauri::Position::Logical(tauri::LogicalPosition::new(
+                        physical_x as f64,
+                        physical_y as f64,
+                    ))) {
                         eprintln!("[Display] Failed to set window position: {:?}", e);
                     }
-                    if let Err(e) = window.set_size(tauri::PhysicalSize::new(physical_width, physical_height)) {
+                    if let Err(e) = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(
+                        physical_width as f64,
+                        physical_height as f64,
+                    ))) {
                         eprintln!("[Display] Failed to set window size: {:?}", e);
                     }
                 }
