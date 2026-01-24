@@ -112,6 +112,31 @@ export class AssemblyAITranscriptionService implements ITranscriptionService {
   private finalizedTurnOrder: number | null = null;
   private readonly formatTurns: boolean = true;
 
+  private emitAudioLevel(level: number): void {
+    const clamped = Math.max(0, Math.min(1, level));
+    this.callbacks.onAudioLevel?.(clamped);
+  }
+
+  private computeRmsFromFloat32(samples: Float32Array): number {
+    if (samples.length === 0) return 0;
+    let sumSquares = 0;
+    for (let i = 0; i < samples.length; i++) {
+      const s = samples[i];
+      sumSquares += s * s;
+    }
+    return Math.sqrt(sumSquares / samples.length);
+  }
+
+  private computeRmsFromInt16(samples: Int16Array): number {
+    if (samples.length === 0) return 0;
+    let sumSquares = 0;
+    for (let i = 0; i < samples.length; i++) {
+      const s = samples[i] / 32768;
+      sumSquares += s * s;
+    }
+    return Math.sqrt(sumSquares / samples.length);
+  }
+
   // v3 WebSocket endpoint
   private static readonly V3_STREAMING_ENDPOINT = "wss://streaming.assemblyai.com/v3/ws";
 
@@ -529,6 +554,15 @@ export class AssemblyAITranscriptionService implements ITranscriptionService {
           if (!this.websocket || this.websocket.readyState !== WebSocket.OPEN) return;
           try {
             const bytes = base64ToUint8Array(evt.payload.data_b64);
+            if (bytes.byteLength >= 2) {
+              const sampleCount = Math.floor(bytes.byteLength / 2);
+              const int16 = new Int16Array(
+                bytes.buffer,
+                bytes.byteOffset,
+                sampleCount
+              );
+              this.emitAudioLevel(this.computeRmsFromInt16(int16));
+            }
             this.sendAudio(bytes);
           } catch {
             // keep going; transient decode errors shouldn't kill transcription
@@ -577,6 +611,7 @@ export class AssemblyAITranscriptionService implements ITranscriptionService {
         if (!this.websocket || this.websocket.readyState !== WebSocket.OPEN) return;
 
         const inputData = event.inputBuffer.getChannelData(0);
+        this.emitAudioLevel(this.computeRmsFromFloat32(inputData));
         const pcm16 = new Int16Array(inputData.length);
         for (let i = 0; i < inputData.length; i++) {
           const s = Math.max(-1, Math.min(1, inputData[i]));
@@ -622,6 +657,7 @@ export class AssemblyAITranscriptionService implements ITranscriptionService {
     // Reset state
     this.currentTurnOrder = 0;
     this.finalizedTurnOrder = null;
+    this.emitAudioLevel(0);
     this.callbacks.onStatusChange?.("idle");
     console.log("✅ Transcription stopped successfully");
   }
