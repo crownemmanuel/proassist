@@ -197,8 +197,15 @@ const SmartVersesPage: React.FC = () => {
   const [detectedReferences, setDetectedReferences] = useState<DetectedBibleReference[]>([]);
   const [transcriptKeyPoints, setTranscriptKeyPoints] = useState<Record<string, KeyPoint[]>>({});
   const [audioLevel, setAudioLevel] = useState(0);
+  const [transcriptionElapsedMs, setTranscriptionElapsedMs] = useState(0);
+  const [showTranscriptionLimitPrompt, setShowTranscriptionLimitPrompt] = useState(false);
   const transcriptionServiceRef = useRef<AssemblyAITranscriptionService | null>(null);
   const detectedReferencesRef = useRef<DetectedBibleReference[]>([]);
+  const transcriptionStartRef = useRef<number | null>(null);
+  const transcriptionNextPromptAtRef = useRef<number | null>(null);
+  const transcriptionPromptTimeoutRef = useRef<number | null>(null);
+  const transcriptionPromptReasonRef = useRef<"limit" | "snooze" | null>(null);
+  const transcriptionStatusRef = useRef<TranscriptionStatus>("idle");
   
   // Browser transcription WebSocket
   const browserTranscriptionWsRef = useRef<LiveSlidesWebSocket | null>(null);
@@ -363,6 +370,10 @@ const SmartVersesPage: React.FC = () => {
   useEffect(() => {
     detectedReferencesRef.current = detectedReferences;
   }, [detectedReferences]);
+
+  useEffect(() => {
+    transcriptionStatusRef.current = transcriptionStatus;
+  }, [transcriptionStatus]);
 
   const shouldAttemptDirectParse = useCallback((text: string): boolean => {
     const t = text.trim();
@@ -1520,6 +1531,146 @@ const SmartVersesPage: React.FC = () => {
     }
   }, [disconnectBrowserTranscriptionWs, disconnectRemoteTranscriptionWs]);
 
+  const transcriptionTimeLimitMinutes = Math.max(
+    1,
+    settings.transcriptionTimeLimitMinutes ?? 120
+  );
+  const transcriptionTimeLimitMs = transcriptionTimeLimitMinutes * 60 * 1000;
+
+  const formatElapsedTime = useCallback((ms: number) => {
+    const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+
+    if (hours > 0) {
+      return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+    }
+
+    return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  }, []);
+
+  const formatSnoozeLabel = useCallback((minutes: number) => {
+    if (minutes >= 60 && minutes % 60 === 0) {
+      const hours = minutes / 60;
+      return `${hours} hr${hours === 1 ? "" : "s"}`;
+    }
+    return `${minutes} min`;
+  }, []);
+
+  const formattedElapsedTime = useMemo(
+    () => formatElapsedTime(transcriptionElapsedMs),
+    [formatElapsedTime, transcriptionElapsedMs]
+  );
+  const transcriptionLimitLabel = useMemo(
+    () => formatSnoozeLabel(transcriptionTimeLimitMinutes),
+    [formatSnoozeLabel, transcriptionTimeLimitMinutes]
+  );
+
+  const clearTranscriptionPromptTimeout = useCallback(() => {
+    if (transcriptionPromptTimeoutRef.current) {
+      window.clearTimeout(transcriptionPromptTimeoutRef.current);
+      transcriptionPromptTimeoutRef.current = null;
+    }
+  }, []);
+
+  const resetTranscriptionTimer = useCallback(() => {
+    transcriptionStartRef.current = null;
+    transcriptionNextPromptAtRef.current = null;
+    transcriptionPromptReasonRef.current = null;
+    setTranscriptionElapsedMs(0);
+    setShowTranscriptionLimitPrompt(false);
+    clearTranscriptionPromptTimeout();
+  }, [clearTranscriptionPromptTimeout]);
+
+  const openTranscriptionLimitPrompt = useCallback(() => {
+    if (showTranscriptionLimitPrompt) return;
+    setShowTranscriptionLimitPrompt(true);
+    clearTranscriptionPromptTimeout();
+    transcriptionPromptTimeoutRef.current = window.setTimeout(() => {
+      if (transcriptionStatusRef.current !== "idle") {
+        handleStopTranscription();
+      }
+      setShowTranscriptionLimitPrompt(false);
+    }, 60 * 1000);
+  }, [clearTranscriptionPromptTimeout, handleStopTranscription, showTranscriptionLimitPrompt]);
+
+  const handleTranscriptionSnooze = useCallback(
+    (minutes: number) => {
+      transcriptionNextPromptAtRef.current = Date.now() + minutes * 60 * 1000;
+      transcriptionPromptReasonRef.current = "snooze";
+      setShowTranscriptionLimitPrompt(false);
+      clearTranscriptionPromptTimeout();
+    },
+    [clearTranscriptionPromptTimeout]
+  );
+
+  const handleTranscriptionPromptStop = useCallback(() => {
+    setShowTranscriptionLimitPrompt(false);
+    clearTranscriptionPromptTimeout();
+    handleStopTranscription();
+  }, [clearTranscriptionPromptTimeout, handleStopTranscription]);
+
+  useEffect(() => {
+    if (transcriptionStatus === "idle" || transcriptionStatus === "error") {
+      resetTranscriptionTimer();
+      return;
+    }
+
+    if (transcriptionStatus !== "recording") {
+      return;
+    }
+
+    if (!transcriptionStartRef.current) {
+      const now = Date.now();
+      transcriptionStartRef.current = now;
+      transcriptionNextPromptAtRef.current = now + transcriptionTimeLimitMs;
+      transcriptionPromptReasonRef.current = "limit";
+      setTranscriptionElapsedMs(0);
+    }
+
+    const intervalId = window.setInterval(() => {
+      if (!transcriptionStartRef.current) return;
+      const now = Date.now();
+      setTranscriptionElapsedMs(now - transcriptionStartRef.current);
+
+      const nextPromptAt = transcriptionNextPromptAtRef.current;
+      if (nextPromptAt && now >= nextPromptAt && !showTranscriptionLimitPrompt) {
+        openTranscriptionLimitPrompt();
+      }
+    }, 1000);
+
+    return () => window.clearInterval(intervalId);
+  }, [
+    transcriptionStatus,
+    transcriptionTimeLimitMs,
+    showTranscriptionLimitPrompt,
+    openTranscriptionLimitPrompt,
+    resetTranscriptionTimer,
+  ]);
+
+  useEffect(() => {
+    if (transcriptionStatus !== "recording") return;
+    if (!transcriptionStartRef.current) return;
+    if (transcriptionPromptReasonRef.current !== "limit") return;
+
+    transcriptionNextPromptAtRef.current =
+      transcriptionStartRef.current + transcriptionTimeLimitMs;
+
+    if (
+      transcriptionNextPromptAtRef.current &&
+      Date.now() >= transcriptionNextPromptAtRef.current &&
+      !showTranscriptionLimitPrompt
+    ) {
+      openTranscriptionLimitPrompt();
+    }
+  }, [
+    transcriptionStatus,
+    transcriptionTimeLimitMs,
+    showTranscriptionLimitPrompt,
+    openTranscriptionLimitPrompt,
+  ]);
+
   useEffect(() => {
     const handleStartRequest = () => {
       if (transcriptionStatus !== "idle") return;
@@ -2132,7 +2283,76 @@ const SmartVersesPage: React.FC = () => {
       height: "calc(100vh - 60px)",
       gap: "var(--spacing-4)",
       padding: "var(--spacing-4)",
+      position: "relative",
     }}>
+      <div
+        style={{
+          position: "absolute",
+          top: "var(--spacing-3)",
+          left: "50%",
+          transform: showTranscriptionLimitPrompt
+            ? "translate(-50%, 0)"
+            : "translate(-50%, -140%)",
+          transition: "transform 0.25s ease, opacity 0.25s ease",
+          opacity: showTranscriptionLimitPrompt ? 1 : 0,
+          pointerEvents: showTranscriptionLimitPrompt ? "auto" : "none",
+          zIndex: 50,
+          width: "min(720px, calc(100% - 32px))",
+        }}
+        aria-hidden={!showTranscriptionLimitPrompt}
+      >
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: "var(--spacing-3)",
+            padding: "12px 16px",
+            borderRadius: "10px",
+            border: "1px solid var(--app-border-color)",
+            backgroundColor: "var(--app-header-bg)",
+            boxShadow: "0 12px 28px rgba(0,0,0,0.35)",
+          }}
+        >
+          <div style={{ flex: 1, minWidth: "220px" }}>
+            <div style={{ fontWeight: 600 }}>
+              Continue transcribing?
+            </div>
+            <div style={{ fontSize: "0.85rem", color: "var(--app-text-color-secondary)" }}>
+              You've been transcribing for {formattedElapsedTime}. Auto-stop in 1 minute.
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+            <button
+              onClick={() => handleTranscriptionSnooze(30)}
+              className="secondary btn-sm"
+            >
+              Snooze 30 min
+            </button>
+            <button
+              onClick={() => handleTranscriptionSnooze(transcriptionTimeLimitMinutes)}
+              className="secondary btn-sm"
+            >
+              Snooze {transcriptionLimitLabel}
+            </button>
+            <button
+              onClick={handleTranscriptionPromptStop}
+              style={{
+                border: "none",
+                borderRadius: "8px",
+                padding: "6px 12px",
+                fontWeight: 600,
+                backgroundColor: "rgb(220, 38, 38)",
+                color: "white",
+                cursor: "pointer",
+              }}
+            >
+              Stop
+            </button>
+          </div>
+        </div>
+      </div>
       {/* LEFT COLUMN - Bible Search Chat */}
       <div style={{
         flex: 1,
@@ -2464,6 +2684,26 @@ const SmartVersesPage: React.FC = () => {
                 <span style={{ color: "var(--warning)", fontWeight: 700 }}>(paused)</span>
               )}
             </label>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "6px",
+                padding: "4px 8px",
+                borderRadius: "6px",
+                border: "1px solid var(--app-border-color)",
+                backgroundColor: "var(--app-bg-color)",
+                fontSize: "0.8rem",
+                color:
+                  transcriptionStatus === "recording"
+                    ? "var(--success)"
+                    : "var(--app-text-color-secondary)",
+                fontVariantNumeric: "tabular-nums",
+              }}
+              title="Transcription elapsed time"
+            >
+              {formattedElapsedTime}
+            </div>
             {transcriptionStatus === "idle" ? (
               <button
                 onClick={handleStartTranscription}
