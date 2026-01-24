@@ -32,6 +32,7 @@ export interface TranscriptionCallbacks {
   onError?: (error: Error) => void;
   onConnectionClose?: (code: number, reason: string) => void;
   onStatusChange?: (status: TranscriptionStatus) => void;
+  onAudioLevel?: (level: number) => void;
 }
 
 export type TranscriptionStatus = 'idle' | 'connecting' | 'recording' | 'error' | 'waiting_for_browser';
@@ -163,6 +164,7 @@ export interface SmartVersesSettings {
   enableKeyPointExtraction: boolean;
   keyPointExtractionInstructions?: string;
   paraphraseConfidenceThreshold: number; // Default 0.6
+  aiMinWordCount: number; // Default 6
   
   // Display settings
   autoAddDetectedToHistory: boolean; // Add detected refs from transcription to chat history
@@ -207,6 +209,7 @@ export const DEFAULT_SMART_VERSES_SETTINGS: SmartVersesSettings = {
   keyPointExtractionInstructions:
     "Extract 1–2 concise, quotable key points suitable for slides/lower-thirds. Prefer short sentences, avoid filler, keep the original voice, and skip vague statements.",
   paraphraseConfidenceThreshold: 0.6,
+  aiMinWordCount: 6,
   autoAddDetectedToHistory: false,
   highlightDirectReferences: true,
   highlightParaphrasedReferences: true,

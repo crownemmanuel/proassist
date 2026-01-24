@@ -21,6 +21,7 @@ import {
   SmartVersesChatMessage,
   DetectedBibleReference,
   KeyPoint,
+  ParaphrasedVerse,
   TranscriptionStatus,
   TranscriptionSegment,
   DEFAULT_SMART_VERSES_SETTINGS,
@@ -33,6 +34,8 @@ import {
   resetParseContext,
   getVerseNavigation,
   loadVerseByComponents,
+  parseVerseReference,
+  lookupVerse,
 } from "../services/smartVersesBibleService";
 import {
   AssemblyAITranscriptionService,
@@ -141,6 +144,36 @@ function saveTranscriptDisplayOptions(options: TranscriptDisplayOptions): void {
   }
 }
 
+async function resolveReferencesFromList(
+  references: string[],
+  transcriptText: string
+): Promise<DetectedBibleReference[]> {
+  const results: DetectedBibleReference[] = [];
+  const now = Date.now();
+
+  for (const reference of references) {
+    const parsed = parseVerseReference(reference);
+    if (!parsed || parsed.length === 0) continue;
+    const verseText = await lookupVerse(parsed[0]);
+    if (!verseText) continue;
+
+    results.push({
+      id: `ref-${now}-${Math.random().toString(36).slice(2, 10)}`,
+      reference: parsed[0].displayRef,
+      displayRef: parsed[0].displayRef,
+      verseText,
+      source: "direct",
+      transcriptText,
+      timestamp: now,
+      book: parsed[0].book,
+      chapter: parsed[0].chapter,
+      verse: parsed[0].startVerse,
+    });
+  }
+
+  return results;
+}
+
 // =============================================================================
 // MAIN COMPONENT
 // =============================================================================
@@ -163,6 +196,7 @@ const SmartVersesPage: React.FC = () => {
   const [transcriptHistory, setTranscriptHistory] = useState<TranscriptionSegment[]>([]);
   const [detectedReferences, setDetectedReferences] = useState<DetectedBibleReference[]>([]);
   const [transcriptKeyPoints, setTranscriptKeyPoints] = useState<Record<string, KeyPoint[]>>({});
+  const [audioLevel, setAudioLevel] = useState(0);
   const transcriptionServiceRef = useRef<AssemblyAITranscriptionService | null>(null);
   const detectedReferencesRef = useRef<DetectedBibleReference[]>([]);
   
@@ -1063,7 +1097,6 @@ const SmartVersesPage: React.FC = () => {
         }
         if (m.kind === "interim") {
           setInterimTranscript(m.text || "");
-          scheduleInterimDirectParse(m.text || "");
           setTranscriptionStatus((prev) => (prev === "connecting" ? "recording" : prev));
         } else if (m.kind === "final" && m.text) {
           setInterimTranscript("");
@@ -1091,119 +1124,86 @@ const SmartVersesPage: React.FC = () => {
             }
           }
 
-          // Run local direct parsing (aggressive) for verse refs.
-          // Also run AI paraphrase detection if enabled.
           (async () => {
-            let scriptureReferences: string[] = m.scripture_references || [];
-            let keyPoints: KeyPoint[] = m.key_points as KeyPoint[] || [];
+            const scriptureReferences = m.scripture_references || [];
+            const keyPoints: KeyPoint[] = (m.key_points as KeyPoint[]) || [];
+            const paraphrasedVerses = m.paraphrased_verses || [];
 
-            const directRefs = await detectAndLookupReferences(m.text, {
-              aggressiveSpeechNormalization: true,
-            });
+            if (keyPoints.length > 0) {
+              setTranscriptKeyPoints((prev) => ({
+                ...prev,
+                [segment.id]: keyPoints,
+              }));
+            }
 
-            if (directRefs.length > 0) {
-              setDetectedReferences((prev) => [...prev, ...directRefs]);
-              scriptureReferences = Array.from(
-                new Set([
-                  ...scriptureReferences,
-                  ...directRefs.map((r) => (r.displayRef || "").trim()).filter(Boolean),
-                ])
+            if (scriptureReferences.length > 0) {
+              const resolvedDirect = await resolveReferencesFromList(
+                scriptureReferences,
+                m.text
               );
+              if (resolvedDirect.length > 0) {
+                setDetectedReferences((prev) => [...prev, ...resolvedDirect]);
 
-              if (settings.autoAddDetectedToHistory) {
-                setChatHistory((prev) => [
-                  ...prev,
-                  {
-                    id: `transcript-${Date.now()}`,
-                    type: "result",
-                    content: `Detected from transcription`,
-                    timestamp: Date.now(),
-                    references: directRefs,
-                  },
-                ]);
-              }
+                if (settings.autoAddDetectedToHistory) {
+                  setChatHistory((prev) => [
+                    ...prev,
+                    {
+                      id: `transcript-${Date.now()}`,
+                      type: "result",
+                      content: `Detected from transcription`,
+                      timestamp: Date.now(),
+                      references: resolvedDirect,
+                    },
+                  ]);
+                }
 
-              if (settings.autoTriggerOnDetection) {
-                handleGoLive(directRefs[0]);
+                if (settings.autoTriggerOnDetection) {
+                  handleGoLive(resolvedDirect[0]);
+                }
               }
-            } else if (settings.enableParaphraseDetection || settings.enableKeyPointExtraction) {
-              // Try AI analysis (paraphrase detection and/or key point extraction)
-              console.log("[SmartVerses][Remote] No direct refs found; invoking AI analysis...");
-              try {
-                const analysis = await analyzeTranscriptChunk(
-                  m.text,
-                  appSettings,
-                  settings.enableParaphraseDetection,
-                  settings.enableKeyPointExtraction,
-                  {
-                    keyPointInstructions: settings.keyPointExtractionInstructions,
-                    overrideProvider: settings.bibleSearchProvider,
-                    overrideModel: settings.bibleSearchModel,
-                  }
+            }
+
+            if (paraphrasedVerses.length > 0) {
+              const resolvedRefs = await resolveParaphrasedVerses(paraphrasedVerses);
+              if (resolvedRefs.length > 0) {
+                const resolvedWithTranscript = resolvedRefs.map((r) => ({
+                  ...r,
+                  transcriptText: m.text,
+                }));
+
+                // De-dupe against the most recent refs to avoid repeated paraphrase entries.
+                const recent = detectedReferencesRef.current.slice(-5);
+                const recentKeys = new Set(
+                  recent.map((r) => (r.displayRef || "").trim().toLowerCase())
+                );
+                const deduped = resolvedWithTranscript.filter(
+                  (r) => !recentKeys.has((r.displayRef || "").trim().toLowerCase())
                 );
 
-                if (analysis.keyPoints?.length) {
-                  keyPoints = analysis.keyPoints;
-                  setTranscriptKeyPoints((prev) => ({
-                    ...prev,
-                    [segment.id]: keyPoints,
-                  }));
+                if (deduped.length > 0) {
+                  setDetectedReferences((prev) => [...prev, ...deduped]);
                 }
 
-                if (settings.enableParaphraseDetection && analysis.paraphrasedVerses.length > 0) {
-                  console.log(
-                    "[SmartVerses][Remote][Paraphrase] AI analysis returned:",
-                    analysis.paraphrasedVerses.length,
-                    "paraphrased verse(s)"
-                  );
-
-                  const resolvedRefs = await resolveParaphrasedVerses(analysis.paraphrasedVerses);
-                  if (resolvedRefs.length > 0) {
-                    console.log("[SmartVerses][Remote][Paraphrase] Resolved refs:", resolvedRefs.map(r => r.displayRef));
-                    const resolvedWithTranscript = resolvedRefs.map((r) => ({
-                      ...r,
-                      transcriptText: m.text,
-                    }));
-
-                    // De-dupe against recent refs
-                    const recent = detectedReferencesRef.current.slice(-5);
-                    const recentKeys = new Set(
-                      recent.map((r) => (r.displayRef || "").trim().toLowerCase())
-                    );
-                    const deduped = resolvedWithTranscript.filter(
-                      (r) => !recentKeys.has((r.displayRef || "").trim().toLowerCase())
-                    );
-
-                    if (deduped.length > 0) {
-                      setDetectedReferences((prev) => [...prev, ...deduped]);
-                      scriptureReferences = Array.from(
-                        new Set([
-                          ...scriptureReferences,
-                          ...deduped.map((r) => (r.displayRef || "").trim()).filter(Boolean),
-                        ])
-                      );
-
-                      if (settings.autoAddDetectedToHistory) {
-                        setChatHistory((prev) => [
-                          ...prev,
-                          {
-                            id: `paraphrase-${Date.now()}`,
-                            type: "result",
-                            content: `Paraphrase detected (${Math.round((deduped[0].confidence || 0) * 100)}% confidence)`,
-                            timestamp: Date.now(),
-                            references: deduped,
-                          },
-                        ]);
-                      }
-
-                      if (settings.autoTriggerOnDetection) {
-                        handleGoLive(deduped[0]);
-                      }
-                    }
+                if (settings.autoAddDetectedToHistory) {
+                  if (deduped.length > 0) {
+                    setChatHistory((prev) => [
+                      ...prev,
+                      {
+                        id: `paraphrase-${Date.now()}`,
+                        type: "result",
+                        content: `Paraphrase detected (${Math.round((deduped[0].confidence || 0) * 100)}% confidence)`,
+                        timestamp: Date.now(),
+                        references: deduped,
+                      },
+                    ]);
                   }
                 }
-              } catch (aiError) {
-                console.error("[SmartVerses][Remote] AI analysis failed:", aiError);
+
+                if (settings.autoTriggerOnDetection) {
+                  if (deduped.length > 0) {
+                    handleGoLive(deduped[0]);
+                  }
+                }
               }
             }
 
@@ -1225,6 +1225,7 @@ const SmartVersesPage: React.FC = () => {
                 segment: m.segment as TranscriptionSegment | undefined,
                 scripture_references: scriptureReferences.length ? scriptureReferences : undefined,
                 key_points: wsKeyPoints,
+                paraphrased_verses: paraphrasedVerses.length ? paraphrasedVerses : undefined,
               }).catch(() => {});
             }
           })();
@@ -1328,6 +1329,7 @@ const SmartVersesPage: React.FC = () => {
             });
             let keyPoints: KeyPoint[] = [];
             let scriptureReferences: string[] = [];
+            let paraphrasedVersesForWs: ParaphrasedVerse[] = [];
             
             if (directRefs.length > 0) {
               setDetectedReferences(prev => [...prev, ...directRefs]);
@@ -1362,6 +1364,7 @@ const SmartVersesPage: React.FC = () => {
                   keyPointInstructions: settings.keyPointExtractionInstructions,
                   overrideProvider: settings.bibleSearchProvider,
                   overrideModel: settings.bibleSearchModel,
+                  minWords: settings.aiMinWordCount,
                 }
               );
               keyPoints = analysis.keyPoints || [];
@@ -1377,6 +1380,10 @@ const SmartVersesPage: React.FC = () => {
                 analysis.paraphrasedVerses.length,
                 "paraphrased verse(s)"
               );
+
+              if (analysis.paraphrasedVerses.length > 0) {
+                paraphrasedVersesForWs = analysis.paraphrasedVerses;
+              }
 
               if (settings.enableParaphraseDetection && analysis.paraphrasedVerses.length > 0) {
                 const resolvedRefs = await resolveParaphrasedVerses(analysis.paraphrasedVerses);
@@ -1409,9 +1416,6 @@ const SmartVersesPage: React.FC = () => {
 
                   if (deduped.length > 0) {
                     setDetectedReferences(prev => [...prev, ...deduped]);
-                    scriptureReferences = Array.from(
-                      new Set(deduped.map((r) => (r.displayRef || "").trim()).filter(Boolean))
-                    );
                   }
                   
                   if (settings.autoAddDetectedToHistory) {
@@ -1448,6 +1452,9 @@ const SmartVersesPage: React.FC = () => {
                 ? scriptureReferences
                 : undefined,
               key_points: wsKeyPoints,
+              paraphrased_verses: paraphrasedVersesForWs.length
+                ? paraphrasedVersesForWs
+                : undefined,
             });
 
             if (settings.streamTranscriptionsToWebSocket) {
@@ -1460,6 +1467,9 @@ const SmartVersesPage: React.FC = () => {
                 segment,
                 scripture_references: scriptureReferences.length ? scriptureReferences : undefined,
                 key_points: keyPoints.length ? keyPoints : undefined,
+                paraphrased_verses: paraphrasedVersesForWs.length
+                  ? paraphrasedVersesForWs
+                  : undefined,
               }).catch(() => {
                 // If Live Slides server isn't running, silently ignore.
               });
@@ -1471,9 +1481,16 @@ const SmartVersesPage: React.FC = () => {
           },
           onStatusChange: (status) => {
             setTranscriptionStatus(status);
+            if (status !== "recording") {
+              setAudioLevel(0);
+            }
           },
           onConnectionClose: () => {
             setTranscriptionStatus("idle");
+            setAudioLevel(0);
+          },
+          onAudioLevel: (level) => {
+            setAudioLevel((prev) => prev * 0.65 + level * 0.35);
           },
         }
       );
@@ -2671,6 +2688,28 @@ const SmartVersesPage: React.FC = () => {
               </div>
             )}
           </div>
+        </div>
+
+        <div style={{
+          height: "8px",
+          backgroundColor: "var(--app-bg-color)",
+          borderBottom: "1px solid var(--app-border-color)",
+          position: "relative",
+          overflow: "hidden",
+        }}>
+          <div style={{
+            height: "100%",
+            width: `${Math.max(2, Math.round((transcriptionStatus === "recording" ? audioLevel : 0) * 100))}%`,
+            backgroundColor:
+              transcriptionStatus === "recording"
+                ? audioLevel > 0.7
+                  ? "rgb(220, 38, 38)"
+                  : audioLevel > 0.4
+                  ? "rgb(234, 179, 8)"
+                  : "rgb(34, 197, 94)"
+                : "rgba(148, 163, 184, 0.5)",
+            transition: "width 80ms linear, background-color 150ms ease",
+          }} />
         </div>
 
         {/* Transcript Display */}
