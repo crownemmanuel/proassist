@@ -36,6 +36,13 @@ const AISettingsForm: React.FC<AISettingsFormProps> = () => {
     appSettings.groqConfig?.apiKey || ""
   );
 
+  // Default provider model settings
+  const [defaultProviderModel, setDefaultProviderModel] = useState(
+    appSettings.defaultAIModel || ""
+  );
+  const [defaultProviderModels, setDefaultProviderModels] = useState<string[]>([]);
+  const [defaultProviderModelsLoading, setDefaultProviderModelsLoading] = useState(false);
+
   // Spell check model settings
   const [spellCheckProvider, setSpellCheckProvider] = useState<AIProviderType | "">(
     appSettings.spellCheckModel?.provider || ""
@@ -90,6 +97,7 @@ const AISettingsForm: React.FC<AISettingsFormProps> = () => {
     setTimerAssistantModel(settings.timerAssistantModel?.model || "");
     setGlobalAssistantProvider(settings.globalAssistantModel?.provider || "");
     setGlobalAssistantModel(settings.globalAssistantModel?.model || "");
+    setDefaultProviderModel(settings.defaultAIModel || "");
     
     // Load ProPresenter AI Templates
     setPPAITemplates(loadProPresenterAITemplates());
@@ -130,6 +138,9 @@ const AISettingsForm: React.FC<AISettingsFormProps> = () => {
         geminiConfig: geminiKeyInput ? { apiKey: geminiKeyInput } : undefined,
         groqConfig: groqKeyInput ? { apiKey: groqKeyInput } : undefined,
         defaultAIProvider: appSettings.defaultAIProvider || undefined,
+        defaultAIModel: appSettings.defaultAIProvider
+          ? defaultProviderModel || undefined
+          : undefined,
         spellCheckModel: spellCheckSetting,
         timerAssistantModel: timerAssistantSetting,
         globalAssistantModel: globalAssistantSetting,
@@ -150,6 +161,7 @@ const AISettingsForm: React.FC<AISettingsFormProps> = () => {
       geminiKeyInput,
       groqKeyInput,
       appSettings.defaultAIProvider,
+      defaultProviderModel,
       spellCheckProvider,
       spellCheckModel,
       timerAssistantProvider,
@@ -160,6 +172,53 @@ const AISettingsForm: React.FC<AISettingsFormProps> = () => {
     ],
     { delayMs: 600, enabled: settingsLoaded, skipFirstRun: true }
   );
+
+  // Fetch models when default provider changes
+  useEffect(() => {
+    (async () => {
+      const provider = appSettings.defaultAIProvider;
+      if (!provider) {
+        setDefaultProviderModels([]);
+        setDefaultProviderModel("");
+        return;
+      }
+
+      setDefaultProviderModelsLoading(true);
+      try {
+        if (provider === "openai" && openAIKeyInput) {
+          const models = await fetchOpenAIModels(openAIKeyInput);
+          setDefaultProviderModels(models);
+          if (models.length > 0 && !models.includes(defaultProviderModel)) {
+            setDefaultProviderModel(models[0]);
+          }
+        } else if (provider === "gemini" && geminiKeyInput) {
+          const models = await fetchGeminiModels(geminiKeyInput);
+          setDefaultProviderModels(models);
+          if (models.length > 0 && !models.includes(defaultProviderModel)) {
+            setDefaultProviderModel(models[0]);
+          }
+        } else if (provider === "groq" && groqKeyInput) {
+          const models = await fetchGroqModels(groqKeyInput);
+          setDefaultProviderModels(models);
+          if (models.length > 0 && !models.includes(defaultProviderModel)) {
+            setDefaultProviderModel(models[0]);
+          }
+        } else {
+          setDefaultProviderModels([]);
+        }
+      } catch {
+        setDefaultProviderModels([]);
+      } finally {
+        setDefaultProviderModelsLoading(false);
+      }
+    })();
+  }, [
+    appSettings.defaultAIProvider,
+    defaultProviderModel,
+    openAIKeyInput,
+    geminiKeyInput,
+    groqKeyInput,
+  ]);
 
   // Fetch models when spell check provider changes
   useEffect(() => {
@@ -288,6 +347,8 @@ const AISettingsForm: React.FC<AISettingsFormProps> = () => {
       defaultAIProvider: provider,
     };
     setAppSettings(newSettings);
+    setDefaultProviderModel("");
+    setDefaultProviderModels([]);
   };
 
   const handleSpellCheckProviderChange = (provider: AIProviderType | "") => {
@@ -555,6 +616,46 @@ const AISettingsForm: React.FC<AISettingsFormProps> = () => {
             Groq (Recommended - Super Fast)
           </option>
         </select>
+      </div>
+      <div className="form-group">
+        <label htmlFor="default-ai-model">Default AI Model:</label>
+        <div style={{ position: "relative" }}>
+          <select
+            id="default-ai-model"
+            value={defaultProviderModel}
+            onChange={(e) => setDefaultProviderModel(e.target.value)}
+            disabled={!appSettings.defaultAIProvider || defaultProviderModelsLoading}
+          >
+            {!appSettings.defaultAIProvider && (
+              <option value="">Select provider first</option>
+            )}
+            {defaultProviderModelsLoading && <option value="">Loading models...</option>}
+            {!defaultProviderModelsLoading &&
+              appSettings.defaultAIProvider &&
+              defaultProviderModels.length === 0 && (
+                <option value="">No models found</option>
+              )}
+            {defaultProviderModels.map((model) => (
+              <option key={model} value={model}>
+                {appSettings.defaultAIProvider === "groq"
+                  ? formatGroqModelLabel(model)
+                  : model}
+              </option>
+            ))}
+          </select>
+          {defaultProviderModelsLoading && (
+            <FaSpinner
+              style={{
+                position: "absolute",
+                right: "30px",
+                top: "50%",
+                transform: "translateY(-50%)",
+                animation: "spin 1s linear infinite",
+                color: "#a855f7",
+              }}
+            />
+          )}
+        </div>
       </div>
 
       {/* AI Model Settings Section */}

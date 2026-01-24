@@ -940,6 +940,25 @@ const SmartVersesSettings: React.FC = () => {
             Only show paraphrased verses with confidence above this threshold.
           </p>
         </div>
+        <div style={fieldStyle}>
+          <label style={labelStyle}>Minimum Words for AI Analysis</label>
+          <input
+            type="number"
+            min={1}
+            max={20}
+            value={settings.aiMinWordCount}
+            onChange={(e) =>
+              handleChange(
+                "aiMinWordCount",
+                Math.max(1, Math.min(20, parseInt(e.target.value, 10) || 1))
+              )
+            }
+            style={inputStyle}
+          />
+          <p style={helpTextStyle}>
+            Skip AI requests for short phrases like "thank you".
+          </p>
+        </div>
       </div>
 
       {/* Display Settings */}

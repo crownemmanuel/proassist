@@ -239,6 +239,64 @@ function AppContent({
   // Enabled features state
   const [enabledFeatures, setEnabledFeatures] = useState<EnabledFeatures>(() => loadEnabledFeatures());
 
+  type AiRateLimitDetail = {
+    provider: "groq";
+    until: number;
+    message: string;
+    detail?: string;
+  };
+
+  const [groqRateLimit, setGroqRateLimit] = useState<AiRateLimitDetail | null>(null);
+  const [rateLimitNow, setRateLimitNow] = useState(() => Date.now());
+
+  const formatRateLimitRemaining = (remainingMs: number) => {
+    const totalSeconds = Math.max(0, Math.ceil(remainingMs / 1000));
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    if (minutes > 0) {
+      return `${minutes}m${seconds.toString().padStart(2, "0")}s`;
+    }
+    return `${seconds}s`;
+  };
+
+  useEffect(() => {
+    const handleRateLimit = (event: CustomEvent<AiRateLimitDetail>) => {
+      if (event.detail.provider !== "groq") return;
+      if (!event.detail.until || event.detail.until <= Date.now()) {
+        setGroqRateLimit(null);
+        return;
+      }
+      setGroqRateLimit(event.detail);
+      setRateLimitNow(Date.now());
+    };
+
+    window.addEventListener("ai-rate-limit", handleRateLimit as EventListener);
+    return () => {
+      window.removeEventListener("ai-rate-limit", handleRateLimit as EventListener);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!groqRateLimit) return;
+    const interval = window.setInterval(() => {
+      setRateLimitNow(Date.now());
+    }, 1000);
+    return () => window.clearInterval(interval);
+  }, [groqRateLimit]);
+
+  useEffect(() => {
+    if (!groqRateLimit) return;
+    const remainingMs = groqRateLimit.until - Date.now();
+    if (remainingMs <= 0) {
+      setGroqRateLimit(null);
+      return;
+    }
+    const timeout = window.setTimeout(() => {
+      setGroqRateLimit(null);
+    }, remainingMs);
+    return () => window.clearTimeout(timeout);
+  }, [groqRateLimit]);
+
   // Listen for features-updated events
   useEffect(() => {
     const handleFeaturesUpdated = (event: CustomEvent<EnabledFeatures>) => {
@@ -397,6 +455,17 @@ function AppContent({
     <>
       <div className="container">
         <Navigation theme={theme} toggleTheme={toggleTheme} enabledFeatures={enabledFeatures} />
+        {groqRateLimit && groqRateLimit.until > rateLimitNow && (
+          <div className="ai-rate-limit-row">
+            <div
+              className="ai-rate-limit-banner"
+              title={groqRateLimit.detail || groqRateLimit.message}
+            >
+              {groqRateLimit.message}{" "}
+              ({formatRateLimitRemaining(groqRateLimit.until - rateLimitNow)})
+            </div>
+          </div>
+        )}
         {/* Keep all components mounted but show/hide based on route */}
         <div style={{ display: isMainPage ? "block" : "none" }}>
           <MainApplicationPage />

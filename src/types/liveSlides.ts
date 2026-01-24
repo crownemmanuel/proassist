@@ -88,6 +88,11 @@ export interface WsTranscriptionStream {
     text: string;
     category: string;
   }>;
+  paraphrased_verses?: Array<{
+    reference: string;
+    confidence: number;
+    matchedPhrase: string;
+  }>;
 }
 
 export type WsMessage =
