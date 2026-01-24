@@ -34,11 +34,6 @@ import {
   loadDisplaySettings,
   closeDisplayWindow,
 } from "../services/displayService";
-import {
-  getLiveSlidesServerInfo,
-  loadLiveSlidesSettings,
-  startLiveSlidesServer,
-} from "../services/liveSlideService";
 import "../App.css";
 
 const EMPTY_SCRIPTURE: DisplayScripture = { verseText: "", reference: "" };
@@ -58,10 +53,6 @@ const AudienceDisplayPage: React.FC = () => {
   const [scripture, setScripture] = useState<DisplayScripture>(EMPTY_SCRIPTURE);
   const [showCloseButton, setShowCloseButton] = useState(false);
   const [backgroundImageUrl, setBackgroundImageUrl] = useState<string>("");
-  const [serverRunning, setServerRunning] = useState<boolean>(true);
-  const [isStartingServer, setIsStartingServer] = useState(false);
-  const [serverStartedMessage, setServerStartedMessage] = useState(false);
-
   const textBoxRef = useRef<HTMLDivElement | null>(null);
   const textContentRef = useRef<HTMLDivElement | null>(null);
   const referenceBoxRef = useRef<HTMLDivElement | null>(null);
@@ -142,23 +133,6 @@ const AudienceDisplayPage: React.FC = () => {
     { minFontSize: 12, maxFontSize: 160 }
   );
 
-  // Check server status
-  useEffect(() => {
-    const checkServerStatus = async () => {
-      try {
-        const info = await getLiveSlidesServerInfo();
-        setServerRunning(info.server_running);
-      } catch (error) {
-        console.error("[Display] Failed to check server status:", error);
-        setServerRunning(false);
-      }
-    };
-
-    void checkServerStatus();
-    const interval = setInterval(checkServerStatus, 5000);
-    return () => clearInterval(interval);
-  }, []);
-
   useEffect(() => {
     const setupListeners = async () => {
       const unlistenScripture = await listen<DisplayScripture>(
@@ -193,24 +167,6 @@ const AudienceDisplayPage: React.FC = () => {
       cleanup?.();
     };
   }, []);
-
-  const handleStartServer = async () => {
-    setIsStartingServer(true);
-    try {
-      const liveSlidesSettings = loadLiveSlidesSettings();
-      await startLiveSlidesServer(liveSlidesSettings.serverPort);
-      setServerRunning(true);
-      setServerStartedMessage(true);
-      // Hide the message after 2 seconds
-      setTimeout(() => {
-        setServerStartedMessage(false);
-      }, 2000);
-    } catch (error) {
-      console.error("[Display] Failed to start server:", error);
-    } finally {
-      setIsStartingServer(false);
-    }
-  };
 
   // Handle mouse movement to show close button after ~2 seconds of movement
   useEffect(() => {
@@ -360,64 +316,6 @@ const AudienceDisplayPage: React.FC = () => {
           >
             {scripture.reference}
           </div>
-        </div>
-      )}
-
-      {/* Start Server button - shows when server is not running */}
-      {!serverRunning && !serverStartedMessage && (
-        <div
-          style={{
-            position: "fixed",
-            top: "50%",
-            left: "50%",
-            transform: "translate(-50%, -50%)",
-            zIndex: 10001,
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            gap: "16px",
-          }}
-        >
-          <button
-            onClick={handleStartServer}
-            disabled={isStartingServer}
-            style={{
-              padding: "12px 24px",
-              backgroundColor: isStartingServer ? "#6b7280" : "#8b5cf6",
-              color: "#ffffff",
-              border: "none",
-              borderRadius: "8px",
-              fontSize: "16px",
-              fontWeight: 600,
-              cursor: isStartingServer ? "not-allowed" : "pointer",
-              transition: "background-color 0.2s",
-              boxShadow: "0 4px 12px rgba(0, 0, 0, 0.3)",
-            }}
-          >
-            {isStartingServer ? "Starting..." : "Start Server"}
-          </button>
-        </div>
-      )}
-
-      {/* Server Started message - shows briefly after starting */}
-      {serverStartedMessage && (
-        <div
-          style={{
-            position: "fixed",
-            top: "50%",
-            left: "50%",
-            transform: "translate(-50%, -50%)",
-            zIndex: 10001,
-            padding: "16px 32px",
-            backgroundColor: "rgba(34, 197, 94, 0.9)",
-            color: "#ffffff",
-            borderRadius: "8px",
-            fontSize: "18px",
-            fontWeight: 600,
-            boxShadow: "0 4px 12px rgba(0, 0, 0, 0.3)",
-          }}
-        >
-          Server Started
         </div>
       )}
 

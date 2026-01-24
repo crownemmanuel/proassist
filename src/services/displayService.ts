@@ -55,6 +55,17 @@ export function loadDisplaySettings(): DisplaySettings {
       if (parsed.webEnabled === undefined) {
         settings.webEnabled = false;
       }
+
+      // Guard against invalid values from older/local data
+      if (typeof parsed.enabled !== "boolean") {
+        settings.enabled = false;
+      }
+      if (typeof parsed.monitorIndex !== "number" || Number.isNaN(parsed.monitorIndex)) {
+        settings.monitorIndex = null;
+      }
+      if (settings.monitorIndex === null) {
+        settings.enabled = false;
+      }
       
       return settings;
     }

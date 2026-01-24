@@ -1027,18 +1027,24 @@ fn open_audience_display_window(
     }
 
     // Helper to get offset position from parent
-    let get_offset_position = || -> (f64, f64) {
+    let get_offset_position = || -> (f64, f64, i32, i32) {
         let offset_x = 100.0;
+        let offset_y = 100.0;
         match (parent_window.outer_position(), parent_window.outer_size()) {
             (Ok(pos), Ok(size)) => {
-                (pos.x as f64 + size.width as f64 + offset_x, pos.y as f64)
+                let logical_x = pos.x as f64 + size.width as f64 + offset_x;
+                let logical_y = pos.y as f64;
+                let physical_x = pos.x + size.width as i32 + offset_x as i32;
+                let physical_y = pos.y;
+                (logical_x, logical_y, physical_x, physical_y)
             }
-            _ => (offset_x, 100.0)
+            _ => (offset_x, offset_y, offset_x as i32, offset_y as i32)
         }
     };
 
     // Determine window position and size
-    let (new_x, new_y, width, height, is_fullscreen) = if let Some(index) = monitor_index {
+    #[allow(unused_variables)]
+    let (new_x, new_y, width, height, is_fullscreen, physical_x, physical_y, physical_width, physical_height) = if let Some(index) = monitor_index {
         // Try to find the monitor by index
         match parent_window.available_monitors() {
             Ok(monitors) => {
@@ -1060,73 +1066,92 @@ fn open_audience_display_window(
                         logical_width,
                         logical_height,
                         true,
+                        pos.x,
+                        pos.y,
+                        size.width,
+                        size.height,
                     )
                 } else {
                     eprintln!("[Display] Monitor index {} not found, falling back to offset", index);
-                    let (x, y) = get_offset_position();
-                    (x, y, 1200.0, 800.0, false)
+                    let (x, y, phys_x, phys_y) = get_offset_position();
+                    (x, y, 1200.0, 800.0, false, phys_x, phys_y, 1200, 800)
                 }
             }
             Err(e) => {
                 eprintln!("[Display] Failed to get available monitors: {:?}", e);
-                let (x, y) = get_offset_position();
-                (x, y, 1200.0, 800.0, false)
+                let (x, y, phys_x, phys_y) = get_offset_position();
+                (x, y, 1200.0, 800.0, false, phys_x, phys_y, 1200, 800)
             }
         }
     } else {
-        let (x, y) = get_offset_position();
-        (x, y, 1200.0, 800.0, false)
+        let (x, y, phys_x, phys_y) = get_offset_position();
+        (x, y, 1200.0, 800.0, false, phys_x, phys_y, 1200, 800)
     };
 
-    // Create new window
-    let window_builder = WebviewWindowBuilder::new(
-        &app_handle,
-        WINDOW_LABEL,
-        tauri::WebviewUrl::App("/audience-display".into())
-    )
-        .title("Audience Display")
-        .decorations(!is_fullscreen) // No decorations if fullscreen
-        .inner_size(width, height)
-        .min_inner_size(800.0, 600.0)
-        .resizable(true)
-        .visible(false) // Start hidden to avoid flickering
-        .focused(false) // Don't steal focus from main window
-        .position(new_x, new_y); // Position on selected monitor
+    let build_window = || {
+        let window_builder = WebviewWindowBuilder::new(
+            &app_handle,
+            WINDOW_LABEL,
+            tauri::WebviewUrl::App("/audience-display".into())
+        )
+            .title("Audience Display")
+            .decorations(!is_fullscreen) // No decorations if fullscreen
+            .min_inner_size(800.0, 600.0)
+            .resizable(true)
+            .visible(false) // Start hidden to avoid flickering
+            .focused(false); // Don't steal focus from main window
+
+        #[cfg(target_os = "windows")]
+        let window_builder = window_builder
+            .inner_size(tauri::PhysicalSize::new(physical_width, physical_height))
+            .position(tauri::PhysicalPosition::new(physical_x, physical_y));
+
+        #[cfg(not(target_os = "windows"))]
+        let window_builder = window_builder
+            .inner_size(width, height)
+            .position(new_x, new_y); // Position on selected monitor
+
+        window_builder
+    };
 
     // Try to set parent window (helps with window management on most platforms).
     // On macOS, parenting keeps the window tied to the same Space and makes it
     // move with the parent, which breaks dual-monitor display behavior.
     #[cfg(not(target_os = "macos"))]
-    let window_builder = match window_builder.parent(&parent_window) {
-        Ok(builder) => builder,
-        Err(e) => {
-            eprintln!("[Display] Warning: Could not set parent window: {:?}", e);
-            // Recreate the builder without parent since parent() consumes it
-            WebviewWindowBuilder::new(
-                &app_handle,
-                WINDOW_LABEL,
-                tauri::WebviewUrl::App("/audience-display".into())
-            )
-                .title("Audience Display")
-                .decorations(!is_fullscreen)
-                .inner_size(width, height)
-                .min_inner_size(800.0, 600.0)
-                .resizable(true)
-                .visible(false)
-                .focused(false)
-                .position(new_x, new_y)
+    let window_builder = {
+        let window_builder = build_window();
+        if is_fullscreen {
+            window_builder
+        } else {
+            match window_builder.parent(&parent_window) {
+                Ok(builder) => builder,
+                Err(e) => {
+                    eprintln!("[Display] Warning: Could not set parent window: {:?}", e);
+                    // Recreate the builder without parent since parent() consumes it
+                    build_window()
+                }
+            }
         }
     };
 
     #[cfg(target_os = "macos")]
-    let window_builder = window_builder;
+    let window_builder = build_window();
 
     match window_builder.build() {
         Ok(window) => {
             if is_fullscreen {
                 // On macOS, maximizing can pull the window back to the active Space.
                 // We already set position/size to the target monitor, so skip maximize there.
-                #[cfg(not(target_os = "macos"))]
+                #[cfg(target_os = "windows")]
+                {
+                    if let Err(e) = window.set_position(tauri::PhysicalPosition::new(physical_x, physical_y)) {
+                        eprintln!("[Display] Failed to set window position: {:?}", e);
+                    }
+                    if let Err(e) = window.set_size(tauri::PhysicalSize::new(physical_width, physical_height)) {
+                        eprintln!("[Display] Failed to set window size: {:?}", e);
+                    }
+                }
+                #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
                 {
                     if let Err(e) = window.maximize() {
                         eprintln!("[Display] Failed to maximize window: {:?}", e);
