@@ -7,12 +7,12 @@
 
 import React, { useState, useEffect } from "react";
 import {
-  FaHome,
   FaClock,
   FaStickyNote,
   FaBible,
   FaCircle,
   FaToggleOn,
+  FaUser,
 } from "react-icons/fa";
 import {
   loadEnabledFeatures,
@@ -35,7 +35,7 @@ const FEATURES: FeatureConfig[] = [
     key: "slides",
     label: "Slides",
     description: "Main slide management and presentation control",
-    icon: <FaHome />,
+    icon: <FaStickyNote />,
     color: "#3b82f6",
   },
   {
@@ -49,7 +49,7 @@ const FEATURES: FeatureConfig[] = [
     key: "liveTestimonies",
     label: "Live Testimonies",
     description: "Display and manage live testimonies from congregation",
-    icon: <FaStickyNote />,
+    icon: <FaUser />,
     color: "#ec4899",
   },
   {

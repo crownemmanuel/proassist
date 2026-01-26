@@ -494,6 +494,8 @@ RULES:
               book: parsedRef[0].book,
               chapter: parsedRef[0].chapter,
               verse: parsedRef[0].startVerse,
+              // Extract highlights from AI response
+              highlight: verse.highlight && Array.isArray(verse.highlight) ? verse.highlight : undefined,
             });
           }
         }
