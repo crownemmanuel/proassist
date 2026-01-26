@@ -1667,7 +1667,6 @@ const SmartVersesPage: React.FC = () => {
   }, [
     transcriptionStatus,
     transcriptionTimeLimitMs,
-    showTranscriptionLimitPrompt,
     openTranscriptionLimitPrompt,
   ]);
 
