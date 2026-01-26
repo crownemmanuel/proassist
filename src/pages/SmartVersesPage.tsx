@@ -366,6 +366,14 @@ const SmartVersesPage: React.FC = () => {
     };
   }, [reloadSettings]);
 
+  useEffect(() => {
+    const win = window as Window & { __smartVersesActive?: boolean };
+    win.__smartVersesActive = true;
+    return () => {
+      win.__smartVersesActive = false;
+    };
+  }, []);
+
   // Keep a ref to the latest detected references so we can de-dupe reliably inside async callbacks
   useEffect(() => {
     detectedReferencesRef.current = detectedReferences;
@@ -602,7 +610,7 @@ const SmartVersesPage: React.FC = () => {
   // =============================================================================
 
   const handleSearch = useCallback(async (query: string) => {
-    if (!query.trim()) return;
+    if (!query.trim()) return [];
 
     const queryMessage: SmartVersesChatMessage = {
       id: `query-${Date.now()}`,
@@ -625,14 +633,15 @@ const SmartVersesPage: React.FC = () => {
       isLoading: true,
     }]);
 
+    let references: DetectedBibleReference[] = [];
+    let searchMethod = "direct";
+
     try {
       // STEP 1: Try direct Bible reference parsing (bcv_parser)
       // This handles: "John 3:16", "John 3:1-4, Romans 3:3", etc.
       console.log("🔍 Step 1: Direct reference parsing for:", query);
-      let references = await detectAndLookupReferences(query);
+      references = await detectAndLookupReferences(query);
       console.log("🔍 Direct parsing found:", references.length, "references");
-      
-      let searchMethod = "direct";
 
       // STEP 2: If no direct references found, try secondary search
       if (references.length === 0) {
@@ -706,6 +715,7 @@ const SmartVersesPage: React.FC = () => {
           }];
         }
       });
+      return references;
     } catch (error) {
       console.error("Search error:", error);
       setChatHistory(prev => {
@@ -718,6 +728,7 @@ const SmartVersesPage: React.FC = () => {
           error: error instanceof Error ? error.message : "Unknown error",
         }];
       });
+      return [];
     } finally {
       setIsSearching(false);
     }
@@ -888,6 +899,26 @@ const SmartVersesPage: React.FC = () => {
       console.error("Error taking off live:", error);
     }
   }, [settings]);
+
+  useEffect(() => {
+    const handleApiGoLive: EventListener = (event) => {
+      const detail = (event as CustomEvent<{ reference?: string }>).detail;
+      const reference = String(detail?.reference ?? "").trim();
+      if (!reference) return;
+      void (async () => {
+        setInputValue(reference);
+        const references = await handleSearch(reference);
+        if (references[0]) {
+          await handleGoLive(references[0]);
+        }
+      })();
+    };
+
+    window.addEventListener("smartverses-api-go-live", handleApiGoLive);
+    return () => {
+      window.removeEventListener("smartverses-api-go-live", handleApiGoLive);
+    };
+  }, [handleGoLive, handleSearch]);
 
   // =============================================================================
   // BROWSER TRANSCRIPTION
