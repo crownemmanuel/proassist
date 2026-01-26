@@ -8,7 +8,6 @@ import {
   useNavigate,
 } from "react-router-dom";
 import {
-  FaHome,
   FaCog,
   FaQuestionCircle,
   FaSun,
@@ -17,6 +16,7 @@ import {
   FaClock,
   FaBible,
   FaCircle,
+  FaUser,
 } from "react-icons/fa";
 import "./App.css";
 
@@ -87,7 +87,7 @@ function Navigation({
           to="/"
           className={`nav-action-button ${isActive("/") ? "active" : ""}`}
         >
-          <FaHome />
+          <FaStickyNote />
           <span>Slides</span>
         </Link>
       )}
@@ -109,7 +109,7 @@ function Navigation({
             isActive("/live-testimonies") ? "active" : ""
           }`}
         >
-          <FaStickyNote />
+          <FaUser />
           <span>Live Testimonies</span>
         </Link>
       )}

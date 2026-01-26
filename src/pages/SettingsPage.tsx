@@ -11,7 +11,7 @@ import SmartVersesSettings from "../components/SmartVersesSettings";
 import RecorderSettings from "../components/RecorderSettings";
 import FeaturesSettings from "../components/FeaturesSettings";
 import MidiSettings from "../components/MidiSettings";
-import { FaList, FaRobot, FaStickyNote, FaNetworkWired, FaClock, FaInfoCircle, FaBible, FaGlobe, FaCircle, FaToggleOn } from "react-icons/fa";
+import { FaList, FaRobot, FaStickyNote, FaNetworkWired, FaClock, FaInfoCircle, FaBible, FaGlobe, FaCircle, FaToggleOn, FaUser } from "react-icons/fa";
 import "../App.css"; // Ensure global styles are applied
 import {
   exportAllTemplatesToFile,
@@ -271,7 +271,7 @@ const SettingsPage: React.FC = () => {
             onClick={() => setCurrentView("liveTestimonies")}
             className={currentView === "liveTestimonies" ? "active" : ""}
           >
-            <FaStickyNote />
+            <FaUser />
             Live Testimonies
           </button>
           <button
