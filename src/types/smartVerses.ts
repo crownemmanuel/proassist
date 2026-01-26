@@ -153,6 +153,7 @@ export interface SmartVersesSettings {
   remoteTranscriptionEnabled?: boolean;
   remoteTranscriptionHost?: string;
   remoteTranscriptionPort?: number;
+  transcriptionTimeLimitMinutes?: number; // Auto-stop prompt threshold (default: 120)
   
   // AI Search settings
   enableAISearch: boolean;
@@ -201,6 +202,7 @@ export const DEFAULT_SMART_VERSES_SETTINGS: SmartVersesSettings = {
   remoteTranscriptionEnabled: false,
   remoteTranscriptionHost: "",
   remoteTranscriptionPort: 9876,
+  transcriptionTimeLimitMinutes: 120,
   enableAISearch: false, // Off by default - uses text search instead
   bibleSearchProvider: 'groq',
   bibleSearchModel: 'llama-3.3-70b-versatile',
