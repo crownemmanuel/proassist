@@ -174,6 +174,69 @@ async function resolveReferencesFromList(
   return results;
 }
 
+/**
+ * Renders verse text with highlighted words in bold red
+ * @param verseText - The verse text to render
+ * @param highlightWords - Array of words to highlight (case-insensitive)
+ * @returns JSX element with highlighted words
+ */
+function renderHighlightedVerseText(
+  verseText: string,
+  highlightWords?: string[]
+): React.ReactNode {
+  if (!highlightWords || highlightWords.length === 0) {
+    return verseText;
+  }
+
+  // Create a regex pattern that matches any of the highlight words (case-insensitive, whole word)
+  const wordsPattern = highlightWords
+    .map((word) => word.trim())
+    .filter((word) => word.length > 0)
+    .map((word) => `\\b${word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`)
+    .join('|');
+
+  if (!wordsPattern) {
+    return verseText;
+  }
+
+  const regex = new RegExp(`(${wordsPattern})`, 'gi');
+  const parts: React.ReactNode[] = [];
+  let lastIndex = 0;
+  let match;
+
+  // Reset regex lastIndex to ensure we start from the beginning
+  regex.lastIndex = 0;
+
+  while ((match = regex.exec(verseText)) !== null) {
+    // Add text before the match
+    if (match.index > lastIndex) {
+      parts.push(verseText.substring(lastIndex, match.index));
+    }
+
+    // Add the highlighted match
+    parts.push(
+      <span
+        key={`highlight-${match.index}`}
+        style={{
+          fontWeight: 'bold',
+          color: '#ff0000', // Red color
+        }}
+      >
+        {match[0]}
+      </span>
+    );
+
+    lastIndex = regex.lastIndex;
+  }
+
+  // Add remaining text after the last match
+  if (lastIndex < verseText.length) {
+    parts.push(verseText.substring(lastIndex));
+  }
+
+  return parts.length > 0 ? <>{parts}</> : verseText;
+}
+
 // =============================================================================
 // MAIN COMPONENT
 // =============================================================================
@@ -2044,7 +2107,7 @@ const SmartVersesPage: React.FC = () => {
           lineHeight: 1.5,
           color: "var(--app-text-color)",
         }}>
-          {ref.verseText}
+          {renderHighlightedVerseText(ref.verseText, ref.highlight)}
         </p>
         {isParaphrase && ref.matchedPhrase && (
           <p style={{
@@ -2187,7 +2250,7 @@ const SmartVersesPage: React.FC = () => {
               }}
             >
               <p style={{ margin: 0, fontSize: "0.9rem", lineHeight: 1.5 }}>
-                {ref.verseText}
+                {renderHighlightedVerseText(ref.verseText, ref.highlight)}
               </p>
               {isParaphrase && ref.matchedPhrase && (
                 <p
@@ -3188,7 +3251,7 @@ const SmartVersesPage: React.FC = () => {
                                     </div>
 
                                     <p style={{ margin: 0, lineHeight: 1.5 }}>
-                                      {ref.verseText}
+                                      {renderHighlightedVerseText(ref.verseText, ref.highlight)}
                                     </p>
 
                                     {isParaphrase && ref.matchedPhrase && (

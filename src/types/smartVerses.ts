@@ -106,6 +106,8 @@ export interface DetectedBibleReference {
   verse?: number;
   // Navigation tracking - true if this verse was loaded via prev/next navigation
   isNavigationResult?: boolean;
+  // Highlight words from AI search
+  highlight?: string[];     // Words to highlight in the verse text
 }
 
 // =============================================================================
