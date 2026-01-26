@@ -23,7 +23,12 @@ function normalizeAutomation(raw: any): ScheduleItemAutomation | null {
   if (!raw || typeof raw !== "object") return null;
 
   // already in the new shape
-  if (raw.type === "slide" || raw.type === "stageLayout") {
+  if (
+    raw.type === "slide" ||
+    raw.type === "stageLayout" ||
+    raw.type === "midi" ||
+    raw.type === "http"
+  ) {
     return raw as ScheduleItemAutomation;
   }
 
@@ -380,12 +385,14 @@ export const StageAssistProvider: React.FC<{ children: React.ReactNode }> = ({ c
     // Import propresenter service dynamically to avoid circular dependencies
     const { triggerPresentationOnConnections, changeStageLayoutOnAllEnabled } = await import("../services/propresenterService");
 
-    // Sort automations: stageLayout first, then slides, then recording
+    // Sort automations: stageLayout first, then slides, then midi, then http, then recording
     const ordered = [...automations].sort((a, b) => {
       const order = (x: ScheduleItemAutomation) => {
         if (x.type === "stageLayout") return 0;
         if (x.type === "slide") return 1;
-        return 2; // recording automations last
+        if (x.type === "midi") return 2;
+        if (x.type === "http") return 3;
+        return 4; // recording automations last
       };
       return order(a) - order(b);
     });
@@ -422,6 +429,25 @@ export const StageAssistProvider: React.FC<{ children: React.ReactNode }> = ({ c
             console.log(`[FollowMaster] MIDI automation: Sent note ${automation.note} on channel ${automation.channel}`);
           } catch (err) {
             console.error(`[FollowMaster] MIDI automation error:`, err);
+          }
+        } else if (automation.type === "http") {
+          try {
+            const { triggerHttpAutomation } = await import(
+              "../services/httpAutomationService"
+            );
+            const result = await triggerHttpAutomation(automation);
+            if (result.ok) {
+              console.log(
+                `[FollowMaster] HTTP automation: ${automation.method} ${automation.url} (${result.status ?? "ok"})`
+              );
+            } else {
+              console.warn(
+                `[FollowMaster] HTTP automation failed: ${automation.method} ${automation.url}`,
+                result.error || result.status
+              );
+            }
+          } catch (err) {
+            console.error(`[FollowMaster] HTTP automation error:`, err);
           }
         } else {
           // Recording automations
@@ -838,4 +864,3 @@ export function useStageAssist() {
   if (!ctx) throw new Error("useStageAssist must be used within StageAssistProvider");
   return ctx;
 }
-
