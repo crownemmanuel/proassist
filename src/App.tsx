@@ -41,6 +41,9 @@ import {
   loadLiveSlidesSettings,
   startLiveSlidesServer,
 } from "./services/liveSlideService";
+import { goLiveScriptureReference } from "./services/smartVersesApiService";
+import { loadNetworkSyncSettings } from "./services/networkSyncService";
+import { setApiEnabled } from "./services/apiService";
 import UpdateNotification from "./components/UpdateNotification";
 
 // Global Chat Assistant imports
@@ -308,6 +311,49 @@ function AppContent({
     };
   }, []);
 
+  useEffect(() => {
+    let unlisten: null | (() => void) = null;
+    const isSmartVersesActive = () =>
+      (window as Window & { __smartVersesActive?: boolean }).__smartVersesActive;
+
+    (async () => {
+      try {
+        const events = await import("@tauri-apps/api/event");
+        unlisten = await events.listen<{ reference?: string }>(
+          "api-scripture-go-live",
+          async (event) => {
+            const reference = String(event.payload?.reference ?? "").trim();
+            if (!reference) return;
+
+            if (isSmartVersesActive()) {
+              window.dispatchEvent(
+                new CustomEvent("smartverses-api-go-live", {
+                  detail: { reference },
+                })
+              );
+              return;
+            }
+
+            try {
+              const result = await goLiveScriptureReference(reference);
+              if (!result) {
+                console.warn("[API] No scripture match for:", reference);
+              }
+            } catch (error) {
+              console.warn("[API] Failed to go live:", error);
+            }
+          }
+        );
+      } catch (error) {
+        console.warn("[API] Failed to listen for scripture events:", error);
+      }
+    })();
+
+    return () => {
+      if (unlisten) unlisten();
+    };
+  }, []);
+
   // Global Chat State
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [templates, setTemplates] = useState<Template[]>([]);
@@ -559,14 +605,23 @@ function App() {
 
   // Auto-start Live Slides WebSocket server if enabled in settings.
   useEffect(() => {
-    const settings = loadLiveSlidesSettings();
-    if (!settings.autoStartServer) return;
+    const liveSlidesSettings = loadLiveSlidesSettings();
+    const syncSettings = loadNetworkSyncSettings();
+
+    setApiEnabled(syncSettings.apiEnabled).catch((err) => {
+      console.warn("[API] Failed to apply API toggle:", err);
+    });
+
+    if (!liveSlidesSettings.autoStartServer && !syncSettings.apiEnabled) {
+      return;
+    }
+
     // Best-effort: if it fails (already running / port in use), we'll let Settings/Import UI surface it.
-    startLiveSlidesServer(settings.serverPort).catch((err) => {
-      console.warn(
-        "[LiveSlides] Auto-start server failed (may already be running):",
-        err
-      );
+    startLiveSlidesServer(liveSlidesSettings.serverPort).catch((err) => {
+      const message = err instanceof Error ? err.message : String(err);
+      if (!message.toLowerCase().includes("already running")) {
+        console.warn("[LiveSlides] Auto-start server failed:", err);
+      }
     });
   }, []);
 

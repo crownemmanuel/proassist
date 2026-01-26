@@ -684,6 +684,35 @@ export const StageAssistProvider: React.FC<{ children: React.ReactNode }> = ({ c
     [countdownHours, countdownMinutes, countdownSeconds]
   );
 
+  useEffect(() => {
+    let unlisten: null | (() => void) = null;
+
+    (async () => {
+      try {
+        const events = await import("@tauri-apps/api/event");
+        unlisten = await events.listen<{ seconds?: number }>(
+          "api-timer-start",
+          async (event) => {
+            const seconds = Number(event.payload?.seconds ?? 0);
+            if (!Number.isFinite(seconds)) return;
+            const totalSeconds = Math.floor(seconds);
+            if (totalSeconds <= 0) return;
+            const result = await startCountdown(totalSeconds);
+            if (result.errors?.length) {
+              console.warn("[API] Timer start errors:", result.errors);
+            }
+          }
+        );
+      } catch (error) {
+        console.warn("[API] Failed to listen for timer events:", error);
+      }
+    })();
+
+    return () => {
+      if (unlisten) unlisten();
+    };
+  }, [startCountdown]);
+
   const startCountdownToTime = useCallback(
     async (time?: string, period?: "AM" | "PM") => {
       const finalTime = time ?? countdownToTime;
