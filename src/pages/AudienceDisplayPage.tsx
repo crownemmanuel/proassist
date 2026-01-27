@@ -33,10 +33,9 @@ const getFontStyle = (style: DisplaySettings["textStyle"]): React.CSSProperties 
 import {
   loadDisplaySettings,
   closeDisplayWindow,
+  loadDisplayScripture,
 } from "../services/displayService";
 import "../App.css";
-
-const EMPTY_SCRIPTURE: DisplayScripture = { verseText: "", reference: "" };
 
 const rectStyle = (rect: DisplayLayoutRect): React.CSSProperties => ({
   position: "absolute",
@@ -50,7 +49,9 @@ const AudienceDisplayPage: React.FC = () => {
   const [settings, setSettings] = useState<DisplaySettings>(() =>
     loadDisplaySettings()
   );
-  const [scripture, setScripture] = useState<DisplayScripture>(EMPTY_SCRIPTURE);
+  const [scripture, setScripture] = useState<DisplayScripture>(() =>
+    loadDisplayScripture()
+  );
   const [showCloseButton, setShowCloseButton] = useState(false);
   const [backgroundImageUrl, setBackgroundImageUrl] = useState<string>("");
   const textBoxRef = useRef<HTMLDivElement | null>(null);

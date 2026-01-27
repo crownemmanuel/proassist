@@ -729,24 +729,56 @@ const SmartVersesPage: React.FC = () => {
       const verseText = reference.verseText || "";
       const displayRef = reference.displayRef || "";
       
+      // Update audience display if enabled (don't block on file output or ProPresenter)
+      const displaySettings = loadDisplaySettings();
+      const shouldUpdateDisplay =
+        displaySettings.enabled ||
+        displaySettings.webEnabled ||
+        displaySettings.windowAudienceScreen;
+      if (shouldUpdateDisplay) {
+        if (displaySettings.enabled) {
+          try {
+            await openDisplayWindow(displaySettings);
+          } catch (error) {
+            console.warn("[Display] Failed to open audience screen:", error);
+          }
+        }
+        try {
+          await sendScriptureToDisplay({
+            verseText,
+            reference: displayRef,
+          });
+        } catch (error) {
+          console.warn("[Display] Failed to update audience screen:", error);
+        }
+      }
+
       // Write verse text to file
       if (basePath && settings.bibleTextFileName) {
         const textFilePath = `${basePath}${settings.bibleTextFileName}`;
         console.log(`Writing verse text to: ${textFilePath}, Content: "${verseText}"`);
-        await invoke("write_text_to_file", {
-          filePath: textFilePath,
-          content: verseText,
-        });
+        try {
+          await invoke("write_text_to_file", {
+            filePath: textFilePath,
+            content: verseText,
+          });
+        } catch (error) {
+          console.warn("[SmartVerses] Failed to write verse text file:", error);
+        }
       }
 
       // Write reference to file
       if (basePath && settings.bibleReferenceFileName) {
         const refFilePath = `${basePath}${settings.bibleReferenceFileName}`;
         console.log(`Writing reference to: ${refFilePath}, Content: "${displayRef}"`);
-        await invoke("write_text_to_file", {
-          filePath: refFilePath,
-          content: displayRef,
-        });
+        try {
+          await invoke("write_text_to_file", {
+            filePath: refFilePath,
+            content: displayRef,
+          });
+        } catch (error) {
+          console.warn("[SmartVerses] Failed to write reference file:", error);
+        }
       }
 
       // Trigger ProPresenter if configured
@@ -754,29 +786,15 @@ const SmartVersesPage: React.FC = () => {
         const { presentationUuid, slideIndex, activationClicks } = settings.proPresenterActivation;
         const clicks = activationClicks ?? 1;
         console.log(`Triggering ProPresenter: ${presentationUuid}, slide ${slideIndex}, clicks: ${clicks}`);
-        await triggerPresentationOnConnections(
-          { presentationUuid, slideIndex },
-          settings.proPresenterConnectionIds,
-          clicks,
-          100
-        );
-      }
-
-      // Update audience display if enabled
-      const displaySettings = loadDisplaySettings();
-      if (displaySettings.enabled || displaySettings.webEnabled) {
         try {
-          // Only open the native window if enabled (not just webEnabled)
-          if (displaySettings.enabled) {
-            await openDisplayWindow(displaySettings);
-          }
-          // Send scripture to both native and web displays
-          await sendScriptureToDisplay({
-            verseText,
-            reference: displayRef,
-          });
+          await triggerPresentationOnConnections(
+            { presentationUuid, slideIndex },
+            settings.proPresenterConnectionIds,
+            clicks,
+            100
+          );
         } catch (error) {
-          console.warn("[Display] Failed to update audience screen:", error);
+          console.warn("[SmartVerses] Failed to trigger ProPresenter:", error);
         }
       }
 
@@ -795,20 +813,34 @@ const SmartVersesPage: React.FC = () => {
           try {
             if (settings.bibleTextFileName) {
               const textFilePath = `${basePath}${settings.bibleTextFileName}`;
-              await invoke("write_text_to_file", { filePath: textFilePath, content: "" });
+              try {
+                await invoke("write_text_to_file", { filePath: textFilePath, content: "" });
+              } catch (error) {
+                console.warn("[SmartVerses] Failed to auto-clear verse text file:", error);
+              }
             }
             if (settings.bibleReferenceFileName) {
               const refFilePath = `${basePath}${settings.bibleReferenceFileName}`;
-              await invoke("write_text_to_file", { filePath: refFilePath, content: "" });
+              try {
+                await invoke("write_text_to_file", { filePath: refFilePath, content: "" });
+              } catch (error) {
+                console.warn("[SmartVerses] Failed to auto-clear reference file:", error);
+              }
             }
             const displaySettings = loadDisplaySettings();
-            if (displaySettings.enabled || displaySettings.webEnabled) {
-              await sendScriptureToDisplay({ verseText: "", reference: "" });
+            const shouldUpdateDisplay =
+              displaySettings.enabled ||
+              displaySettings.webEnabled ||
+              displaySettings.windowAudienceScreen;
+            if (shouldUpdateDisplay) {
+              try {
+                await sendScriptureToDisplay({ verseText: "", reference: "" });
+              } catch (error) {
+                console.warn("[Display] Failed to auto-clear audience screen:", error);
+              }
             }
-            setLiveReferenceId(null);
-          } catch (e) {
-            console.error("Failed to auto-clear SmartVerses files:", e);
           } finally {
+            setLiveReferenceId(null);
             autoClearTimeoutRef.current = null;
           }
         }, clearDelay);
@@ -836,25 +868,41 @@ const SmartVersesPage: React.FC = () => {
         if (basePath && settings.bibleTextFileName) {
           const textFilePath = `${basePath}${settings.bibleTextFileName}`;
           console.log(`Clearing verse text file: ${textFilePath}`);
-          await invoke("write_text_to_file", {
-            filePath: textFilePath,
-            content: "",
-          });
+          try {
+            await invoke("write_text_to_file", {
+              filePath: textFilePath,
+              content: "",
+            });
+          } catch (error) {
+            console.warn("[SmartVerses] Failed to clear verse text file:", error);
+          }
         }
 
         if (basePath && settings.bibleReferenceFileName) {
           const refFilePath = `${basePath}${settings.bibleReferenceFileName}`;
           console.log(`Clearing reference file: ${refFilePath}`);
-          await invoke("write_text_to_file", {
-            filePath: refFilePath,
-            content: "",
-          });
+          try {
+            await invoke("write_text_to_file", {
+              filePath: refFilePath,
+              content: "",
+            });
+          } catch (error) {
+            console.warn("[SmartVerses] Failed to clear reference file:", error);
+          }
         }
       }
 
       const displaySettings = loadDisplaySettings();
-      if (displaySettings.enabled || displaySettings.webEnabled) {
-        await sendScriptureToDisplay({ verseText: "", reference: "" });
+      const shouldUpdateDisplay =
+        displaySettings.enabled ||
+        displaySettings.webEnabled ||
+        displaySettings.windowAudienceScreen;
+      if (shouldUpdateDisplay) {
+        try {
+          await sendScriptureToDisplay({ verseText: "", reference: "" });
+        } catch (error) {
+          console.warn("[Display] Failed to clear audience screen:", error);
+        }
       }
 
       // Trigger ProPresenter take off if configured
@@ -864,12 +912,16 @@ const SmartVersesPage: React.FC = () => {
         
         if (clicks > 0) {
           console.log(`Triggering ProPresenter take off: ${presentationUuid}, slide ${slideIndex}, clicks: ${clicks}`);
-          await triggerPresentationOnConnections(
-            { presentationUuid, slideIndex },
-            settings.proPresenterConnectionIds,
-            clicks,
-            100
-          );
+          try {
+            await triggerPresentationOnConnections(
+              { presentationUuid, slideIndex },
+              settings.proPresenterConnectionIds,
+              clicks,
+              100
+            );
+          } catch (error) {
+            console.warn("[SmartVerses] Failed to trigger ProPresenter take off:", error);
+          }
         }
       }
 

@@ -5,12 +5,14 @@ import { invoke } from "@tauri-apps/api/core";
 import {
   DEFAULT_DISPLAY_LAYOUT,
   DEFAULT_DISPLAY_SETTINGS,
+  DISPLAY_SCRIPTURE_KEY,
   DISPLAY_SETTINGS_KEY,
   DisplayScripture,
   DisplaySettings,
 } from "../types/display";
 
 const DISPLAY_WINDOW_LABEL = "audience-display";
+const EMPTY_SCRIPTURE: DisplayScripture = { verseText: "", reference: "" };
 
 let displayWindow: WebviewWindow | null = null;
 
@@ -84,6 +86,31 @@ export function saveDisplaySettings(settings: DisplaySettings): void {
     void emit("display:settings", settings);
   } catch (error) {
     console.error("[Display] Failed to save display settings:", error);
+  }
+}
+
+export function loadDisplayScripture(): DisplayScripture {
+  try {
+    const stored = localStorage.getItem(DISPLAY_SCRIPTURE_KEY);
+    if (stored) {
+      const parsed = JSON.parse(stored) as Partial<DisplayScripture>;
+      return {
+        verseText: parsed.verseText ?? "",
+        reference: parsed.reference ?? "",
+      };
+    }
+  } catch (error) {
+    console.error("[Display] Failed to load display scripture:", error);
+  }
+  return EMPTY_SCRIPTURE;
+}
+
+export function saveDisplayScripture(payload: DisplayScripture): void {
+  try {
+    localStorage.setItem(DISPLAY_SCRIPTURE_KEY, JSON.stringify(payload));
+    void emit("display:scripture", payload);
+  } catch (error) {
+    console.error("[Display] Failed to save display scripture:", error);
   }
 }
 
@@ -222,7 +249,7 @@ export async function sendScriptureToDisplay(
 ): Promise<void> {
   try {
     // Emit to local Tauri window (for native audience display window)
-    await emit("display:scripture", payload);
+    saveDisplayScripture(payload);
     
     // Also broadcast to web server if enabled
     const settings = loadDisplaySettings();

@@ -8,7 +8,7 @@ import {
   DisplaySettings,
   DisplayLayoutRect,
 } from "../types/display";
-import { loadDisplaySettings } from "../services/displayService";
+import { loadDisplayScripture, loadDisplaySettings } from "../services/displayService";
 import "../App.css";
 
 const getFontStyle = (style: DisplaySettings["textStyle"]): React.CSSProperties => {
@@ -33,8 +33,6 @@ const getFontStyle = (style: DisplaySettings["textStyle"]): React.CSSProperties 
   return css;
 };
 
-const EMPTY_SCRIPTURE: DisplayScripture = { verseText: "", reference: "" };
-
 const rectStyle = (rect: DisplayLayoutRect): React.CSSProperties => ({
   position: "absolute",
   left: `${rect.x * 100}%`,
@@ -47,7 +45,9 @@ const AudienceDisplayTestWindow: React.FC = () => {
   const [settings, setSettings] = useState<DisplaySettings>(() =>
     loadDisplaySettings()
   );
-  const [scripture, setScripture] = useState<DisplayScripture>(EMPTY_SCRIPTURE);
+  const [scripture, setScripture] = useState<DisplayScripture>(() =>
+    loadDisplayScripture()
+  );
   const [backgroundImageUrl, setBackgroundImageUrl] = useState<string>("");
   const [isHovered, setIsHovered] = useState(false);
   const textBoxRef = useRef<HTMLDivElement | null>(null);

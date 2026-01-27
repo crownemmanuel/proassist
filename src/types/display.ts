@@ -50,6 +50,7 @@ export type DisplayScripture = {
 };
 
 export const DISPLAY_SETTINGS_KEY = "proassist-display-settings";
+export const DISPLAY_SCRIPTURE_KEY = "proassist-display-scripture";
 
 export const DEFAULT_DISPLAY_LAYOUT: DisplayLayout = {
   text: {
