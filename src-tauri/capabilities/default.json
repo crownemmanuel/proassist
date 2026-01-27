@@ -5,6 +5,7 @@
   "windows": ["main", "audience-display", "dialog-*"],
   "permissions": [
     "core:default",
+    "core:window:allow-close",
     "core:window:allow-set-focus",
     "core:window:allow-maximize",
     "core:window:allow-set-fullscreen",

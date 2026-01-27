@@ -114,6 +114,15 @@ export function saveDisplayScripture(payload: DisplayScripture): void {
   }
 }
 
+export function clearDisplayScripture(): void {
+  try {
+    localStorage.setItem(DISPLAY_SCRIPTURE_KEY, JSON.stringify(EMPTY_SCRIPTURE));
+    void emit("display:scripture", EMPTY_SCRIPTURE);
+  } catch (error) {
+    console.error("[Display] Failed to clear display scripture:", error);
+  }
+}
+
 // Safe monitor info structure matching Rust SafeMonitorInfo
 interface SafeMonitorInfo {
   name: string | null;

@@ -34,6 +34,7 @@ import AudienceDisplayPage from "./pages/AudienceDisplayPage";
 import AudienceDisplayTestWindow from "./pages/AudienceDisplayTestWindow";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { loadEnabledFeatures } from "./services/recorderService";
+import { clearDisplayScripture } from "./services/displayService";
 import { EnabledFeatures } from "./types/recorder";
 import {
   StageAssistProvider,
@@ -486,6 +487,12 @@ function App() {
     document.body.classList.add(`theme-${theme}`);
     localStorage.setItem("app-theme", theme);
   }, [theme]);
+
+  // Clear last scripture on main app startup so displays start blank.
+  useEffect(() => {
+    if (windowLabel !== "main") return;
+    clearDisplayScripture();
+  }, [windowLabel]);
 
   // Global shortcut to open DevTools / Inspector (useful on production machines to debug issues).
   useEffect(() => {
