@@ -34,7 +34,7 @@ import AudienceDisplayPage from "./pages/AudienceDisplayPage";
 import AudienceDisplayTestWindow from "./pages/AudienceDisplayTestWindow";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { loadEnabledFeatures } from "./services/recorderService";
-import { clearDisplayScripture } from "./services/displayService";
+import { clearDisplayScripture, clearDisplaySlides } from "./services/displayService";
 import { EnabledFeatures } from "./types/recorder";
 import {
   StageAssistProvider,
@@ -492,6 +492,7 @@ function App() {
   useEffect(() => {
     if (windowLabel !== "main") return;
     clearDisplayScripture();
+    clearDisplaySlides();
   }, [windowLabel]);
 
   // Global shortcut to open DevTools / Inspector (useful on production machines to debug issues).

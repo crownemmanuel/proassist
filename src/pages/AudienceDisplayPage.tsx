@@ -7,7 +7,10 @@ import {
   DisplayScripture,
   DisplaySettings,
   DisplayLayoutRect,
+  DisplaySlides,
+  DisplayTimerState,
 } from "../types/display";
+import { formatStageAssistTime } from "../contexts/StageAssistContext";
 
 const getFontStyle = (style: DisplaySettings["textStyle"]): React.CSSProperties => {
   const css: React.CSSProperties = {
@@ -34,6 +37,8 @@ import {
   loadDisplaySettings,
   closeDisplayWindow,
   loadDisplayScripture,
+  loadDisplaySlides,
+  loadDisplayTimerState,
 } from "../services/displayService";
 import "../App.css";
 
@@ -52,12 +57,34 @@ const AudienceDisplayPage: React.FC = () => {
   const [scripture, setScripture] = useState<DisplayScripture>(() =>
     loadDisplayScripture()
   );
+  const [slides, setSlides] = useState<DisplaySlides>(() =>
+    loadDisplaySlides()
+  );
+  const [timerState, setTimerState] = useState<DisplayTimerState>(() =>
+    loadDisplayTimerState()
+  );
   const [showCloseButton, setShowCloseButton] = useState(false);
   const [backgroundImageUrl, setBackgroundImageUrl] = useState<string>("");
   const textBoxRef = useRef<HTMLDivElement | null>(null);
   const textContentRef = useRef<HTMLDivElement | null>(null);
   const referenceBoxRef = useRef<HTMLDivElement | null>(null);
   const referenceContentRef = useRef<HTMLDivElement | null>(null);
+  const slideLineBoxRefs = [
+    useRef<HTMLDivElement | null>(null),
+    useRef<HTMLDivElement | null>(null),
+    useRef<HTMLDivElement | null>(null),
+    useRef<HTMLDivElement | null>(null),
+    useRef<HTMLDivElement | null>(null),
+    useRef<HTMLDivElement | null>(null),
+  ];
+  const slideLineContentRefs = [
+    useRef<HTMLDivElement | null>(null),
+    useRef<HTMLDivElement | null>(null),
+    useRef<HTMLDivElement | null>(null),
+    useRef<HTMLDivElement | null>(null),
+    useRef<HTMLDivElement | null>(null),
+    useRef<HTMLDivElement | null>(null),
+  ];
   const mouseMoveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const mouseLeaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -134,12 +161,105 @@ const AudienceDisplayPage: React.FC = () => {
     { minFontSize: 12, maxFontSize: 160 }
   );
 
+  const slideLineFontSizes = [
+    useAutoFontSize(
+      slideLineBoxRefs[0],
+      slideLineContentRefs[0],
+      [
+        slides.lines[0] || "",
+        settings.textFont,
+        settings.slidesLayout[0]?.x,
+        settings.slidesLayout[0]?.y,
+        settings.slidesLayout[0]?.width,
+        settings.slidesLayout[0]?.height,
+      ],
+      { minFontSize: 14, maxFontSize: 180 }
+    ),
+    useAutoFontSize(
+      slideLineBoxRefs[1],
+      slideLineContentRefs[1],
+      [
+        slides.lines[1] || "",
+        settings.textFont,
+        settings.slidesLayout[1]?.x,
+        settings.slidesLayout[1]?.y,
+        settings.slidesLayout[1]?.width,
+        settings.slidesLayout[1]?.height,
+      ],
+      { minFontSize: 14, maxFontSize: 180 }
+    ),
+    useAutoFontSize(
+      slideLineBoxRefs[2],
+      slideLineContentRefs[2],
+      [
+        slides.lines[2] || "",
+        settings.textFont,
+        settings.slidesLayout[2]?.x,
+        settings.slidesLayout[2]?.y,
+        settings.slidesLayout[2]?.width,
+        settings.slidesLayout[2]?.height,
+      ],
+      { minFontSize: 14, maxFontSize: 180 }
+    ),
+    useAutoFontSize(
+      slideLineBoxRefs[3],
+      slideLineContentRefs[3],
+      [
+        slides.lines[3] || "",
+        settings.textFont,
+        settings.slidesLayout[3]?.x,
+        settings.slidesLayout[3]?.y,
+        settings.slidesLayout[3]?.width,
+        settings.slidesLayout[3]?.height,
+      ],
+      { minFontSize: 14, maxFontSize: 180 }
+    ),
+    useAutoFontSize(
+      slideLineBoxRefs[4],
+      slideLineContentRefs[4],
+      [
+        slides.lines[4] || "",
+        settings.textFont,
+        settings.slidesLayout[4]?.x,
+        settings.slidesLayout[4]?.y,
+        settings.slidesLayout[4]?.width,
+        settings.slidesLayout[4]?.height,
+      ],
+      { minFontSize: 14, maxFontSize: 180 }
+    ),
+    useAutoFontSize(
+      slideLineBoxRefs[5],
+      slideLineContentRefs[5],
+      [
+        slides.lines[5] || "",
+        settings.textFont,
+        settings.slidesLayout[5]?.x,
+        settings.slidesLayout[5]?.y,
+        settings.slidesLayout[5]?.width,
+        settings.slidesLayout[5]?.height,
+      ],
+      { minFontSize: 14, maxFontSize: 180 }
+    ),
+  ];
+
   useEffect(() => {
     const setupListeners = async () => {
       const unlistenScripture = await listen<DisplayScripture>(
         "display:scripture",
         (event) => {
           setScripture(event.payload);
+        }
+      );
+      const unlistenSlides = await listen<DisplaySlides>(
+        "display:slides",
+        (event) => {
+          setSlides(event.payload);
+        }
+      );
+      const unlistenTimer = await listen<DisplayTimerState>(
+        "display:timer",
+        (event) => {
+          setTimerState(event.payload);
         }
       );
       const unlistenSettings = await listen<DisplaySettings>(
@@ -151,6 +271,8 @@ const AudienceDisplayPage: React.FC = () => {
 
       return () => {
         unlistenScripture();
+        unlistenSlides();
+        unlistenTimer();
         unlistenSettings();
       };
     };
@@ -246,6 +368,10 @@ const AudienceDisplayPage: React.FC = () => {
     }
   };
 
+  const hasSlideContent = slides.lines.some((line) => line.trim());
+  const shouldShowTimer =
+    settings.showTimer && (timerState.isRunning || timerState.timeLeft !== 0);
+
   return (
     <div
       style={{
@@ -262,7 +388,42 @@ const AudienceDisplayPage: React.FC = () => {
         color: "#ffffff",
       }}
     >
-      {scripture.verseText && (
+      {hasSlideContent &&
+        settings.slidesLayout.slice(0, 6).map((rect, index) => {
+          const content = slides.lines[index] || "";
+          if (!content.trim()) return null;
+          return (
+            <div
+              key={`slide-line-${index}`}
+              ref={slideLineBoxRefs[index]}
+              style={{
+                ...rectStyle(rect),
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                textAlign: "center",
+                padding: "8px",
+              }}
+            >
+              <div
+                ref={slideLineContentRefs[index]}
+                style={{
+                  fontFamily: settings.textFont,
+                  fontSize: `${slideLineFontSizes[index]}px`,
+                  lineHeight: 1.2,
+                  whiteSpace: "pre-wrap",
+                  wordBreak: "break-word",
+                  width: "100%",
+                  ...getFontStyle(settings.textStyle),
+                }}
+              >
+                {content}
+              </div>
+            </div>
+          );
+        })}
+
+      {!hasSlideContent && scripture.verseText && (
         <div
           ref={textBoxRef}
           style={{
@@ -291,7 +452,7 @@ const AudienceDisplayPage: React.FC = () => {
         </div>
       )}
 
-      {scripture.reference && (
+      {!hasSlideContent && scripture.reference && (
         <div
           ref={referenceBoxRef}
           style={{
@@ -317,6 +478,26 @@ const AudienceDisplayPage: React.FC = () => {
           >
             {scripture.reference}
           </div>
+        </div>
+      )}
+
+      {shouldShowTimer && (
+        <div
+          style={{
+            position: "absolute",
+            right: "28px",
+            bottom: "24px",
+            padding: "10px 14px",
+            borderRadius: "10px",
+            backgroundColor: "rgba(0, 0, 0, 0.6)",
+            border: "1px solid rgba(255, 255, 255, 0.25)",
+            color: "#ffffff",
+            fontSize: "32px",
+            fontWeight: 600,
+            letterSpacing: "0.02em",
+          }}
+        >
+          {formatStageAssistTime(timerState.timeLeft)}
         </div>
       )}
 

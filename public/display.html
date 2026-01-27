@@ -55,6 +55,38 @@
             width: 100%;
         }
 
+        .slide-line {
+            position: absolute;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 8px;
+            overflow: hidden;
+        }
+
+        .slide-line-content {
+            line-height: 1.2;
+            white-space: pre-wrap;
+            word-break: break-word;
+            width: 100%;
+        }
+
+        .timer-overlay {
+            position: fixed;
+            right: 28px;
+            bottom: 24px;
+            padding: 10px 14px;
+            border-radius: 10px;
+            background-color: rgba(0, 0, 0, 0.6);
+            border: 1px solid rgba(255, 255, 255, 0.25);
+            color: #ffffff;
+            font-size: 32px;
+            font-weight: 600;
+            letter-spacing: 0.02em;
+            display: none;
+        }
+
         .connection-status {
             position: fixed;
             top: 10px;
@@ -108,9 +140,18 @@
         <div class="reference-content" id="referenceContent"></div>
     </div>
 
+    <div class="timer-overlay" id="timerOverlay"></div>
+
     <script>
         let ws = null;
         let scripture = { verseText: '', reference: '' };
+        let slides = [];
+        let timerState = {
+            is_running: false,
+            time_left: 0,
+            session_name: null,
+            is_overrun: false,
+        };
         let settings = {
             backgroundColor: '#000000',
             backgroundImagePath: '',
@@ -134,8 +175,28 @@
                 text: { x: 0.08, y: 0.1, width: 0.84, height: 0.6 },
                 reference: { x: 0.08, y: 0.75, width: 0.84, height: 0.16 },
             },
+            slidesLayout: [
+                { x: 0.08, y: 0.62, width: 0.84, height: 0.12 },
+                { x: 0.08, y: 0.76, width: 0.84, height: 0.12 },
+            ],
+            showTimer: false,
         };
         let backgroundImageUrl = '';
+        const slideBoxes = [];
+        const slideContents = [];
+        const maxSlideLines = 6;
+
+        for (let i = 0; i < maxSlideLines; i++) {
+            const box = document.createElement('div');
+            box.className = 'slide-line';
+            box.style.display = 'none';
+            const content = document.createElement('div');
+            content.className = 'slide-line-content';
+            box.appendChild(content);
+            document.body.appendChild(box);
+            slideBoxes.push(box);
+            slideContents.push(content);
+        }
 
         function updateConnectionStatus(connected) {
             const indicator = document.getElementById('statusIndicator');
@@ -179,6 +240,18 @@
                 width: `${rect.width * 100}%`,
                 height: `${rect.height * 100}%`,
             };
+        }
+
+        function hasSlideContent() {
+            return slides.some((line) => line && line.trim().length > 0);
+        }
+
+        function formatTime(seconds) {
+            const isNegative = seconds < 0;
+            const absoluteSeconds = Math.abs(seconds);
+            const minutes = Math.floor(absoluteSeconds / 60);
+            const remainingSeconds = absoluteSeconds % 60;
+            return `${isNegative ? '-' : ''}${minutes}:${String(remainingSeconds).padStart(2, '0')}`;
         }
 
         function autoFontSize(boxElement, contentElement, text, minSize = 14, maxSize = 220) {
@@ -233,11 +306,13 @@
                 document.body.style.backgroundImage = '';
             }
 
+            const slideActive = hasSlideContent();
+
             // Update text box
             const textBox = document.getElementById('textBox');
             const textContent = document.getElementById('textContent');
             
-            if (scripture.verseText) {
+            if (!slideActive && scripture.verseText) {
                 textBox.style.display = 'flex';
                 applyStyles(textBox, rectStyle(settings.layout.text));
                 textContent.textContent = scripture.verseText;
@@ -256,7 +331,7 @@
             const referenceBox = document.getElementById('referenceBox');
             const referenceContent = document.getElementById('referenceContent');
             
-            if (scripture.reference) {
+            if (!slideActive && scripture.reference) {
                 referenceBox.style.display = 'flex';
                 applyStyles(referenceBox, rectStyle(settings.layout.reference));
                 referenceContent.textContent = scripture.reference;
@@ -269,6 +344,37 @@
                 });
             } else {
                 referenceBox.style.display = 'none';
+            }
+
+            // Update slide lines
+            const layout = Array.isArray(settings.slidesLayout) ? settings.slidesLayout : [];
+            for (let i = 0; i < maxSlideLines; i++) {
+                const content = slides[i] || '';
+                const box = slideBoxes[i];
+                const contentEl = slideContents[i];
+                if (slideActive && content.trim()) {
+                    const rect = layout[i] || layout[layout.length - 1] || { x: 0.08, y: 0.62, width: 0.84, height: 0.12 };
+                    box.style.display = 'flex';
+                    applyStyles(box, rectStyle(rect));
+                    contentEl.textContent = content;
+                    contentEl.style.fontFamily = settings.textFont;
+                    applyStyles(contentEl, getFontStyle(settings.textStyle));
+                    requestAnimationFrame(() => {
+                        autoFontSize(box, contentEl, content, 14, 180);
+                    });
+                } else {
+                    box.style.display = 'none';
+                }
+            }
+
+            // Update timer overlay
+            const timerOverlay = document.getElementById('timerOverlay');
+            const shouldShowTimer = settings.showTimer && (timerState.is_running || timerState.time_left !== 0);
+            if (shouldShowTimer) {
+                timerOverlay.style.display = 'block';
+                timerOverlay.textContent = formatTime(timerState.time_left);
+            } else {
+                timerOverlay.style.display = 'none';
             }
         }
 
@@ -304,6 +410,9 @@
                 ws.send(JSON.stringify({
                     type: 'join_display'
                 }));
+                ws.send(JSON.stringify({
+                    type: 'join_timer'
+                }));
             };
 
             ws.onmessage = (event) => {
@@ -314,6 +423,7 @@
                             verseText: message.scripture?.verse_text || '',
                             reference: message.scripture?.reference || '',
                         };
+                        slides = Array.isArray(message.slides) ? message.slides : [];
                         if (message.settings) {
                             // Merge settings, preserving defaults
                             settings = {
@@ -322,6 +432,8 @@
                                 textStyle: message.settings.textStyle ? { ...settings.textStyle, ...message.settings.textStyle } : settings.textStyle,
                                 referenceStyle: message.settings.referenceStyle ? { ...settings.referenceStyle, ...message.settings.referenceStyle } : settings.referenceStyle,
                                 layout: message.settings.layout ? { ...settings.layout, ...message.settings.layout } : settings.layout,
+                                slidesLayout: Array.isArray(message.settings.slidesLayout) ? message.settings.slidesLayout : settings.slidesLayout,
+                                showTimer: message.settings.showTimer !== undefined ? message.settings.showTimer : settings.showTimer,
                             };
                             // Use backgroundImageDataUrl for web display (data URL sent from app)
                             if (message.settings.backgroundImageDataUrl) {
@@ -331,6 +443,15 @@
                                 backgroundImageUrl = '';
                             }
                         }
+                        updateDisplay();
+                    } else if (message.type === 'timer_update') {
+                        timerState = {
+                            is_running: message.timer_state?.is_running || false,
+                            time_left: typeof message.timer_state?.time_left === 'number' ? message.timer_state.time_left : 0,
+                            session_name: message.timer_state?.session_name || null,
+                            end_time: message.timer_state?.end_time || null,
+                            is_overrun: message.timer_state?.is_overrun || false,
+                        };
                         updateDisplay();
                     }
                 } catch (error) {

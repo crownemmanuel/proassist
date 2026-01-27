@@ -14,10 +14,12 @@ import {
 } from "../services/displayService";
 import {
   DEFAULT_DISPLAY_SETTINGS,
+  DEFAULT_SLIDES_LAYOUT,
   DisplayLayout,
   DisplaySettings as DisplaySettingsType,
 } from "../types/display";
 import DisplayLayoutEditorModal from "./DisplayLayoutEditorModal";
+import SlidesLayoutEditorModal from "./SlidesLayoutEditorModal";
 import {
   getLiveSlidesServerInfo,
   loadLiveSlidesSettings,
@@ -33,6 +35,14 @@ interface SystemFont {
 const SAMPLE_TEXT =
   "For God so loved the world that he gave his only begotten Son, that whosoever believeth in him should not perish, but have everlasting life.";
 const SAMPLE_REFERENCE = "John 3:16";
+const SAMPLE_SLIDE_LINES = [
+  "Line 1 sample text",
+  "Line 2 sample text",
+  "Line 3 sample text",
+  "Line 4 sample text",
+  "Line 5 sample text",
+  "Line 6 sample text",
+];
 
 const DisplaySettings: React.FC = () => {
   const [settings, setSettings] = useState<DisplaySettingsType>(
@@ -41,6 +51,7 @@ const DisplaySettings: React.FC = () => {
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [monitors, setMonitors] = useState<Monitor[]>([]);
   const [layoutEditorOpen, setLayoutEditorOpen] = useState(false);
+  const [slidesLayoutEditorOpen, setSlidesLayoutEditorOpen] = useState(false);
   const [saveMessage, setSaveMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const [backgroundImageUrl, setBackgroundImageUrl] = useState<string>("");
@@ -48,6 +59,23 @@ const DisplaySettings: React.FC = () => {
   const previewTextContentRef = useRef<HTMLDivElement | null>(null);
   const previewReferenceBoxRef = useRef<HTMLDivElement | null>(null);
   const previewReferenceContentRef = useRef<HTMLDivElement | null>(null);
+  const slideLineBoxRefs = [
+    useRef<HTMLDivElement | null>(null),
+    useRef<HTMLDivElement | null>(null),
+    useRef<HTMLDivElement | null>(null),
+    useRef<HTMLDivElement | null>(null),
+    useRef<HTMLDivElement | null>(null),
+    useRef<HTMLDivElement | null>(null),
+  ];
+  const slideLineContentRefs = [
+    useRef<HTMLDivElement | null>(null),
+    useRef<HTMLDivElement | null>(null),
+    useRef<HTMLDivElement | null>(null),
+    useRef<HTMLDivElement | null>(null),
+    useRef<HTMLDivElement | null>(null),
+    useRef<HTMLDivElement | null>(null),
+  ];
+  const [layoutPreviewTab, setLayoutPreviewTab] = useState<"scripture" | "slides">("scripture");
   const [systemFonts, setSystemFonts] = useState<SystemFont[]>([]);
   const [fontsLoading, setFontsLoading] = useState(true);
   const [serverInfo, setServerInfo] = useState<{ local_ip: string; server_port: number; server_running: boolean } | null>(null);
@@ -257,6 +285,11 @@ const DisplaySettings: React.FC = () => {
     setLayoutEditorOpen(false);
   };
 
+  const handleUpdateSlidesLayout = (slidesLayout: DisplayLayout["text"][]) => {
+    setSettings((prev) => ({ ...prev, slidesLayout }));
+    setSlidesLayoutEditorOpen(false);
+  };
+
   const handleSelectBackgroundImage = async () => {
     try {
       const dialog = await import("@tauri-apps/plugin-dialog");
@@ -325,13 +358,18 @@ const DisplaySettings: React.FC = () => {
     void manageAudienceWindow();
   }, [settings.windowAudienceScreen, settingsLoaded, monitors.length]); // Intentionally omitting monitorIndex to avoid re-opening on change for now
 
-  const rectStyle = (rect: DisplayLayout["text"]): React.CSSProperties => ({
+  const rectStyle = (rect: { x: number; y: number; width: number; height: number }): React.CSSProperties => ({
     position: "absolute",
     left: `${rect.x * 100}%`,
     top: `${rect.y * 100}%`,
     width: `${rect.width * 100}%`,
     height: `${rect.height * 100}%`,
   });
+
+  const getSlideRect = (index: number) =>
+    settings.slidesLayout[index] ||
+    DEFAULT_SLIDES_LAYOUT[index] ||
+    DEFAULT_SLIDES_LAYOUT[DEFAULT_SLIDES_LAYOUT.length - 1];
 
   // Auto font size for preview
   const previewTextFontSize = useAutoFontSize(
@@ -362,6 +400,87 @@ const DisplaySettings: React.FC = () => {
     { minFontSize: 8, maxFontSize: 36 }
   );
 
+  const slideLineFontSizes = [
+    useAutoFontSize(
+      slideLineBoxRefs[0],
+      slideLineContentRefs[0],
+      [
+        SAMPLE_SLIDE_LINES[0],
+        settings.textFont,
+        getSlideRect(0).x,
+        getSlideRect(0).y,
+        getSlideRect(0).width,
+        getSlideRect(0).height,
+      ],
+      { minFontSize: 8, maxFontSize: 48 }
+    ),
+    useAutoFontSize(
+      slideLineBoxRefs[1],
+      slideLineContentRefs[1],
+      [
+        SAMPLE_SLIDE_LINES[1],
+        settings.textFont,
+        getSlideRect(1).x,
+        getSlideRect(1).y,
+        getSlideRect(1).width,
+        getSlideRect(1).height,
+      ],
+      { minFontSize: 8, maxFontSize: 48 }
+    ),
+    useAutoFontSize(
+      slideLineBoxRefs[2],
+      slideLineContentRefs[2],
+      [
+        SAMPLE_SLIDE_LINES[2],
+        settings.textFont,
+        getSlideRect(2).x,
+        getSlideRect(2).y,
+        getSlideRect(2).width,
+        getSlideRect(2).height,
+      ],
+      { minFontSize: 8, maxFontSize: 48 }
+    ),
+    useAutoFontSize(
+      slideLineBoxRefs[3],
+      slideLineContentRefs[3],
+      [
+        SAMPLE_SLIDE_LINES[3],
+        settings.textFont,
+        getSlideRect(3).x,
+        getSlideRect(3).y,
+        getSlideRect(3).width,
+        getSlideRect(3).height,
+      ],
+      { minFontSize: 8, maxFontSize: 48 }
+    ),
+    useAutoFontSize(
+      slideLineBoxRefs[4],
+      slideLineContentRefs[4],
+      [
+        SAMPLE_SLIDE_LINES[4],
+        settings.textFont,
+        getSlideRect(4).x,
+        getSlideRect(4).y,
+        getSlideRect(4).width,
+        getSlideRect(4).height,
+      ],
+      { minFontSize: 8, maxFontSize: 48 }
+    ),
+    useAutoFontSize(
+      slideLineBoxRefs[5],
+      slideLineContentRefs[5],
+      [
+        SAMPLE_SLIDE_LINES[5],
+        settings.textFont,
+        getSlideRect(5).x,
+        getSlideRect(5).y,
+        getSlideRect(5).width,
+        getSlideRect(5).height,
+      ],
+      { minFontSize: 8, maxFontSize: 48 }
+    ),
+  ];
+
   const getFontStyle = (style: DisplaySettingsType["textStyle"]): React.CSSProperties => {
     const css: React.CSSProperties = {
       color: style.color,
@@ -388,7 +507,7 @@ const DisplaySettings: React.FC = () => {
     <div style={{ maxWidth: "900px" }}>
       <h2 style={{ marginBottom: "var(--spacing-4)" }}>Audience Display</h2>
       <p style={{ color: "var(--app-text-color-secondary)" }}>
-        Configure the second screen used to show scriptures to the audience (support for slides coming soon).
+        Configure the second screen used to show scriptures and slides to the audience.
       </p>
 
       <div style={{ marginTop: "var(--spacing-4)", display: "grid", gap: "18px" }}>
@@ -1289,6 +1408,62 @@ const DisplaySettings: React.FC = () => {
 
         <div className="form-group">
           <label>Layout Preview</label>
+          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginBottom: "10px" }}>
+            <button
+              onClick={() => setLayoutPreviewTab("scripture")}
+              className="secondary"
+              style={{
+                borderColor:
+                  layoutPreviewTab === "scripture"
+                    ? "var(--app-primary-color)"
+                    : "var(--app-border-color)",
+                backgroundColor:
+                  layoutPreviewTab === "scripture"
+                    ? "var(--app-primary-color)"
+                    : "transparent",
+                color:
+                  layoutPreviewTab === "scripture"
+                    ? "#ffffff"
+                    : "var(--app-text-color)",
+              }}
+            >
+              Scripture layout preview
+            </button>
+            <button
+              onClick={() => setLayoutPreviewTab("slides")}
+              className="secondary"
+              style={{
+                borderColor:
+                  layoutPreviewTab === "slides"
+                    ? "var(--app-primary-color)"
+                    : "var(--app-border-color)",
+                backgroundColor:
+                  layoutPreviewTab === "slides"
+                    ? "var(--app-primary-color)"
+                    : "transparent",
+                color:
+                  layoutPreviewTab === "slides"
+                    ? "#ffffff"
+                    : "var(--app-text-color)",
+              }}
+            >
+              Slides layout preview
+            </button>
+          </div>
+          <label style={{ display: "flex", gap: "10px", alignItems: "center", marginBottom: "10px" }}>
+            <input
+              type="checkbox"
+              checked={settings.showTimer}
+              onChange={(event) =>
+                setSettings((prev) => ({
+                  ...prev,
+                  showTimer: event.target.checked,
+                }))
+              }
+              style={{ width: "18px", height: "18px", cursor: "pointer" }}
+            />
+            <span>Show timer</span>
+          </label>
           <div
             style={{
               position: "relative",
@@ -1306,67 +1481,107 @@ const DisplaySettings: React.FC = () => {
               overflow: "hidden",
             }}
           >
-            <div
-              ref={previewTextBoxRef}
-              style={{
-                ...rectStyle(settings.layout.text),
-                border: "1px dashed rgba(99, 102, 241, 0.7)",
-                padding: "6px",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                textAlign: "center",
-                overflow: "hidden",
-              }}
-            >
-              <div
-                ref={previewTextContentRef}
-                style={{
-                  ...getFontStyle(settings.textStyle),
-                  fontFamily: settings.textFont,
-                  fontSize: `${previewTextFontSize}px`,
-                  lineHeight: 1.2,
-                  whiteSpace: "pre-wrap",
-                  wordBreak: "break-word",
-                  width: "100%",
-                }}
-              >
-                {SAMPLE_TEXT}
-              </div>
-            </div>
-            <div
-              ref={previewReferenceBoxRef}
-              style={{
-                ...rectStyle(settings.layout.reference),
-                border: "1px dashed rgba(34, 197, 94, 0.7)",
-                padding: "4px",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                textAlign: "center",
-                overflow: "hidden",
-              }}
-            >
-              <div
-                ref={previewReferenceContentRef}
-                style={{
-                  ...getFontStyle(settings.referenceStyle),
-                  fontFamily: settings.referenceFont,
-                  fontSize: `${previewReferenceFontSize}px`,
-                  lineHeight: 1.1,
-                  whiteSpace: "pre-wrap",
-                  wordBreak: "break-word",
-                  width: "100%",
-                }}
-              >
-                {SAMPLE_REFERENCE}
-              </div>
-            </div>
+            {layoutPreviewTab === "scripture" ? (
+              <>
+                <div
+                  ref={previewTextBoxRef}
+                  style={{
+                    ...rectStyle(settings.layout.text),
+                    border: "1px dashed rgba(99, 102, 241, 0.7)",
+                    padding: "6px",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    textAlign: "center",
+                    overflow: "hidden",
+                  }}
+                >
+                  <div
+                    ref={previewTextContentRef}
+                    style={{
+                      ...getFontStyle(settings.textStyle),
+                      fontFamily: settings.textFont,
+                      fontSize: `${previewTextFontSize}px`,
+                      lineHeight: 1.2,
+                      whiteSpace: "pre-wrap",
+                      wordBreak: "break-word",
+                      width: "100%",
+                    }}
+                  >
+                    {SAMPLE_TEXT}
+                  </div>
+                </div>
+                <div
+                  ref={previewReferenceBoxRef}
+                  style={{
+                    ...rectStyle(settings.layout.reference),
+                    border: "1px dashed rgba(34, 197, 94, 0.7)",
+                    padding: "4px",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    textAlign: "center",
+                    overflow: "hidden",
+                  }}
+                >
+                  <div
+                    ref={previewReferenceContentRef}
+                    style={{
+                      ...getFontStyle(settings.referenceStyle),
+                      fontFamily: settings.referenceFont,
+                      fontSize: `${previewReferenceFontSize}px`,
+                      lineHeight: 1.1,
+                      whiteSpace: "pre-wrap",
+                      wordBreak: "break-word",
+                      width: "100%",
+                    }}
+                  >
+                    {SAMPLE_REFERENCE}
+                  </div>
+                </div>
+              </>
+            ) : (
+              settings.slidesLayout.slice(0, 6).map((rect, index) => (
+                <div
+                  key={`slide-preview-${index}`}
+                  ref={slideLineBoxRefs[index]}
+                  style={{
+                    ...rectStyle(rect),
+                    border: "1px dashed rgba(99, 102, 241, 0.7)",
+                    padding: "6px",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    textAlign: "center",
+                    overflow: "hidden",
+                  }}
+                >
+                  <div
+                    ref={slideLineContentRefs[index]}
+                    style={{
+                      ...getFontStyle(settings.textStyle),
+                      fontFamily: settings.textFont,
+                      fontSize: `${slideLineFontSizes[index]}px`,
+                      lineHeight: 1.2,
+                      whiteSpace: "pre-wrap",
+                      wordBreak: "break-word",
+                      width: "100%",
+                    }}
+                  >
+                    {SAMPLE_SLIDE_LINES[index] || `Line ${index + 1}`}
+                  </div>
+                </div>
+              ))
+            )}
           </div>
           <div style={{ marginTop: "10px" }}>
             <button
               className="secondary"
-              onClick={() => setLayoutEditorOpen(true)}
+              onClick={() =>
+                layoutPreviewTab === "scripture"
+                  ? setLayoutEditorOpen(true)
+                  : setSlidesLayoutEditorOpen(true)
+              }
             >
               Edit Layout
             </button>
@@ -1416,6 +1631,16 @@ const DisplaySettings: React.FC = () => {
         referenceFont={settings.referenceFont}
         textStyle={settings.textStyle}
         referenceStyle={settings.referenceStyle}
+      />
+      <SlidesLayoutEditorModal
+        isOpen={slidesLayoutEditorOpen}
+        onClose={() => setSlidesLayoutEditorOpen(false)}
+        onSave={handleUpdateSlidesLayout}
+        initialLayout={settings.slidesLayout}
+        backgroundColor={settings.backgroundColor}
+        backgroundImagePath={settings.backgroundImagePath}
+        textFont={settings.textFont}
+        textStyle={settings.textStyle}
       />
     </div>
   );
