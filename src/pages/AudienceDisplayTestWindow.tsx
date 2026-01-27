@@ -421,7 +421,7 @@ const AudienceDisplayTestWindow: React.FC = () => {
             backgroundColor: "rgba(0, 0, 0, 0.6)",
             border: "1px solid rgba(255, 255, 255, 0.25)",
             color: "#ffffff",
-            fontSize: "32px",
+            fontSize: `${settings.timerFontSize}px`,
             fontWeight: 600,
             letterSpacing: "0.02em",
           }}

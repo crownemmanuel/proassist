@@ -1464,6 +1464,38 @@ const DisplaySettings: React.FC = () => {
             />
             <span>Show timer</span>
           </label>
+          <label style={{ display: "flex", gap: "12px", alignItems: "center", marginBottom: "16px", flexWrap: "wrap" }}>
+            <span style={{ minWidth: "140px" }}>Timer font size</span>
+            <input
+              type="range"
+              min={16}
+              max={96}
+              step={2}
+              value={settings.timerFontSize}
+              onChange={(event) =>
+                setSettings((prev) => ({
+                  ...prev,
+                  timerFontSize: Number(event.target.value),
+                }))
+              }
+              style={{ flex: 1, minWidth: "180px" }}
+            />
+            <input
+              type="number"
+              min={12}
+              max={120}
+              step={1}
+              value={settings.timerFontSize}
+              onChange={(event) =>
+                setSettings((prev) => ({
+                  ...prev,
+                  timerFontSize: Number(event.target.value) || 0,
+                }))
+              }
+              style={{ width: "80px" }}
+            />
+            <span style={{ color: "var(--app-text-color-secondary)", fontSize: "0.85rem" }}>px</span>
+          </label>
           <div
             style={{
               position: "relative",

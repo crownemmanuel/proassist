@@ -476,6 +476,7 @@ function App() {
 
   // Calculate isSecondScreen purely from initial state to prevent flash of main app
   const isSecondScreen = windowLabel.startsWith("dialog-");
+  const isMainWindow = windowLabel === "main";
 
   const [theme, setTheme] = useState(
     localStorage.getItem("app-theme") || "dark"
@@ -561,7 +562,7 @@ function App() {
     <Router>
       <StageAssistProvider>
         <AppContent theme={theme} toggleTheme={toggleTheme} enabledFeatures={enabledFeatures} />
-        <UpdateNotification />
+        {isMainWindow && <UpdateNotification />}
       </StageAssistProvider>
     </Router>
   );

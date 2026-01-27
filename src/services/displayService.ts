@@ -115,6 +115,9 @@ export function loadDisplaySettings(): DisplaySettings {
       if (parsed.showTimer === undefined) {
         settings.showTimer = false;
       }
+      if (typeof parsed.timerFontSize !== "number" || Number.isNaN(parsed.timerFontSize)) {
+        settings.timerFontSize = DEFAULT_DISPLAY_SETTINGS.timerFontSize;
+      }
 
       // Guard against invalid values from older/local data
       if (typeof parsed.enabled !== "boolean") {

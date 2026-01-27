@@ -180,6 +180,7 @@
                 { x: 0.08, y: 0.76, width: 0.84, height: 0.12 },
             ],
             showTimer: false,
+            timerFontSize: 32,
         };
         let backgroundImageUrl = '';
         const slideBoxes = [];
@@ -372,6 +373,7 @@
             const shouldShowTimer = settings.showTimer && (timerState.is_running || timerState.time_left !== 0);
             if (shouldShowTimer) {
                 timerOverlay.style.display = 'block';
+                timerOverlay.style.fontSize = `${settings.timerFontSize || 32}px`;
                 timerOverlay.textContent = formatTime(timerState.time_left);
             } else {
                 timerOverlay.style.display = 'none';
@@ -434,6 +436,7 @@
                                 layout: message.settings.layout ? { ...settings.layout, ...message.settings.layout } : settings.layout,
                                 slidesLayout: Array.isArray(message.settings.slidesLayout) ? message.settings.slidesLayout : settings.slidesLayout,
                                 showTimer: message.settings.showTimer !== undefined ? message.settings.showTimer : settings.showTimer,
+                                timerFontSize: typeof message.settings.timerFontSize === 'number' ? message.settings.timerFontSize : settings.timerFontSize,
                             };
                             // Use backgroundImageDataUrl for web display (data URL sent from app)
                             if (message.settings.backgroundImageDataUrl) {

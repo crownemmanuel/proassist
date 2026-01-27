@@ -55,6 +55,7 @@ export type DisplaySettings = {
   layout: DisplayLayout;
   slidesLayout: DisplayLayoutRect[];
   showTimer: boolean;
+  timerFontSize: number;
 };
 
 export type DisplayScripture = {
@@ -119,4 +120,5 @@ export const DEFAULT_DISPLAY_SETTINGS: DisplaySettings = {
   layout: DEFAULT_DISPLAY_LAYOUT,
   slidesLayout: DEFAULT_SLIDES_LAYOUT,
   showTimer: false,
+  timerFontSize: 32,
 };
