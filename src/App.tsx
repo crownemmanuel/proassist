@@ -7,6 +7,7 @@ import {
   useLocation,
   useNavigate,
 } from "react-router-dom";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   FaHome,
   FaCog,
@@ -32,6 +33,7 @@ import RecorderPage from "./pages/RecorderPage";
 import AudienceDisplayPage from "./pages/AudienceDisplayPage";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { loadEnabledFeatures } from "./services/recorderService";
+import { clearDisplayScripture, clearDisplaySlides } from "./services/displayService";
 import { EnabledFeatures } from "./types/recorder";
 import {
   StageAssistProvider,
@@ -229,16 +231,18 @@ function Navigation({
 function AppContent({
   theme,
   toggleTheme,
+  enabledFeatures,
 }: {
   theme: string;
   toggleTheme: () => void;
+  enabledFeatures: EnabledFeatures;
 }) {
   const location = useLocation();
   const { schedule, startCountdown, startCountdownToTime, stopTimer: _stopStageTimer } = useStageAssist();
   const isNotepadPage = location.pathname.includes("/live-slides/notepad/");
 
   // Enabled features state
-  const [enabledFeatures, setEnabledFeatures] = useState<EnabledFeatures>(() => loadEnabledFeatures());
+  const [enabledFeaturesState, setEnabledFeatures] = useState<EnabledFeatures>(enabledFeatures);
 
   // Listen for features-updated events
   useEffect(() => {
@@ -405,7 +409,7 @@ function AppContent({
   return (
     <>
       <div className="container">
-        <Navigation theme={theme} toggleTheme={toggleTheme} enabledFeatures={enabledFeatures} />
+        <Navigation theme={theme} toggleTheme={toggleTheme} enabledFeatures={enabledFeaturesState} />
         {/* Keep all components mounted but show/hide based on route */}
         <div style={{ display: isMainPage ? "block" : "none" }}>
           <MainApplicationPage />
@@ -425,7 +429,7 @@ function AppContent({
           <StageAssistPage />
         </div>
         {/* Only render RecorderPage when the feature is enabled to prevent camera access when disabled */}
-        {enabledFeatures.recorder && (
+        {enabledFeaturesState.recorder && (
           <div style={{ display: isRecorderPage ? "block" : "none" }}>
             <RecorderPage />
           </div>
@@ -460,12 +464,40 @@ function AppContent({
 }
 
 function App() {
+  const [windowLabel] = useState<string>(() => {
+    try {
+      return getCurrentWindow().label;
+    } catch {
+      console.warn("Failed to get initial window label");
+      return "unknown";
+    }
+  });
+
+  // Calculate isSecondScreen purely from initial state to prevent flash of main app
+  const isSecondScreen = windowLabel.startsWith("dialog-");
+  const isMainWindow = windowLabel === "main";
+
   const [theme, setTheme] = useState(
     localStorage.getItem("app-theme") || "dark"
   );
 
+  // Apply theme immediately to body to prevent flash of unstyled content
+  useEffect(() => {
+    document.body.classList.remove("theme-light", "theme-dark");
+    document.body.classList.add(`theme-${theme}`);
+    localStorage.setItem("app-theme", theme);
+  }, [theme]);
+
+  // Clear last scripture on main app startup so displays start blank.
+  useEffect(() => {
+    if (windowLabel !== "main") return;
+    clearDisplayScripture();
+    clearDisplaySlides();
+  }, [windowLabel]);
+
   // Global shortcut to open DevTools / Inspector (useful on production machines to debug issues).
   useEffect(() => {
+    if (isSecondScreen) return;
     const handler = async (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
       const tag = target?.tagName?.toLowerCase();
@@ -495,10 +527,11 @@ function App() {
 
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, []);
+  }, [isSecondScreen]);
 
   // Auto-start Live Slides WebSocket server if enabled in settings.
   useEffect(() => {
+    if (isSecondScreen) return;
     const settings = loadLiveSlidesSettings();
     if (!settings.autoStartServer) return;
     // Best-effort: if it fails (already running / port in use), we'll let Settings/Import UI surface it.
@@ -508,23 +541,27 @@ function App() {
         err
       );
     });
-  }, []);
-
-  useEffect(() => {
-    document.body.classList.remove("theme-light", "theme-dark");
-    document.body.classList.add(`theme-${theme}`);
-    localStorage.setItem("app-theme", theme);
-  }, [theme]);
+  }, [isSecondScreen]);
 
   const toggleTheme = () => {
     setTheme((prevTheme) => (prevTheme === "light" ? "dark" : "light"));
   };
 
+  // If this is a secondary window, render ONLY that component.
+  // CRITICAL: Do NOT render Router, StageAssistProvider, or any other main app context here.
+  if (isSecondScreen) {
+    // Fallback for other dialogs or test windows
+    return <AudienceDisplayPage />;
+  }
+
+  // Load enabled features only for the main app
+  const enabledFeatures = loadEnabledFeatures();
+
   return (
     <Router>
       <StageAssistProvider>
-        <AppContent theme={theme} toggleTheme={toggleTheme} />
-        <UpdateNotification />
+        <AppContent theme={theme} toggleTheme={toggleTheme} enabledFeatures={enabledFeatures} />
+        {isMainWindow && <UpdateNotification />}
       </StageAssistProvider>
     </Router>
   );
