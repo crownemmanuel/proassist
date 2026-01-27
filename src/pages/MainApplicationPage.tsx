@@ -2177,7 +2177,7 @@ const MainApplicationPage: React.FC = () => {
     borderRight: "1px solid var(--app-border-color)",
     overflowY: "auto",
     padding: isPlaylistCollapsed ? "var(--spacing-2)" : "var(--spacing-3)",
-    backgroundColor: "#1e1e1e",
+    backgroundColor: "var(--surface-2)",
     transition: "width 0.2s ease",
     display: "flex",
     flexDirection: "column",

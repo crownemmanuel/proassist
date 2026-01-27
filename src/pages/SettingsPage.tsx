@@ -263,7 +263,7 @@ const SettingsPage: React.FC = () => {
     borderRight: "1px solid var(--app-border-color)",
     overflowY: "auto",
     padding: 0,
-    backgroundColor: "#1e1e1e",
+    backgroundColor: "var(--surface-2)",
     display: "flex",
     flexDirection: "column",
   };
