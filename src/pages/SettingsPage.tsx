@@ -33,6 +33,8 @@ import {
 } from "../utils/templateIO";
 import TemplateListView from "../components/TemplateListView";
 import ConfirmDialog from "../components/ConfirmDialog";
+import { loadEnabledFeatures } from "../services/recorderService";
+import type { EnabledFeatures } from "../types/recorder";
 
 type SettingsView = "templates" | "aiConfiguration" | "liveTestimonies" | "liveSlides" | "smartVerses" | "display" | "recorder" | "network" | "proPresenter" | "features" | "midi" | "version";
 
@@ -52,6 +54,9 @@ const SETTINGS_VIEWS: SettingsView[] = [
 ];
 
 const SettingsPage: React.FC = () => {
+  const [enabledFeatures, setEnabledFeatures] = useState<EnabledFeatures>(() =>
+    loadEnabledFeatures()
+  );
   const [templates, setTemplates] = useState<Template[]>(() => {
     try {
       const savedTemplates = localStorage.getItem("proassist-templates");
@@ -91,6 +96,17 @@ const SettingsPage: React.FC = () => {
     window.addEventListener("navigate-to-settings", handleNavigateToSettings as EventListener);
     return () => {
       window.removeEventListener("navigate-to-settings", handleNavigateToSettings as EventListener);
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleFeaturesUpdated = (event: Event) => {
+      const detail = (event as CustomEvent<EnabledFeatures>).detail;
+      setEnabledFeatures(detail || loadEnabledFeatures());
+    };
+    window.addEventListener("features-updated", handleFeaturesUpdated);
+    return () => {
+      window.removeEventListener("features-updated", handleFeaturesUpdated);
     };
   }, []);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -281,27 +297,33 @@ const SettingsPage: React.FC = () => {
             <FaRobot />
             AI Configuration
           </button>
-          <button
-            onClick={() => setCurrentView("liveTestimonies")}
-            className={currentView === "liveTestimonies" ? "active" : ""}
-          >
-            <FaUser />
-            Live Testimonies
-          </button>
-          <button
-            onClick={() => setCurrentView("liveSlides")}
-            className={currentView === "liveSlides" ? "active" : ""}
-          >
-            <FaGlobe />
-            Live Slides
-          </button>
-          <button
-            onClick={() => setCurrentView("smartVerses")}
-            className={currentView === "smartVerses" ? "active" : ""}
-          >
-            <FaBible />
-            SmartVerses
-          </button>
+          {enabledFeatures.liveTestimonies && (
+            <button
+              onClick={() => setCurrentView("liveTestimonies")}
+              className={currentView === "liveTestimonies" ? "active" : ""}
+            >
+              <FaUser />
+              Live Testimonies
+            </button>
+          )}
+          {enabledFeatures.slides && (
+            <button
+              onClick={() => setCurrentView("liveSlides")}
+              className={currentView === "liveSlides" ? "active" : ""}
+            >
+              <FaGlobe />
+              Live Slides
+            </button>
+          )}
+          {enabledFeatures.smartVerses && (
+            <button
+              onClick={() => setCurrentView("smartVerses")}
+              className={currentView === "smartVerses" ? "active" : ""}
+            >
+              <FaBible />
+              SmartVerses
+            </button>
+          )}
           <button
             onClick={() => setCurrentView("display")}
             className={currentView === "display" ? "active" : ""}
@@ -309,13 +331,15 @@ const SettingsPage: React.FC = () => {
             <FaDesktop />
             Audience Display
           </button>
-          <button
-            onClick={() => setCurrentView("recorder")}
-            className={currentView === "recorder" ? "active" : ""}
-          >
-            <FaCircle />
-            Recorder
-          </button>
+          {enabledFeatures.recorder && (
+            <button
+              onClick={() => setCurrentView("recorder")}
+              className={currentView === "recorder" ? "active" : ""}
+            >
+              <FaCircle />
+              Recorder
+            </button>
+          )}
           <button
             onClick={() => setCurrentView("network")}
             className={currentView === "network" ? "active" : ""}
