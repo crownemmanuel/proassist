@@ -20,6 +20,8 @@ import {
   FaUser,
 } from "react-icons/fa";
 import "./App.css";
+import { isOnboardingCompleted } from "./types/onboarding";
+import OnboardingWizard from "./components/onboarding/OnboardingWizard";
 
 // Import actual page components
 import MainApplicationPage from "./pages/MainApplicationPage";
@@ -595,6 +597,12 @@ function App() {
   const isSecondScreen = windowLabel.startsWith("dialog-");
   const isMainWindow = windowLabel === "main";
 
+  // Onboarding state
+  const [showOnboarding, setShowOnboarding] = useState<boolean>(() => {
+    // Only show onboarding for the main window on first launch
+    return isMainWindow && !isOnboardingCompleted();
+  });
+
   const [theme, setTheme] = useState(
     localStorage.getItem("app-theme") || "dark"
   );
@@ -698,11 +706,29 @@ function App() {
     setTheme((prevTheme) => (prevTheme === "light" ? "dark" : "light"));
   };
 
+  const handleOnboardingComplete = () => {
+    setShowOnboarding(false);
+  };
+
+  const handleOnboardingSkip = () => {
+    setShowOnboarding(false);
+  };
+
   // If this is a secondary window, render ONLY that component.
   // CRITICAL: Do NOT render Router, StageAssistProvider, or any other main app context here.
   if (isSecondScreen) {
     // Fallback for other dialogs or test windows
     return <AudienceDisplayPage />;
+  }
+
+  // Show onboarding wizard if needed
+  if (showOnboarding) {
+    return (
+      <OnboardingWizard
+        onComplete={handleOnboardingComplete}
+        onSkip={handleOnboardingSkip}
+      />
+    );
   }
 
   // Load enabled features only for the main app
