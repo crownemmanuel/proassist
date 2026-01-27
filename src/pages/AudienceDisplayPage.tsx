@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
-import { convertFileSrc } from "@tauri-apps/api/core";
+import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useAutoFontSize } from "../hooks/useAutoFontSize";
 import {
   DisplayScripture,
@@ -67,6 +67,17 @@ const rectStyle = (rect: DisplayLayoutRect): React.CSSProperties => ({
 });
 
 const AudienceDisplayPage: React.FC = () => {
+  const [windowLabel] = useState<string>(() => {
+    try {
+      return getCurrentWindow().label;
+    } catch {
+      return "unknown";
+    }
+  });
+  const isDialogWindow = windowLabel.startsWith("dialog-");
+  const dialogWindowName = isDialogWindow
+    ? windowLabel.replace(/^dialog-/, "") || "audience-test"
+    : "audience-test";
   const [settings, setSettings] = useState<DisplaySettings>(() =>
     loadDisplaySettings()
   );
@@ -79,6 +90,7 @@ const AudienceDisplayPage: React.FC = () => {
   const [timerState, setTimerState] = useState<DisplayTimerState>(() =>
     loadDisplayTimerState()
   );
+  const [isHovered, setIsHovered] = useState(false);
   const [showCloseButton, setShowCloseButton] = useState(false);
   const [backgroundImageUrl, setBackgroundImageUrl] = useState<string>("");
   const textBoxRef = useRef<HTMLDivElement | null>(null);
@@ -113,16 +125,9 @@ const AudienceDisplayPage: React.FC = () => {
       }
 
       try {
-        // First try convertFileSrc (works for most cases)
-        const convertedUrl = convertFileSrc(settings.backgroundImagePath);
-        // Verify it's actually a URL and not the raw path
-        if (convertedUrl && (convertedUrl.startsWith("http://") || convertedUrl.startsWith("https://") || convertedUrl.startsWith("tauri://"))) {
-          setBackgroundImageUrl(convertedUrl);
-          return;
-        }
-        
-        // Fallback: Read file as base64 and convert to data URL
-        console.log("[Display] convertFileSrc returned non-URL, trying base64 fallback for:", settings.backgroundImagePath);
+        // Use read_file_as_base64 as primary method for robustness
+        // convertFileSrc can have issues with asset protocol configuration or CSP
+        console.log("[Display] Loading background image via base64:", settings.backgroundImagePath);
         const base64 = await invoke<string>("read_file_as_base64", {
           filePath: settings.backgroundImagePath,
         });
@@ -142,7 +147,22 @@ const AudienceDisplayPage: React.FC = () => {
         setBackgroundImageUrl(dataUrl);
       } catch (error) {
         console.error("[Display] Failed to load background image:", error);
-        setBackgroundImageUrl("");
+        // Fallback to convertFileSrc if base64 fails
+        try {
+          const convertedUrl = convertFileSrc(settings.backgroundImagePath);
+          if (
+            convertedUrl &&
+            (convertedUrl.startsWith("http://") ||
+              convertedUrl.startsWith("https://") ||
+              convertedUrl.startsWith("tauri://"))
+          ) {
+            setBackgroundImageUrl(convertedUrl);
+          } else {
+            setBackgroundImageUrl("");
+          }
+        } catch (fallbackError) {
+          setBackgroundImageUrl("");
+        }
       }
     };
 
@@ -339,6 +359,7 @@ const AudienceDisplayPage: React.FC = () => {
 
   // Handle mouse movement to show close button after ~2 seconds of movement
   useEffect(() => {
+    if (isDialogWindow) return;
     let movementStartTime: number | null = null;
     const MOVEMENT_THRESHOLD_MS = 2000; // Show button after 2 seconds
     const STILL_THRESHOLD_MS = 1000; // Hide if mouse stops for 1 second
@@ -404,11 +425,15 @@ const AudienceDisplayPage: React.FC = () => {
         clearTimeout(mouseLeaveTimeoutRef.current);
       }
     };
-  }, []);
+  }, [isDialogWindow]);
 
   const handleClose = async () => {
     try {
-      await closeDisplayWindow();
+      if (isDialogWindow) {
+        await invoke("close_dialog", { dialogWindow: dialogWindowName });
+      } else {
+        await closeDisplayWindow();
+      }
     } catch (error) {
       console.error("[Display] Failed to close window:", error);
     }
@@ -417,6 +442,7 @@ const AudienceDisplayPage: React.FC = () => {
   const hasSlideContent = slides.lines.some((line) => line.trim());
   const shouldShowTimer =
     settings.showTimer && (timerState.isRunning || timerState.timeLeft !== 0);
+  const shouldShowCloseButton = isDialogWindow ? isHovered : showCloseButton;
 
   return (
     <div
@@ -433,6 +459,8 @@ const AudienceDisplayPage: React.FC = () => {
         overflow: "hidden",
         color: "#ffffff",
       }}
+      onMouseEnter={isDialogWindow ? () => setIsHovered(true) : undefined}
+      onMouseLeave={isDialogWindow ? () => setIsHovered(false) : undefined}
     >
       {hasSlideContent &&
         Array.from({ length: 6 }, (_, index) => {
@@ -558,36 +586,73 @@ const AudienceDisplayPage: React.FC = () => {
         </div>
       )}
 
-      {/* Close button - appears after mouse movement */}
-      {showCloseButton && (
+      {/* Close button - appears after mouse movement or hover */}
+      {shouldShowCloseButton && (
         <button
           onClick={handleClose}
-          onMouseEnter={(e) => e.currentTarget.style.opacity = "1"}
-          onMouseLeave={(e) => e.currentTarget.style.opacity = "0.7"}
-          style={{
-            position: "fixed",
-            bottom: "20px",
-            left: "20px",
-            width: "48px",
-            height: "48px",
-            borderRadius: "50%",
-            backgroundColor: "rgba(0, 0, 0, 0.6)",
-            border: "2px solid rgba(255, 255, 255, 0.8)",
-            color: "#ffffff",
-            fontSize: "24px",
-            fontWeight: "bold",
-            cursor: "pointer",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 10000,
-            opacity: 0.7,
-            transition: "opacity 0.2s, background-color 0.2s",
-            boxShadow: "0 4px 12px rgba(0, 0, 0, 0.3)",
+          onMouseEnter={(e) => {
+            if (isDialogWindow) {
+              e.currentTarget.style.backgroundColor = "rgba(220, 38, 38, 0.8)";
+              e.currentTarget.style.transform = "scale(1.1)";
+            } else {
+              e.currentTarget.style.opacity = "1";
+            }
           }}
-          title="Close Audience Display"
+          onMouseLeave={(e) => {
+            if (isDialogWindow) {
+              e.currentTarget.style.backgroundColor = "rgba(0, 0, 0, 0.6)";
+              e.currentTarget.style.transform = "scale(1)";
+            } else {
+              e.currentTarget.style.opacity = "0.7";
+            }
+          }}
+          style={
+            isDialogWindow
+              ? {
+                  position: "absolute",
+                  bottom: "30px",
+                  left: "30px",
+                  width: "60px",
+                  height: "60px",
+                  borderRadius: "50%",
+                  backgroundColor: "rgba(0, 0, 0, 0.6)",
+                  color: "white",
+                  border: "2px solid rgba(255, 255, 255, 0.8)",
+                  fontSize: "32px",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  zIndex: 9999,
+                  transition: "all 0.2s ease",
+                  padding: 0,
+                  lineHeight: 1,
+                }
+              : {
+                  position: "fixed",
+                  bottom: "20px",
+                  left: "20px",
+                  width: "48px",
+                  height: "48px",
+                  borderRadius: "50%",
+                  backgroundColor: "rgba(0, 0, 0, 0.6)",
+                  border: "2px solid rgba(255, 255, 255, 0.8)",
+                  color: "#ffffff",
+                  fontSize: "24px",
+                  fontWeight: "bold",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  zIndex: 10000,
+                  opacity: 0.7,
+                  transition: "opacity 0.2s, background-color 0.2s",
+                  boxShadow: "0 4px 12px rgba(0, 0, 0, 0.3)",
+                }
+          }
+          title={isDialogWindow ? "Close Window" : "Close Audience Display"}
         >
-          ×
+          &times;
         </button>
       )}
     </div>

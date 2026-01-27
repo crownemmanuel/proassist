@@ -31,7 +31,6 @@ import StageAssistPage from "./pages/StageAssistPage";
 import SmartVersesPage from "./pages/SmartVersesPage";
 import RecorderPage from "./pages/RecorderPage";
 import AudienceDisplayPage from "./pages/AudienceDisplayPage";
-import AudienceDisplayTestWindow from "./pages/AudienceDisplayTestWindow";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { loadEnabledFeatures } from "./services/recorderService";
 import { clearDisplayScripture, clearDisplaySlides } from "./services/displayService";
@@ -552,7 +551,7 @@ function App() {
   // CRITICAL: Do NOT render Router, StageAssistProvider, or any other main app context here.
   if (isSecondScreen) {
     // Fallback for other dialogs or test windows
-    return <AudienceDisplayTestWindow />;
+    return <AudienceDisplayPage />;
   }
 
   // Load enabled features only for the main app
