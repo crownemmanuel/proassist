@@ -32,8 +32,6 @@ import SmartVersesPage from "./pages/SmartVersesPage";
 import RecorderPage from "./pages/RecorderPage";
 import AudienceDisplayPage from "./pages/AudienceDisplayPage";
 import AudienceDisplayTestWindow from "./pages/AudienceDisplayTestWindow";
-import WindowControlPage from "./pages/WindowControlPage";
-import SecondScreen from "./components/SecondScreen";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { loadEnabledFeatures } from "./services/recorderService";
 import { EnabledFeatures } from "./types/recorder";
@@ -135,13 +133,6 @@ function Navigation({
           <span>Recorder</span>
         </Link>
       )}
-      <Link
-        to="/window"
-        className={`nav-action-button ${isActive("/window") ? "active" : ""}`}
-      >
-        <FaStickyNote />
-        <span>Window</span>
-      </Link>
       <Link
         to="/settings"
         className={`nav-action-button ${isActive("/settings") ? "active" : ""}`}
@@ -414,7 +405,6 @@ function AppContent({
   const isStageAssistPage = location.pathname === "/stage-assist";
   const isRecorderPage = location.pathname === "/recorder";
   const isHelpPage = location.pathname === "/help";
-  const isWindowPage = location.pathname === "/window";
 
   return (
     <>
@@ -444,9 +434,6 @@ function AppContent({
             <RecorderPage />
           </div>
         )}
-        <div style={{ display: isWindowPage ? "block" : "none" }}>
-          <WindowControlPage />
-        </div>
         <div style={{ display: isHelpPage ? "block" : "none" }}>
           <HelpPage />
         </div>
@@ -555,9 +542,6 @@ function App() {
   // If this is a secondary window, render ONLY that component.
   // CRITICAL: Do NOT render Router, StageAssistProvider, or any other main app context here.
   if (isSecondScreen) {
-    if (windowLabel === "dialog-second-screen") {
-      return <SecondScreen />;
-    }
     // Fallback for other dialogs or test windows
     return <AudienceDisplayTestWindow />;
   }

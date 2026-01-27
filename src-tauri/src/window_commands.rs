@@ -2,7 +2,6 @@
 use log::error;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, WebviewWindowBuilder};
-use std::process::Command;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct MonitorInfo {
@@ -49,36 +48,6 @@ pub async fn open_dialog(
     dialog_window: String,
     monitor_index: Option<usize>,
 ) -> Result<(), String> {
-    // Check if this is the second screen request
-    if dialog_window == "second-screen" {
-        // Use separate binary for second screen as requested
-        let url = "http://localhost:1420/display.html";
-        
-        // In development, we use cargo run --bin
-        #[cfg(debug_assertions)]
-        let _status = Command::new("cargo")
-            .args(["run", "--bin", "display_window", "--", url])
-            .spawn()
-            .map_err(|e| format!("Failed to spawn display process: {}", e))?;
-
-        #[cfg(not(debug_assertions))]
-        {
-            // In production, we expect the binary to be bundled side-by-side or handled differently.
-            // For now, this placeholder reminds us to configure externalBin.
-            // Assuming the binary is named 'display_window' (or display_window.exe on Windows) next to the main executable.
-            let current_exe = std::env::current_exe().map_err(|e| e.to_string())?;
-            let current_dir = current_exe.parent().ok_or("Failed to get current dir")?;
-            let display_binary = current_dir.join("display_window.exe"); // Windows assumption
-            
-            Command::new(display_binary)
-                .arg(url)
-                .spawn()
-                .map_err(|e| format!("Failed to spawn display process: {}", e))?;
-        }
-
-        return Ok(());
-    }
-
     // Existing logic for other dialogs (if any)
     open_dialog_impl(app_handle, dialog_window, monitor_index)
         .await
@@ -102,12 +71,7 @@ async fn open_dialog_impl(
         let is_second_screen = dialog_window == "second-screen";
         
         // Define the URL to load.
-        // For the second screen, we load the specialized lightweight HTML file to avoid React app conflicts.
-        let url = if is_second_screen {
-            tauri::WebviewUrl::App("window.html".into())
-        } else {
-            tauri::WebviewUrl::default()
-        };
+        let url = tauri::WebviewUrl::default();
         
         let mut builder = WebviewWindowBuilder::new(&handle, &dialog_label, url)
             .title(title)

@@ -65,7 +65,3 @@ tauri-plugin-window-state = "2"
 [[bin]]
 name = "proassist"
 path = "src/main.rs"
-
-[[bin]]
-name = "display_window"
-path = "src/bin/display_window.rs"
