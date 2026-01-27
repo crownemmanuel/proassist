@@ -11,7 +11,7 @@ import SmartVersesSettings from "../components/SmartVersesSettings";
 import RecorderSettings from "../components/RecorderSettings";
 import FeaturesSettings from "../components/FeaturesSettings";
 import MidiSettings from "../components/MidiSettings";
-import { FaList, FaRobot, FaStickyNote, FaNetworkWired, FaClock, FaInfoCircle, FaBible, FaGlobe, FaCircle, FaToggleOn, FaUser } from "react-icons/fa";
+import { FaList, FaRobot, FaNetworkWired, FaClock, FaInfoCircle, FaBible, FaGlobe, FaCircle, FaToggleOn, FaUser } from "react-icons/fa";
 import "../App.css"; // Ensure global styles are applied
 import {
   exportAllTemplatesToFile,

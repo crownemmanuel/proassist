@@ -2,6 +2,24 @@
 
 All notable changes to ProAssist will be documented in this file.
 
+## [0.6.9] - 2026-01-27
+
+### Added
+- **Word Highlighting in Bible Verse Search**: Implemented word highlighting in Bible verse search results for better visibility
+- **HTTP Call Automation**: Added HTTP call automation feature for schedule automations
+- **Transcription Time Limit**: Added transcription time limit with auto-stop protection to prevent overcharging
+- **Blank Presentation Creation**: Added feature to create blank presentations in ProPresenter
+- **Audio Level Meter**: Added audio level meter to Live Transcription panel for real-time audio monitoring
+- **API Documentation**: Updated API docs styling and endpoints
+
+### Fixed
+- **Transcription Limit Prompt**: Fixed transcription limit prompt re-appearing after auto-stop
+- **Remote Transcription De-duplication**: Fixed remote transcription de-duplication and useEffect dependency cycle
+- **Icons Update**: Updated icons for Slides and Live Testimonies
+
+### Changed
+- **Release Process**: Updated release process rules to require descriptive tag messages
+
 ## [0.6.7] - 2026-01-21
 
 ### Changed
