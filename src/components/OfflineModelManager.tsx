@@ -22,13 +22,13 @@ import {
 } from "../types/smartVerses";
 import {
   getDownloadedModelIds,
-  downloadModel,
   deleteModel,
   supportsWebGPU,
   getStorageEstimate,
   formatBytes,
   ModelDownloadProgress,
 } from "../services/offlineModelService";
+import { preloadOfflineModel } from "../services/offlineModelPreloadService";
 
 interface OfflineModelManagerProps {
   isOpen: boolean;
@@ -94,28 +94,32 @@ const OfflineModelManager: React.FC<OfflineModelManagerProps> = ({
       setDownloadProgress((prev) => ({ ...prev, [model.modelId]: 0 }));
 
       try {
-        await downloadModel(model.modelId, {
-          onProgress: (progress: ModelDownloadProgress) => {
-            setDownloadProgress((prev) => ({
-              ...prev,
-              [model.modelId]: progress.progress,
-            }));
-          },
-          onFileStart: (file: string) => {
-            setCurrentFile((prev) => ({ ...prev, [model.modelId]: file }));
-          },
-          onFileDone: (file: string) => {
-            console.log(`Downloaded: ${file}`);
-          },
-          onComplete: () => {
-            refreshModels();
-            onModelDownloaded?.(model.modelId);
+        await preloadOfflineModel({
+          modelId: model.modelId,
+          source: "manual",
+          callbacks: {
+            onProgress: (progress: ModelDownloadProgress) => {
+              setDownloadProgress((prev) => ({
+                ...prev,
+                [model.modelId]: progress.progress,
+              }));
+            },
+            onFileStart: (file: string) => {
+              setCurrentFile((prev) => ({ ...prev, [model.modelId]: file }));
+            },
+            onFileDone: (file: string) => {
+              console.log(`Downloaded: ${file}`);
+            },
+            onComplete: () => {
+              refreshModels();
+              onModelDownloaded?.(model.modelId);
 
-            // Update storage info
-            getStorageEstimate().then(setStorageInfo);
-          },
-          onError: (err: Error) => {
-            setError(`Failed to download ${model.name}: ${err.message}`);
+              // Update storage info
+              getStorageEstimate().then(setStorageInfo);
+            },
+            onError: (err: Error) => {
+              setError(`Failed to download ${model.name}: ${err.message}`);
+            },
           },
         });
       } catch (err) {

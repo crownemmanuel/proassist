@@ -48,6 +48,9 @@ import { goLiveScriptureReference } from "./services/smartVersesApiService";
 import { loadNetworkSyncSettings } from "./services/networkSyncService";
 import { setApiEnabled } from "./services/apiService";
 import UpdateNotification from "./components/UpdateNotification";
+import OfflineModelLoadingToast from "./components/OfflineModelLoadingToast";
+import { preloadOfflineModel } from "./services/offlineModelPreloadService";
+import { loadSmartVersesSettings } from "./services/transcriptionService";
 
 // Global Chat Assistant imports
 import GlobalChatButton from "./components/GlobalChatButton";
@@ -667,6 +670,30 @@ function App() {
     });
   }, [isSecondScreen]);
 
+  useEffect(() => {
+    if (!isMainWindow) return;
+
+    const settings = loadSmartVersesSettings();
+    let modelId: string | null = null;
+
+    if (settings.transcriptionEngine === "offline-whisper") {
+      modelId = settings.offlineWhisperModel || "onnx-community/whisper-base";
+    } else if (settings.transcriptionEngine === "offline-moonshine") {
+      modelId =
+        settings.offlineMoonshineModel || "onnx-community/moonshine-base-ONNX";
+    }
+
+    if (!modelId) return;
+
+    preloadOfflineModel({
+      modelId,
+      source: "startup",
+      force: true,
+    }).catch((error) => {
+      console.warn("[OfflineModel] Startup preload failed:", error);
+    });
+  }, [isMainWindow]);
+
   const toggleTheme = () => {
     setTheme((prevTheme) => (prevTheme === "light" ? "dark" : "light"));
   };
@@ -685,6 +712,7 @@ function App() {
     <Router>
       <StageAssistProvider>
         <AppContent theme={theme} toggleTheme={toggleTheme} enabledFeatures={enabledFeatures} />
+        {isMainWindow && <OfflineModelLoadingToast />}
         {isMainWindow && <UpdateNotification />}
       </StageAssistProvider>
     </Router>

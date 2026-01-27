@@ -162,7 +162,7 @@ const SettingsPage: React.FC = () => {
       aiPrompt: "",
       aiProvider: undefined,
       aiModel: undefined,
-      outputPath: "/tmp/proassist/output/new_template/",
+      outputPath: "~/Documents/ProAssist/Templates",
       outputFileNamePrefix: "new_template_slide_",
     };
     setTemplates((prev) => [...prev, newTemplate]);

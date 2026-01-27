@@ -151,6 +151,6 @@ export interface LiveSlidesProPresenterActivationRule {
 export const DEFAULT_LIVE_SLIDES_SETTINGS: LiveSlidesSettings = {
   serverPort: 9876,
   autoStartServer: false,
-  outputPath: "/tmp/proassist/live_slides/",
+  outputPath: "~/Documents/ProAssist/Templates/live slides",
   outputFilePrefix: "live_slide_",
 };

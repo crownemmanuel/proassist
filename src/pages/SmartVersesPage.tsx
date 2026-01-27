@@ -43,6 +43,7 @@ import {
   ITranscriptionService,
 } from "../services/transcriptionService";
 import { isModelDownloaded } from "../services/offlineModelService";
+import { getOfflineModelPreloadStatus } from "../services/offlineModelPreloadService";
 import {
   analyzeTranscriptChunk,
   searchBibleWithAI,
@@ -1476,22 +1477,49 @@ const SmartVersesPage: React.FC = () => {
     }
 
     // Validate offline models are downloaded
+    const preloadStatus = getOfflineModelPreloadStatus();
     if (settings.transcriptionEngine === "offline-whisper") {
-      const modelId = settings.offlineWhisperModel || "onnx-community/whisper-base";
+      const modelId =
+        settings.offlineWhisperModel || "onnx-community/whisper-base";
       if (!isModelDownloaded(modelId)) {
-        alert(
-          "The selected Whisper model is not downloaded. Please go to Settings > SmartVerses and click 'Manage Models' to download it first."
-        );
+        if (
+          preloadStatus?.modelId === modelId &&
+          preloadStatus.phase !== "ready"
+        ) {
+          const progressLabel = preloadStatus.progress
+            ? ` (${Math.round(preloadStatus.progress)}%)`
+            : "";
+          alert(
+            `The selected Whisper model is still downloading${progressLabel}. Please wait for it to finish.`
+          );
+        } else {
+          alert(
+            "The selected Whisper model is not downloaded yet. Go to Settings > SmartVerses and select it to start the download."
+          );
+        }
         return;
       }
     }
 
     if (settings.transcriptionEngine === "offline-moonshine") {
-      const modelId = settings.offlineMoonshineModel || "onnx-community/moonshine-base-ONNX";
+      const modelId =
+        settings.offlineMoonshineModel || "onnx-community/moonshine-base-ONNX";
       if (!isModelDownloaded(modelId)) {
-        alert(
-          "The selected Moonshine model is not downloaded. Please go to Settings > SmartVerses and click 'Manage Models' to download it first."
-        );
+        if (
+          preloadStatus?.modelId === modelId &&
+          preloadStatus.phase !== "ready"
+        ) {
+          const progressLabel = preloadStatus.progress
+            ? ` (${Math.round(preloadStatus.progress)}%)`
+            : "";
+          alert(
+            `The selected Moonshine model is still downloading${progressLabel}. Please wait for it to finish.`
+          );
+        } else {
+          alert(
+            "The selected Moonshine model is not downloaded yet. Go to Settings > SmartVerses and select it to start the download."
+          );
+        }
         return;
       }
     }

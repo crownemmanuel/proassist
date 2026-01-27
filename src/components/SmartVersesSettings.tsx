@@ -30,7 +30,12 @@ import {
   AVAILABLE_OFFLINE_MODELS,
 } from "../types/smartVerses";
 import OfflineModelManager from "./OfflineModelManager";
-import { getDownloadedModelIds } from "../services/offlineModelService";
+import { getDownloadedModelIds, isModelDownloaded } from "../services/offlineModelService";
+import {
+  OfflineModelPreloadStatus,
+  preloadOfflineModel,
+  subscribeOfflineModelPreload,
+} from "../services/offlineModelPreloadService";
 import {
   loadSmartVersesSettings,
   saveSmartVersesSettings,
@@ -76,6 +81,8 @@ const SmartVersesSettings: React.FC = () => {
   // Offline model manager state
   const [showModelManager, setShowModelManager] = useState(false);
   const [downloadedModelIds, setDownloadedModelIds] = useState<string[]>([]);
+  const [offlineModelLoad, setOfflineModelLoad] =
+    useState<OfflineModelPreloadStatus | null>(null);
 
 
   // ProPresenter activation state
@@ -139,6 +146,43 @@ const SmartVersesSettings: React.FC = () => {
       );
     };
   }, []);
+
+  useEffect(() => {
+    const unsubscribe = subscribeOfflineModelPreload(setOfflineModelLoad);
+    return unsubscribe;
+  }, []);
+
+  useEffect(() => {
+    if (!settingsLoaded) return;
+
+    const isOfflineWhisper = settings.transcriptionEngine === "offline-whisper";
+    const isOfflineMoonshine =
+      settings.transcriptionEngine === "offline-moonshine";
+    const modelId = isOfflineWhisper
+      ? settings.offlineWhisperModel || "onnx-community/whisper-base"
+      : isOfflineMoonshine
+      ? settings.offlineMoonshineModel || "onnx-community/moonshine-base-ONNX"
+      : null;
+
+    if (!modelId) return;
+    if (isModelDownloaded(modelId)) return;
+
+    preloadOfflineModel({
+      modelId,
+      source: "settings",
+      callbacks: {
+        onComplete: () => setDownloadedModelIds(getDownloadedModelIds()),
+        onError: () => setDownloadedModelIds(getDownloadedModelIds()),
+      },
+    }).catch((error) => {
+      console.warn("Failed to preload offline model:", error);
+    });
+  }, [
+    settingsLoaded,
+    settings.transcriptionEngine,
+    settings.offlineWhisperModel,
+    settings.offlineMoonshineModel,
+  ]);
 
   // Auto-save settings on change (debounced), after initial load.
   useDebouncedEffect(
@@ -531,6 +575,101 @@ const SmartVersesSettings: React.FC = () => {
     marginTop: "var(--spacing-1)",
   };
 
+  const selectedWhisperModelId =
+    settings.offlineWhisperModel || "onnx-community/whisper-base";
+  const selectedMoonshineModelId =
+    settings.offlineMoonshineModel || "onnx-community/moonshine-base-ONNX";
+
+  const whisperLoadStatus =
+    offlineModelLoad?.modelId === selectedWhisperModelId
+      ? offlineModelLoad
+      : null;
+  const moonshineLoadStatus =
+    offlineModelLoad?.modelId === selectedMoonshineModelId
+      ? offlineModelLoad
+      : null;
+
+  const isWhisperDownloading =
+    !!whisperLoadStatus &&
+    whisperLoadStatus.phase !== "ready" &&
+    whisperLoadStatus.phase !== "error";
+  const isMoonshineDownloading =
+    !!moonshineLoadStatus &&
+    moonshineLoadStatus.phase !== "ready" &&
+    moonshineLoadStatus.phase !== "error";
+
+  const renderOfflineLoadStatus = (status: OfflineModelPreloadStatus | null) => {
+    if (!status || status.phase === "ready") return null;
+
+    const progress = Math.max(0, Math.min(100, status.progress || 0));
+    const statusLabel =
+      status.phase === "error"
+        ? "Offline model failed to load"
+        : `Loading ${status.modelName}...`;
+
+    return (
+      <div
+        style={{
+          marginTop: "var(--spacing-2)",
+          padding: "var(--spacing-2)",
+          borderRadius: "8px",
+          border: "1px solid var(--app-border-color)",
+          backgroundColor: "var(--app-input-bg-color)",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            fontSize: "0.8rem",
+            color: "var(--app-text-color-secondary)",
+            marginBottom: "4px",
+          }}
+        >
+          <span>{statusLabel}</span>
+          {status.phase !== "error" && <span>{progress.toFixed(1)}%</span>}
+        </div>
+        {status.file && (
+          <div
+            style={{
+              fontSize: "0.75rem",
+              color: "var(--app-text-color-secondary)",
+              marginBottom: "6px",
+            }}
+          >
+            {status.file}
+          </div>
+        )}
+        <div
+          style={{
+            height: "6px",
+            backgroundColor: "var(--app-bg-color)",
+            borderRadius: "4px",
+            overflow: "hidden",
+          }}
+        >
+          <div
+            style={{
+              height: "100%",
+              width: `${progress}%`,
+              backgroundColor:
+                status.phase === "error"
+                  ? "var(--danger)"
+                  : "var(--app-primary-color)",
+              borderRadius: "4px",
+              transition: "width 0.3s ease",
+            }}
+          />
+        </div>
+        {status.phase === "error" && (
+          <p style={{ ...helpTextStyle, color: "var(--danger)" }}>
+            {status.error || "Failed to load offline model. Please try again."}
+          </p>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div style={{ maxWidth: "800px" }}>
       <h2 style={{ marginBottom: "var(--spacing-4)" }}>SmartVerses Settings</h2>
@@ -656,9 +795,8 @@ const SmartVersesSettings: React.FC = () => {
                       }
                     )}
                   </select>
-                  {!downloadedModelIds.includes(
-                    settings.offlineWhisperModel || "onnx-community/whisper-base"
-                  ) && (
+                  {!downloadedModelIds.includes(selectedWhisperModelId) &&
+                    !isWhisperDownloading && (
                     <p
                       style={{
                         ...helpTextStyle,
@@ -670,6 +808,7 @@ const SmartVersesSettings: React.FC = () => {
                       download it first.
                     </p>
                   )}
+                  {renderOfflineLoadStatus(whisperLoadStatus)}
                 </div>
 
                 <div style={fieldStyle}>
@@ -726,10 +865,8 @@ const SmartVersesSettings: React.FC = () => {
                     }
                   )}
                 </select>
-                {!downloadedModelIds.includes(
-                  settings.offlineMoonshineModel ||
-                    "onnx-community/moonshine-base-ONNX"
-                ) && (
+                {!downloadedModelIds.includes(selectedMoonshineModelId) &&
+                  !isMoonshineDownloading && (
                   <p
                     style={{
                       ...helpTextStyle,
@@ -741,6 +878,7 @@ const SmartVersesSettings: React.FC = () => {
                     download it first.
                   </p>
                 )}
+                {renderOfflineLoadStatus(moonshineLoadStatus)}
                 <p style={helpTextStyle}>
                   Moonshine models include built-in Voice Activity Detection (VAD)
                   for automatic speech segmentation.
