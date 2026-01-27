@@ -435,9 +435,12 @@ const AudienceDisplayPage: React.FC = () => {
       }}
     >
       {hasSlideContent &&
-        settings.slidesLayout.slice(0, 6).map((rect, index) => {
+        Array.from({ length: 6 }, (_, index) => {
           const content = slides.lines[index] || "";
           if (!content.trim()) return null;
+          // Use configured layout for this index, or fallback to last configured layout, or default
+          const layout = settings.slidesLayout;
+          const rect = layout[index] || (layout.length > 0 ? layout[layout.length - 1] : null) || { x: 0.08, y: 0.62, width: 0.84, height: 0.12 };
           return (
             <div
               key={`slide-line-${index}`}

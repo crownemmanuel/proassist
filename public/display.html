@@ -370,7 +370,7 @@
                 const box = slideBoxes[i];
                 const contentEl = slideContents[i];
                 if (slideActive && content.trim()) {
-                    const rect = layout[i] || layout[layout.length - 1] || { x: 0.08, y: 0.62, width: 0.84, height: 0.12 };
+                    const rect = layout[i] || (layout.length > 0 ? layout[layout.length - 1] : null) || { x: 0.08, y: 0.62, width: 0.84, height: 0.12 };
                     box.style.display = 'flex';
                     applyStyles(box, rectStyle(rect));
                     contentEl.textContent = content;
