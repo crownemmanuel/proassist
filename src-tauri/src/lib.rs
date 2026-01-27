@@ -101,6 +101,7 @@ pub struct DisplayScripture {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DisplayState {
     pub scripture: DisplayScripture,
+    pub slides: Vec<String>,
     pub settings: serde_json::Value, // DisplaySettings as JSON
 }
 
@@ -226,6 +227,7 @@ pub enum WsMessage {
     #[serde(rename = "display_update")]
     DisplayUpdate { 
         scripture: DisplayScripture,
+        slides: Vec<String>,
         settings: serde_json::Value,
     },
     #[serde(rename = "error")]
@@ -278,6 +280,7 @@ lazy_static::lazy_static! {
                 verse_text: String::new(),
                 reference: String::new(),
             },
+            slides: Vec::new(),
             settings: serde_json::json!({}),
         }),
         broadcast_tx: broadcast::channel(100).0,
@@ -546,6 +549,7 @@ async fn handle_ws_connection(ws: WebSocket, state: Arc<ServerState>) {
                             let display_state = state.display_state.read().await;
                             let update = WsMessage::DisplayUpdate {
                                 scripture: display_state.scripture.clone(),
+                                slides: display_state.slides.clone(),
                                 settings: display_state.settings.clone(),
                             };
                             if let Ok(json) = serde_json::to_string(&update) {
@@ -2810,6 +2814,7 @@ async fn update_timer_state(
 async fn update_display_state(
     verse_text: String,
     reference: String,
+    slides: Vec<String>,
     settings: serde_json::Value,
 ) -> Result<(), String> {
     let state = SERVER_STATE.clone();
@@ -2821,6 +2826,7 @@ async fn update_display_state(
             verse_text: verse_text.clone(),
             reference: reference.clone(),
         };
+        display_state.slides = slides.clone();
         display_state.settings = settings.clone();
     }
     
@@ -2830,6 +2836,7 @@ async fn update_display_state(
             verse_text,
             reference,
         },
+        slides,
         settings,
     };
     if let Ok(json) = serde_json::to_string(&update) {

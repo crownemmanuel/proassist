@@ -57,6 +57,7 @@ import { useNetworkSync } from "../hooks/useNetworkSync";
 import { loadNetworkSyncSettings } from "../services/networkSyncService";
 import { useStageAssist } from "../contexts/StageAssistContext";
 import AIAutomationDropdown from "../components/AIAutomationDropdown";
+import { sendSlidesToDisplay } from "../services/displayService";
 
 const MainApplicationPage: React.FC = () => {
   // Access schedule from StageAssist context for auto-timer assignment
@@ -802,6 +803,13 @@ const MainApplicationPage: React.FC = () => {
     }
 
     const lines = slide.text.split("\n");
+
+    try {
+      await sendSlidesToDisplay(lines);
+    } catch (error) {
+      console.warn("[Display] Failed to update slides on audience display:", error);
+    }
+
     const rawBasePath = isLiveSlidesItem
       ? liveSlidesSettings?.outputPath
       : template?.outputPath;
@@ -1121,6 +1129,12 @@ const MainApplicationPage: React.FC = () => {
     if (!template && !isLiveSlidesItem) {
       console.warn("Template not found for take off action");
       return;
+    }
+
+    try {
+      await sendSlidesToDisplay([]);
+    } catch (error) {
+      console.warn("[Display] Failed to clear slides on audience display:", error);
     }
 
     const liveSlidesSettings = isLiveSlidesItem

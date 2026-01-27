@@ -34,7 +34,7 @@ import AudienceDisplayPage from "./pages/AudienceDisplayPage";
 import AudienceDisplayTestWindow from "./pages/AudienceDisplayTestWindow";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { loadEnabledFeatures } from "./services/recorderService";
-import { clearDisplayScripture } from "./services/displayService";
+import { clearDisplayScripture, clearDisplaySlides } from "./services/displayService";
 import { EnabledFeatures } from "./types/recorder";
 import {
   StageAssistProvider,
@@ -476,6 +476,7 @@ function App() {
 
   // Calculate isSecondScreen purely from initial state to prevent flash of main app
   const isSecondScreen = windowLabel.startsWith("dialog-");
+  const isMainWindow = windowLabel === "main";
 
   const [theme, setTheme] = useState(
     localStorage.getItem("app-theme") || "dark"
@@ -492,6 +493,7 @@ function App() {
   useEffect(() => {
     if (windowLabel !== "main") return;
     clearDisplayScripture();
+    clearDisplaySlides();
   }, [windowLabel]);
 
   // Global shortcut to open DevTools / Inspector (useful on production machines to debug issues).
@@ -560,7 +562,7 @@ function App() {
     <Router>
       <StageAssistProvider>
         <AppContent theme={theme} toggleTheme={toggleTheme} enabledFeatures={enabledFeatures} />
-        <UpdateNotification />
+        {isMainWindow && <UpdateNotification />}
       </StageAssistProvider>
     </Router>
   );
