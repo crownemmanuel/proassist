@@ -1,45 +1,6 @@
 //window_commands.rs contains the commands for the window
 use log::error;
-use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter, Manager, WebviewWindowBuilder};
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct MonitorInfo {
-    pub name: String,
-    pub position: (i32, i32),
-    pub size: (u32, u32),
-    pub scale_factor: f64,
-}
-
-#[tauri::command]
-pub async fn get_monitors(app_handle: AppHandle) -> Result<Vec<MonitorInfo>, String> {
-    let monitors = app_handle
-        .available_monitors()
-        .map_err(|e| format!("Failed to get monitors: {}", e))?;
-
-    let monitor_infos: Vec<MonitorInfo> = monitors
-        .iter()
-        .enumerate()
-        .map(|(index, monitor)| {
-            let name = monitor.name()
-                .map(|n| n.to_string())
-                .unwrap_or_else(|| format!("Monitor {}", index + 1));
-            
-            let position = monitor.position();
-            let size = monitor.size();
-            let scale_factor = monitor.scale_factor();
-
-            MonitorInfo {
-                name,
-                position: (position.x, position.y),
-                size: (size.width, size.height),
-                scale_factor,
-            }
-        })
-        .collect();
-
-    Ok(monitor_infos)
-}
+use tauri::{AppHandle, Manager, WebviewWindowBuilder};
 
 #[tauri::command]
 pub async fn open_dialog(
@@ -159,17 +120,3 @@ pub async fn close_dialog(app_handle: AppHandle, dialog_window: String) -> Resul
     Ok(())
 }
 
-#[tauri::command]
-pub async fn update_second_screen_number(
-    app_handle: AppHandle,
-    number: String,
-) -> Result<(), String> {
-    // Emit event to all windows, but specifically the second screen will listen
-    let windows = app_handle.webview_windows();
-    for (_, window) in windows.iter() {
-        if let Err(e) = window.emit("number-updated", &number) {
-            error!("Failed to emit event to window {}: {:?}", window.label(), e);
-        }
-    }
-    Ok(())
-}
