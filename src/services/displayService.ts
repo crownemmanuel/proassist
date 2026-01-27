@@ -15,6 +15,7 @@ import {
   DisplaySlides,
   DisplayTimerState,
   DisplayLayoutRect,
+  SlideLineStyle,
 } from "../types/display";
 
 const DISPLAY_WINDOW_LABEL = "audience-display";
@@ -77,6 +78,19 @@ function mergeSlidesLayout(
   return next;
 }
 
+function normalizeSlideLineStyles(incoming: unknown): SlideLineStyle[] {
+  if (!Array.isArray(incoming)) {
+    return [];
+  }
+
+  return incoming.slice(0, 6).map((style) => {
+    if (style && typeof style === "object" && !Array.isArray(style)) {
+      return { ...(style as SlideLineStyle) };
+    }
+    return {};
+  });
+}
+
 export function loadDisplaySettings(): DisplaySettings {
   try {
     const stored = localStorage.getItem(DISPLAY_SETTINGS_KEY);
@@ -87,6 +101,7 @@ export function loadDisplaySettings(): DisplaySettings {
         ...parsed,
         layout: mergeLayout(DEFAULT_DISPLAY_LAYOUT, parsed.layout),
         slidesLayout: mergeSlidesLayout(DEFAULT_SLIDES_LAYOUT, parsed.slidesLayout),
+        slidesLineStyles: normalizeSlideLineStyles(parsed.slidesLineStyles),
       };
       
       // Backward compatibility: if textStyle/referenceStyle don't exist, create them

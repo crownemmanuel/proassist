@@ -41,6 +41,10 @@ export type FontStyle = {
   shadow?: TextShadow;
 };
 
+export type SlideLineStyle = Partial<FontStyle> & {
+  fontFamily?: string;
+};
+
 export type DisplaySettings = {
   enabled: boolean;
   windowAudienceScreen: boolean;
@@ -54,6 +58,7 @@ export type DisplaySettings = {
   referenceStyle: FontStyle;
   layout: DisplayLayout;
   slidesLayout: DisplayLayoutRect[];
+  slidesLineStyles: SlideLineStyle[];
   showTimer: boolean;
   timerFontSize: number;
 };
@@ -119,6 +124,7 @@ export const DEFAULT_DISPLAY_SETTINGS: DisplaySettings = {
   },
   layout: DEFAULT_DISPLAY_LAYOUT,
   slidesLayout: DEFAULT_SLIDES_LAYOUT,
+  slidesLineStyles: [],
   showTimer: false,
   timerFontSize: 32,
 };

@@ -179,6 +179,7 @@
                 { x: 0.08, y: 0.62, width: 0.84, height: 0.12 },
                 { x: 0.08, y: 0.76, width: 0.84, height: 0.12 },
             ],
+            slidesLineStyles: [],
             showTimer: false,
             timerFontSize: 32,
         };
@@ -232,6 +233,21 @@
 
         function applyStyles(element, styles) {
             Object.assign(element.style, styles);
+        }
+
+        function resolveLineStyle(base, override) {
+            const style = override || {};
+            return {
+                color: style.color ?? base.color,
+                bold: style.bold ?? base.bold,
+                italic: style.italic ?? base.italic,
+                stroke: style.stroke ?? base.stroke,
+                shadow: style.shadow ?? base.shadow,
+            };
+        }
+
+        function resolveLineFontFamily(baseFont, override) {
+            return (override && override.fontFamily) ? override.fontFamily : baseFont;
         }
 
         function rectStyle(rect) {
@@ -358,8 +374,13 @@
                     box.style.display = 'flex';
                     applyStyles(box, rectStyle(rect));
                     contentEl.textContent = content;
-                    contentEl.style.fontFamily = settings.textFont;
-                    applyStyles(contentEl, getFontStyle(settings.textStyle));
+                    const lineOverride = Array.isArray(settings.slidesLineStyles) ? settings.slidesLineStyles[i] : null;
+                    contentEl.style.fontFamily = resolveLineFontFamily(settings.textFont, lineOverride);
+                    const lineStyle = resolveLineStyle(
+                        settings.textStyle,
+                        lineOverride
+                    );
+                    applyStyles(contentEl, getFontStyle(lineStyle));
                     requestAnimationFrame(() => {
                         autoFontSize(box, contentEl, content, 14, 180);
                     });
@@ -372,8 +393,10 @@
             const timerOverlay = document.getElementById('timerOverlay');
             const shouldShowTimer = settings.showTimer && (timerState.is_running || timerState.time_left !== 0);
             if (shouldShowTimer) {
+                const isOverrun = timerState.time_left < 0;
                 timerOverlay.style.display = 'block';
                 timerOverlay.style.fontSize = `${settings.timerFontSize || 32}px`;
+                timerOverlay.style.color = isOverrun ? '#ef4444' : '#ffffff';
                 timerOverlay.textContent = formatTime(timerState.time_left);
             } else {
                 timerOverlay.style.display = 'none';
@@ -435,6 +458,11 @@
                                 referenceStyle: message.settings.referenceStyle ? { ...settings.referenceStyle, ...message.settings.referenceStyle } : settings.referenceStyle,
                                 layout: message.settings.layout ? { ...settings.layout, ...message.settings.layout } : settings.layout,
                                 slidesLayout: Array.isArray(message.settings.slidesLayout) ? message.settings.slidesLayout : settings.slidesLayout,
+                                slidesLineStyles: Array.isArray(message.settings.slidesLineStyles)
+                                    ? message.settings.slidesLineStyles.map((style) =>
+                                          style && typeof style === 'object' ? style : {}
+                                      )
+                                    : settings.slidesLineStyles,
                                 showTimer: message.settings.showTimer !== undefined ? message.settings.showTimer : settings.showTimer,
                                 timerFontSize: typeof message.settings.timerFontSize === 'number' ? message.settings.timerFontSize : settings.timerFontSize,
                             };

@@ -5,6 +5,7 @@ import {
   DEFAULT_SLIDES_LAYOUT,
   DisplayLayoutRect,
   DisplaySettings,
+  SlideLineStyle,
 } from "../types/display";
 import { useAutoFontSize } from "../hooks/useAutoFontSize";
 
@@ -30,12 +31,14 @@ type DragState = {
 interface SlidesLayoutEditorModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSave: (layout: DisplayLayoutRect[]) => void;
+  onSave: (layout: DisplayLayoutRect[], lineStyles: SlideLineStyle[]) => void;
   initialLayout: DisplayLayoutRect[];
+  initialLineStyles: SlideLineStyle[];
   backgroundColor: string;
   backgroundImagePath?: string;
   textFont: string;
   textStyle: DisplaySettings["textStyle"];
+  fontOptions: Array<{ label: string; value: string }>;
 }
 
 const SAMPLE_LINES = [
@@ -88,6 +91,31 @@ const getFontStyle = (style: DisplaySettings["textStyle"]): React.CSSProperties 
   return css;
 };
 
+const resolveLineStyle = (
+  base: DisplaySettings["textStyle"],
+  override?: SlideLineStyle
+): DisplaySettings["textStyle"] => ({
+  color: override?.color ?? base.color,
+  bold: override?.bold ?? base.bold,
+  italic: override?.italic ?? base.italic,
+  stroke: override?.stroke ?? base.stroke,
+  shadow: override?.shadow ?? base.shadow,
+});
+
+const resolveLineFontFamily = (baseFont: string, override?: SlideLineStyle) =>
+  override?.fontFamily || baseFont;
+
+const normalizeLineStyles = (
+  styles: SlideLineStyle[],
+  length: number
+): SlideLineStyle[] => {
+  const next = styles.slice(0, length).map((style) => ({ ...(style || {}) }));
+  while (next.length < length) {
+    next.push({});
+  }
+  return next;
+};
+
 const HANDLE_POSITIONS: Record<
   ResizeHandle,
   { left: string; top: string; cursor: string }
@@ -107,13 +135,18 @@ const SlidesLayoutEditorModal: React.FC<SlidesLayoutEditorModalProps> = ({
   onClose,
   onSave,
   initialLayout,
+  initialLineStyles,
   backgroundColor,
   backgroundImagePath,
   textFont,
   textStyle,
+  fontOptions,
 }) => {
   const [layout, setLayout] = useState<DisplayLayoutRect[]>(initialLayout);
-  const [activeIndex, setActiveIndex] = useState<number | null>(null);
+  const [lineStyles, setLineStyles] = useState<SlideLineStyle[]>(() =>
+    normalizeLineStyles(initialLineStyles, initialLayout.length || 0)
+  );
+  const [selectedIndex, setSelectedIndex] = useState(0);
   const dragStateRef = useRef<DragState | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
@@ -137,12 +170,102 @@ const SlidesLayoutEditorModal: React.FC<SlidesLayoutEditorModalProps> = ({
   ];
 
   const lineFontSizes = [
-    useAutoFontSize(lineBoxRefs[0], lineContentRefs[0], [layout, textFont, SAMPLE_LINES[0], isOpen], { minFontSize: 10, maxFontSize: 120 }),
-    useAutoFontSize(lineBoxRefs[1], lineContentRefs[1], [layout, textFont, SAMPLE_LINES[1], isOpen], { minFontSize: 10, maxFontSize: 120 }),
-    useAutoFontSize(lineBoxRefs[2], lineContentRefs[2], [layout, textFont, SAMPLE_LINES[2], isOpen], { minFontSize: 10, maxFontSize: 120 }),
-    useAutoFontSize(lineBoxRefs[3], lineContentRefs[3], [layout, textFont, SAMPLE_LINES[3], isOpen], { minFontSize: 10, maxFontSize: 120 }),
-    useAutoFontSize(lineBoxRefs[4], lineContentRefs[4], [layout, textFont, SAMPLE_LINES[4], isOpen], { minFontSize: 10, maxFontSize: 120 }),
-    useAutoFontSize(lineBoxRefs[5], lineContentRefs[5], [layout, textFont, SAMPLE_LINES[5], isOpen], { minFontSize: 10, maxFontSize: 120 }),
+    useAutoFontSize(
+      lineBoxRefs[0],
+      lineContentRefs[0],
+      [
+        layout,
+        textFont,
+        lineStyles[0]?.fontFamily,
+        SAMPLE_LINES[0],
+        isOpen,
+        textStyle.bold,
+        textStyle.italic,
+        lineStyles[0]?.bold,
+        lineStyles[0]?.italic,
+      ],
+      { minFontSize: 10, maxFontSize: 120 }
+    ),
+    useAutoFontSize(
+      lineBoxRefs[1],
+      lineContentRefs[1],
+      [
+        layout,
+        textFont,
+        lineStyles[1]?.fontFamily,
+        SAMPLE_LINES[1],
+        isOpen,
+        textStyle.bold,
+        textStyle.italic,
+        lineStyles[1]?.bold,
+        lineStyles[1]?.italic,
+      ],
+      { minFontSize: 10, maxFontSize: 120 }
+    ),
+    useAutoFontSize(
+      lineBoxRefs[2],
+      lineContentRefs[2],
+      [
+        layout,
+        textFont,
+        lineStyles[2]?.fontFamily,
+        SAMPLE_LINES[2],
+        isOpen,
+        textStyle.bold,
+        textStyle.italic,
+        lineStyles[2]?.bold,
+        lineStyles[2]?.italic,
+      ],
+      { minFontSize: 10, maxFontSize: 120 }
+    ),
+    useAutoFontSize(
+      lineBoxRefs[3],
+      lineContentRefs[3],
+      [
+        layout,
+        textFont,
+        lineStyles[3]?.fontFamily,
+        SAMPLE_LINES[3],
+        isOpen,
+        textStyle.bold,
+        textStyle.italic,
+        lineStyles[3]?.bold,
+        lineStyles[3]?.italic,
+      ],
+      { minFontSize: 10, maxFontSize: 120 }
+    ),
+    useAutoFontSize(
+      lineBoxRefs[4],
+      lineContentRefs[4],
+      [
+        layout,
+        textFont,
+        lineStyles[4]?.fontFamily,
+        SAMPLE_LINES[4],
+        isOpen,
+        textStyle.bold,
+        textStyle.italic,
+        lineStyles[4]?.bold,
+        lineStyles[4]?.italic,
+      ],
+      { minFontSize: 10, maxFontSize: 120 }
+    ),
+    useAutoFontSize(
+      lineBoxRefs[5],
+      lineContentRefs[5],
+      [
+        layout,
+        textFont,
+        lineStyles[5]?.fontFamily,
+        SAMPLE_LINES[5],
+        isOpen,
+        textStyle.bold,
+        textStyle.italic,
+        lineStyles[5]?.bold,
+        lineStyles[5]?.italic,
+      ],
+      { minFontSize: 10, maxFontSize: 120 }
+    ),
   ];
 
   useEffect(() => {
@@ -193,8 +316,16 @@ const SlidesLayoutEditorModal: React.FC<SlidesLayoutEditorModalProps> = ({
     if (isOpen) {
       const initial = initialLayout.length >= 2 ? initialLayout : DEFAULT_SLIDES_LAYOUT;
       setLayout(initial.map((rect) => ({ ...rect })));
+      setLineStyles(normalizeLineStyles(initialLineStyles, initial.length));
+      setSelectedIndex(0);
     }
-  }, [isOpen, initialLayout]);
+  }, [isOpen, initialLayout, initialLineStyles]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setLineStyles((prev) => normalizeLineStyles(prev, layout.length));
+    setSelectedIndex((prev) => Math.min(prev, Math.max(layout.length - 1, 0)));
+  }, [isOpen, layout.length]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -283,7 +414,6 @@ const SlidesLayoutEditorModal: React.FC<SlidesLayoutEditorModalProps> = ({
 
     const handlePointerUp = () => {
       dragStateRef.current = null;
-      setActiveIndex(null);
     };
 
     window.addEventListener("pointermove", handlePointerMove);
@@ -306,7 +436,7 @@ const SlidesLayoutEditorModal: React.FC<SlidesLayoutEditorModalProps> = ({
       startY: event.clientY,
       startRect: layout[index],
     };
-    setActiveIndex(index);
+    setSelectedIndex(index);
   };
 
   const startResize =
@@ -322,7 +452,7 @@ const SlidesLayoutEditorModal: React.FC<SlidesLayoutEditorModalProps> = ({
         startY: event.clientY,
         startRect: layout[index],
       };
-      setActiveIndex(index);
+      setSelectedIndex(index);
     };
 
   const renderHandles = (index: number) =>
@@ -349,6 +479,7 @@ const SlidesLayoutEditorModal: React.FC<SlidesLayoutEditorModalProps> = ({
     });
 
   const handleAddLine = () => {
+    if (layout.length >= 6) return;
     setLayout((prev) => {
       if (prev.length >= 6) return prev;
       const last = prev[prev.length - 1] || DEFAULT_SLIDES_LAYOUT[DEFAULT_SLIDES_LAYOUT.length - 1];
@@ -367,7 +498,37 @@ const SlidesLayoutEditorModal: React.FC<SlidesLayoutEditorModalProps> = ({
           : proposedAbove;
       return [...prev, clampRect(nextRect)];
     });
+    const nextLength = Math.min(layout.length + 1, 6);
+    setLineStyles((prev) => normalizeLineStyles(prev, nextLength));
+    setSelectedIndex(nextLength - 1);
   };
+
+  const updateLineStyle = (
+    index: number,
+    nextStyle: SlideLineStyle & { fontFamily?: string | null }
+  ) => {
+    setLineStyles((prev) => {
+      const normalized = normalizeLineStyles(prev, layout.length);
+      const merged: SlideLineStyle = { ...normalized[index], ...nextStyle };
+      if (nextStyle.fontFamily === null) {
+        delete merged.fontFamily;
+      }
+      normalized[index] = merged;
+      return normalized;
+    });
+  };
+
+  const resetLineStyle = (index: number) => {
+    setLineStyles((prev) => {
+      const normalized = normalizeLineStyles(prev, layout.length);
+      normalized[index] = {};
+      return normalized;
+    });
+  };
+
+  const selectedLineStyle = lineStyles[selectedIndex] || {};
+  const resolvedSelectedStyle = resolveLineStyle(textStyle, selectedLineStyle);
+  const hasSelectedOverride = Object.keys(selectedLineStyle).length > 0;
 
   return (
     <div className="modal-overlay" onMouseDown={onClose}>
@@ -406,7 +567,7 @@ const SlidesLayoutEditorModal: React.FC<SlidesLayoutEditorModalProps> = ({
               style={{
                 ...getRectStyle(rect),
                 border:
-                  activeIndex === index
+                  selectedIndex === index
                     ? "2px solid var(--accent)"
                     : "2px solid rgba(99, 102, 241, 0.6)",
                 borderRadius: "8px",
@@ -422,14 +583,14 @@ const SlidesLayoutEditorModal: React.FC<SlidesLayoutEditorModalProps> = ({
               <div
                 ref={lineContentRefs[index]}
                 style={{
-                  fontFamily: textFont,
+                  fontFamily: resolveLineFontFamily(textFont, lineStyles[index]),
                   fontSize: `${lineFontSizes[index]}px`,
                   lineHeight: 1.2,
                   textAlign: "center",
                   whiteSpace: "pre-wrap",
                   wordBreak: "break-word",
                   pointerEvents: "none",
-                  ...getFontStyle(textStyle),
+                  ...getFontStyle(resolveLineStyle(textStyle, lineStyles[index])),
                 }}
               >
                 {SAMPLE_LINES[index] || `Line ${index + 1}`}
@@ -437,6 +598,87 @@ const SlidesLayoutEditorModal: React.FC<SlidesLayoutEditorModalProps> = ({
               {renderHandles(index)}
             </div>
           ))}
+        </div>
+
+        <div
+          style={{
+            marginTop: "16px",
+            padding: "12px",
+            backgroundColor: "var(--app-header-bg)",
+            borderRadius: "10px",
+            border: "1px solid var(--app-border-color)",
+            display: "grid",
+            gap: "10px",
+          }}
+        >
+          <div style={{ fontWeight: 600 }}>Line styling</div>
+          <div style={{ display: "flex", gap: "12px", alignItems: "center", flexWrap: "wrap" }}>
+            <label style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <span style={{ fontSize: "0.9rem" }}>Line</span>
+              <select
+                value={selectedIndex}
+                onChange={(event) => setSelectedIndex(Number(event.target.value))}
+                className="select-css"
+              >
+                {layout.map((_, index) => (
+                  <option key={`line-select-${index}`} value={index}>
+                    Line {index + 1}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <span style={{ fontSize: "0.9rem" }}>Font</span>
+              <select
+                value={selectedLineStyle.fontFamily || ""}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  updateLineStyle(selectedIndex, {
+                    fontFamily: value === "" ? null : value,
+                  });
+                }}
+                className="select-css"
+              >
+                <option value="">Default (Slide font)</option>
+                {fontOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <span style={{ fontSize: "0.9rem" }}>Color</span>
+              <input
+                type="color"
+                value={resolvedSelectedStyle.color}
+                onChange={(event) =>
+                  updateLineStyle(selectedIndex, { color: event.target.value })
+                }
+              />
+            </label>
+            <label style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <input
+                type="checkbox"
+                checked={resolvedSelectedStyle.bold}
+                onChange={(event) =>
+                  updateLineStyle(selectedIndex, { bold: event.target.checked })
+                }
+              />
+              <span style={{ fontSize: "0.9rem" }}>Bold</span>
+            </label>
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => resetLineStyle(selectedIndex)}
+              disabled={!hasSelectedOverride}
+            >
+              Use default style
+            </button>
+          </div>
+          <div style={{ fontSize: "0.85rem", color: "var(--app-text-color-secondary)" }}>
+            Lines without overrides use the global slide text styling.
+          </div>
         </div>
 
         <div
@@ -465,7 +707,7 @@ const SlidesLayoutEditorModal: React.FC<SlidesLayoutEditorModalProps> = ({
           <div style={{ display: "flex", gap: "10px" }}>
             <button onClick={onClose}>Cancel</button>
             <button
-              onClick={() => onSave(layout)}
+              onClick={() => onSave(layout, lineStyles)}
               className="primary"
             >
               Save Layout

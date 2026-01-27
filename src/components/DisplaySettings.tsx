@@ -276,17 +276,30 @@ const DisplaySettings: React.FC = () => {
         value: settings.referenceFont,
       });
     }
+
+    settings.slidesLineStyles?.forEach((style) => {
+      if (style?.fontFamily && !systemFontFamilies.has(style.fontFamily)) {
+        options.push({
+          label: `Custom: ${style.fontFamily}`,
+          value: style.fontFamily,
+        });
+        systemFontFamilies.add(style.fontFamily);
+      }
+    });
     
     return options;
-  }, [systemFonts, settings.textFont, settings.referenceFont]);
+  }, [systemFonts, settings.textFont, settings.referenceFont, settings.slidesLineStyles]);
 
   const handleUpdateLayout = (layout: DisplayLayout) => {
     setSettings((prev) => ({ ...prev, layout }));
     setLayoutEditorOpen(false);
   };
 
-  const handleUpdateSlidesLayout = (slidesLayout: DisplayLayout["text"][]) => {
-    setSettings((prev) => ({ ...prev, slidesLayout }));
+  const handleUpdateSlidesLayout = (
+    slidesLayout: DisplayLayout["text"][],
+    slidesLineStyles: DisplaySettingsType["slidesLineStyles"]
+  ) => {
+    setSettings((prev) => ({ ...prev, slidesLayout, slidesLineStyles }));
     setSlidesLayoutEditorOpen(false);
   };
 
@@ -407,6 +420,11 @@ const DisplaySettings: React.FC = () => {
       [
         SAMPLE_SLIDE_LINES[0],
         settings.textFont,
+        settings.slidesLineStyles?.[0]?.fontFamily,
+        settings.textStyle.bold,
+        settings.textStyle.italic,
+        settings.slidesLineStyles?.[0]?.bold,
+        settings.slidesLineStyles?.[0]?.italic,
         getSlideRect(0).x,
         getSlideRect(0).y,
         getSlideRect(0).width,
@@ -420,6 +438,11 @@ const DisplaySettings: React.FC = () => {
       [
         SAMPLE_SLIDE_LINES[1],
         settings.textFont,
+        settings.slidesLineStyles?.[1]?.fontFamily,
+        settings.textStyle.bold,
+        settings.textStyle.italic,
+        settings.slidesLineStyles?.[1]?.bold,
+        settings.slidesLineStyles?.[1]?.italic,
         getSlideRect(1).x,
         getSlideRect(1).y,
         getSlideRect(1).width,
@@ -433,6 +456,11 @@ const DisplaySettings: React.FC = () => {
       [
         SAMPLE_SLIDE_LINES[2],
         settings.textFont,
+        settings.slidesLineStyles?.[2]?.fontFamily,
+        settings.textStyle.bold,
+        settings.textStyle.italic,
+        settings.slidesLineStyles?.[2]?.bold,
+        settings.slidesLineStyles?.[2]?.italic,
         getSlideRect(2).x,
         getSlideRect(2).y,
         getSlideRect(2).width,
@@ -446,6 +474,11 @@ const DisplaySettings: React.FC = () => {
       [
         SAMPLE_SLIDE_LINES[3],
         settings.textFont,
+        settings.slidesLineStyles?.[3]?.fontFamily,
+        settings.textStyle.bold,
+        settings.textStyle.italic,
+        settings.slidesLineStyles?.[3]?.bold,
+        settings.slidesLineStyles?.[3]?.italic,
         getSlideRect(3).x,
         getSlideRect(3).y,
         getSlideRect(3).width,
@@ -459,6 +492,11 @@ const DisplaySettings: React.FC = () => {
       [
         SAMPLE_SLIDE_LINES[4],
         settings.textFont,
+        settings.slidesLineStyles?.[4]?.fontFamily,
+        settings.textStyle.bold,
+        settings.textStyle.italic,
+        settings.slidesLineStyles?.[4]?.bold,
+        settings.slidesLineStyles?.[4]?.italic,
         getSlideRect(4).x,
         getSlideRect(4).y,
         getSlideRect(4).width,
@@ -472,6 +510,11 @@ const DisplaySettings: React.FC = () => {
       [
         SAMPLE_SLIDE_LINES[5],
         settings.textFont,
+        settings.slidesLineStyles?.[5]?.fontFamily,
+        settings.textStyle.bold,
+        settings.textStyle.italic,
+        settings.slidesLineStyles?.[5]?.bold,
+        settings.slidesLineStyles?.[5]?.italic,
         getSlideRect(5).x,
         getSlideRect(5).y,
         getSlideRect(5).width,
@@ -502,6 +545,20 @@ const DisplaySettings: React.FC = () => {
 
     return css;
   };
+
+  const getSlideLineStyle = (index: number): DisplaySettingsType["textStyle"] => {
+    const override = settings.slidesLineStyles?.[index];
+    return {
+      color: override?.color ?? settings.textStyle.color,
+      bold: override?.bold ?? settings.textStyle.bold,
+      italic: override?.italic ?? settings.textStyle.italic,
+      stroke: override?.stroke ?? settings.textStyle.stroke,
+      shadow: override?.shadow ?? settings.textStyle.shadow,
+    };
+  };
+
+  const getSlideLineFontFamily = (index: number) =>
+    settings.slidesLineStyles?.[index]?.fontFamily || settings.textFont;
 
   return (
     <div style={{ maxWidth: "900px" }}>
@@ -1591,8 +1648,8 @@ const DisplaySettings: React.FC = () => {
                   <div
                     ref={slideLineContentRefs[index]}
                     style={{
-                      ...getFontStyle(settings.textStyle),
-                      fontFamily: settings.textFont,
+                      ...getFontStyle(getSlideLineStyle(index)),
+                      fontFamily: getSlideLineFontFamily(index),
                       fontSize: `${slideLineFontSizes[index]}px`,
                       lineHeight: 1.2,
                       whiteSpace: "pre-wrap",
@@ -1669,10 +1726,12 @@ const DisplaySettings: React.FC = () => {
         onClose={() => setSlidesLayoutEditorOpen(false)}
         onSave={handleUpdateSlidesLayout}
         initialLayout={settings.slidesLayout}
+        initialLineStyles={settings.slidesLineStyles}
         backgroundColor={settings.backgroundColor}
         backgroundImagePath={settings.backgroundImagePath}
         textFont={settings.textFont}
         textStyle={settings.textStyle}
+        fontOptions={fontOptions}
       />
     </div>
   );
