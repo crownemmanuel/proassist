@@ -32,6 +32,7 @@ export interface TranscriptionCallbacks {
   onError?: (error: Error) => void;
   onConnectionClose?: (code: number, reason: string) => void;
   onStatusChange?: (status: TranscriptionStatus) => void;
+  onAudioLevel?: (level: number) => void;
 }
 
 export type TranscriptionStatus = 'idle' | 'connecting' | 'recording' | 'error' | 'waiting_for_browser';
@@ -105,6 +106,8 @@ export interface DetectedBibleReference {
   verse?: number;
   // Navigation tracking - true if this verse was loaded via prev/next navigation
   isNavigationResult?: boolean;
+  // Highlight words from AI search
+  highlight?: string[];     // Words to highlight in the verse text
 }
 
 // =============================================================================
@@ -232,6 +235,7 @@ export interface SmartVersesSettings {
   remoteTranscriptionEnabled?: boolean;
   remoteTranscriptionHost?: string;
   remoteTranscriptionPort?: number;
+  transcriptionTimeLimitMinutes?: number; // Auto-stop prompt threshold (default: 120)
   
   // Offline transcription settings
   offlineWhisperModel?: string; // Model ID for offline Whisper
@@ -248,6 +252,7 @@ export interface SmartVersesSettings {
   enableKeyPointExtraction: boolean;
   keyPointExtractionInstructions?: string;
   paraphraseConfidenceThreshold: number; // Default 0.6
+  aiMinWordCount: number; // Default 6
   
   // Display settings
   autoAddDetectedToHistory: boolean; // Add detected refs from transcription to chat history
@@ -284,6 +289,7 @@ export const DEFAULT_SMART_VERSES_SETTINGS: SmartVersesSettings = {
   remoteTranscriptionEnabled: false,
   remoteTranscriptionHost: "",
   remoteTranscriptionPort: 9876,
+  transcriptionTimeLimitMinutes: 120,
   offlineWhisperModel: 'onnx-community/whisper-base',
   offlineMoonshineModel: 'onnx-community/moonshine-base-ONNX',
   offlineLanguage: 'en',
@@ -295,6 +301,7 @@ export const DEFAULT_SMART_VERSES_SETTINGS: SmartVersesSettings = {
   keyPointExtractionInstructions:
     "Extract 1–2 concise, quotable key points suitable for slides/lower-thirds. Prefer short sentences, avoid filler, keep the original voice, and skip vague statements.",
   paraphraseConfidenceThreshold: 0.6,
+  aiMinWordCount: 6,
   autoAddDetectedToHistory: false,
   highlightDirectReferences: true,
   highlightParaphrasedReferences: true,

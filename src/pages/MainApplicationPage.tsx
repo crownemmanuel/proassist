@@ -104,6 +104,7 @@ const MainApplicationPage: React.FC = () => {
   const [typingUrlModal, setTypingUrlModal] = useState<{ url: string } | null>(
     null
   );
+  const [isCreateBlankOpen, setIsCreateBlankOpen] = useState(false);
   const [isRenameOpen, setIsRenameOpen] = useState(false);
   const [renameInitialName, setRenameInitialName] = useState("");
   const [renameTarget, setRenameTarget] = useState<
@@ -1607,6 +1608,56 @@ const MainApplicationPage: React.FC = () => {
     }
   };
 
+  const handleCreateBlankPresentation = (title: string) => {
+    if (!selectedPlaylistId) {
+      alert("No playlist selected to add the item to.");
+      return;
+    }
+
+    if (templates.length === 0) {
+      alert("No templates available. Please create a template first.");
+      return;
+    }
+
+    const template = templates[0];
+    const defaultLayout = template.availableLayouts[0] || "one-line";
+    const timestamp = Date.now();
+    const blankSlide: Slide = {
+      id: `slide-${timestamp}-0`,
+      text: "",
+      layout: defaultLayout,
+      order: 1,
+    };
+
+    const newPlaylistItem: PlaylistItem = {
+      id: `item-${timestamp}`,
+      title,
+      slides: [blankSlide],
+      templateName: template.name,
+      templateColor: template.color || "#808080",
+      defaultProPresenterActivation: template.proPresenterActivation,
+    };
+
+    setPlaylists((prevPlaylists) =>
+      prevPlaylists.map((p) => {
+        if (p.id === selectedPlaylistId) {
+          return { ...p, items: [...p.items, newPlaylistItem] };
+        }
+        return p;
+      })
+    );
+    setSelectedItemId(newPlaylistItem.id);
+
+    const syncSettings = loadNetworkSyncSettings();
+    if (
+      syncSettings.syncPlaylists &&
+      syncSettings.mode !== "off" &&
+      syncSettings.mode !== "slave"
+    ) {
+      broadcastPlaylistItem(selectedPlaylistId, newPlaylistItem, "create");
+    }
+  };
+
   const handleDetachCurrentLiveSlides = () => {
     if (!currentPlaylist || !currentPlaylistItem) return;
     const sid = currentPlaylistItem.liveSlidesSessionId;
@@ -2301,6 +2352,39 @@ const MainApplicationPage: React.FC = () => {
                     }}
                   >
                     <FaFile style={{ opacity: 0.7 }} /> From Text
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowImportDropdown(false);
+                      if (currentPlaylist) {
+                        setIsCreateBlankOpen(true);
+                      } else {
+                        alert("Please select a playlist first.");
+                      }
+                    }}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
+                      width: "100%",
+                      padding: "10px 14px",
+                      backgroundColor: "transparent",
+                      color: "var(--app-text-color)",
+                      border: "none",
+                      borderBottom: "1px solid var(--app-border-color)",
+                      cursor: "pointer",
+                      fontSize: "0.875rem",
+                      textAlign: "left",
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.backgroundColor =
+                        "var(--app-hover-bg-color)";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.backgroundColor = "transparent";
+                    }}
+                  >
+                    <FaPlus style={{ opacity: 0.7 }} /> Blank Presentation
                   </button>
                   <button
                     onClick={() => {
@@ -3190,6 +3274,13 @@ const MainApplicationPage: React.FC = () => {
         title={
           renameTarget?.type === "item" ? "Rename Item" : "Rename Playlist"
         }
+      />
+      <RenameModal
+        isOpen={isCreateBlankOpen}
+        onClose={() => setIsCreateBlankOpen(false)}
+        onRename={handleCreateBlankPresentation}
+        currentName=""
+        title="New Blank Presentation"
       />
       <ConfirmDialog
         isOpen={!!pendingDelete}

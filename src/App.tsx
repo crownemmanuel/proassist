@@ -9,7 +9,6 @@ import {
 } from "react-router-dom";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
-  FaHome,
   FaCog,
   FaQuestionCircle,
   FaSun,
@@ -18,6 +17,7 @@ import {
   FaClock,
   FaBible,
   FaCircle,
+  FaUser,
 } from "react-icons/fa";
 import "./App.css";
 
@@ -44,6 +44,9 @@ import {
   loadLiveSlidesSettings,
   startLiveSlidesServer,
 } from "./services/liveSlideService";
+import { goLiveScriptureReference } from "./services/smartVersesApiService";
+import { loadNetworkSyncSettings } from "./services/networkSyncService";
+import { setApiEnabled } from "./services/apiService";
 import UpdateNotification from "./components/UpdateNotification";
 
 // Global Chat Assistant imports
@@ -87,7 +90,7 @@ function Navigation({
           to="/"
           className={`nav-action-button ${isActive("/") ? "active" : ""}`}
         >
-          <FaHome />
+          <FaStickyNote />
           <span>Slides</span>
         </Link>
       )}
@@ -109,7 +112,7 @@ function Navigation({
             isActive("/live-testimonies") ? "active" : ""
           }`}
         >
-          <FaStickyNote />
+          <FaUser />
           <span>Live Testimonies</span>
         </Link>
       )}
@@ -244,6 +247,64 @@ function AppContent({
   // Enabled features state
   const [enabledFeaturesState, setEnabledFeatures] = useState<EnabledFeatures>(enabledFeatures);
 
+  type AiRateLimitDetail = {
+    provider: "groq";
+    until: number;
+    message: string;
+    detail?: string;
+  };
+
+  const [groqRateLimit, setGroqRateLimit] = useState<AiRateLimitDetail | null>(null);
+  const [rateLimitNow, setRateLimitNow] = useState(() => Date.now());
+
+  const formatRateLimitRemaining = (remainingMs: number) => {
+    const totalSeconds = Math.max(0, Math.ceil(remainingMs / 1000));
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    if (minutes > 0) {
+      return `${minutes}m${seconds.toString().padStart(2, "0")}s`;
+    }
+    return `${seconds}s`;
+  };
+
+  useEffect(() => {
+    const handleRateLimit = (event: CustomEvent<AiRateLimitDetail>) => {
+      if (event.detail.provider !== "groq") return;
+      if (!event.detail.until || event.detail.until <= Date.now()) {
+        setGroqRateLimit(null);
+        return;
+      }
+      setGroqRateLimit(event.detail);
+      setRateLimitNow(Date.now());
+    };
+
+    window.addEventListener("ai-rate-limit", handleRateLimit as EventListener);
+    return () => {
+      window.removeEventListener("ai-rate-limit", handleRateLimit as EventListener);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!groqRateLimit) return;
+    const interval = window.setInterval(() => {
+      setRateLimitNow(Date.now());
+    }, 1000);
+    return () => window.clearInterval(interval);
+  }, [groqRateLimit]);
+
+  useEffect(() => {
+    if (!groqRateLimit) return;
+    const remainingMs = groqRateLimit.until - Date.now();
+    if (remainingMs <= 0) {
+      setGroqRateLimit(null);
+      return;
+    }
+    const timeout = window.setTimeout(() => {
+      setGroqRateLimit(null);
+    }, remainingMs);
+    return () => window.clearTimeout(timeout);
+  }, [groqRateLimit]);
+
   // Listen for features-updated events
   useEffect(() => {
     const handleFeaturesUpdated = (event: CustomEvent<EnabledFeatures>) => {
@@ -252,6 +313,49 @@ function AppContent({
     window.addEventListener("features-updated", handleFeaturesUpdated as EventListener);
     return () => {
       window.removeEventListener("features-updated", handleFeaturesUpdated as EventListener);
+    };
+  }, []);
+
+  useEffect(() => {
+    let unlisten: null | (() => void) = null;
+    const isSmartVersesActive = () =>
+      (window as Window & { __smartVersesActive?: boolean }).__smartVersesActive;
+
+    (async () => {
+      try {
+        const events = await import("@tauri-apps/api/event");
+        unlisten = await events.listen<{ reference?: string }>(
+          "api-scripture-go-live",
+          async (event) => {
+            const reference = String(event.payload?.reference ?? "").trim();
+            if (!reference) return;
+
+            if (isSmartVersesActive()) {
+              window.dispatchEvent(
+                new CustomEvent("smartverses-api-go-live", {
+                  detail: { reference },
+                })
+              );
+              return;
+            }
+
+            try {
+              const result = await goLiveScriptureReference(reference);
+              if (!result) {
+                console.warn("[API] No scripture match for:", reference);
+              }
+            } catch (error) {
+              console.warn("[API] Failed to go live:", error);
+            }
+          }
+        );
+      } catch (error) {
+        console.warn("[API] Failed to listen for scripture events:", error);
+      }
+    })();
+
+    return () => {
+      if (unlisten) unlisten();
     };
   }, []);
 
@@ -410,6 +514,17 @@ function AppContent({
     <>
       <div className="container">
         <Navigation theme={theme} toggleTheme={toggleTheme} enabledFeatures={enabledFeaturesState} />
+        {groqRateLimit && groqRateLimit.until > rateLimitNow && (
+          <div className="ai-rate-limit-row">
+            <div
+              className="ai-rate-limit-banner"
+              title={groqRateLimit.detail || groqRateLimit.message}
+            >
+              {groqRateLimit.message}{" "}
+              ({formatRateLimitRemaining(groqRateLimit.until - rateLimitNow)})
+            </div>
+          </div>
+        )}
         {/* Keep all components mounted but show/hide based on route */}
         <div style={{ display: isMainPage ? "block" : "none" }}>
           <MainApplicationPage />
@@ -532,14 +647,23 @@ function App() {
   // Auto-start Live Slides WebSocket server if enabled in settings.
   useEffect(() => {
     if (isSecondScreen) return;
-    const settings = loadLiveSlidesSettings();
-    if (!settings.autoStartServer) return;
+    const liveSlidesSettings = loadLiveSlidesSettings();
+    const syncSettings = loadNetworkSyncSettings();
+
+    setApiEnabled(syncSettings.apiEnabled).catch((err) => {
+      console.warn("[API] Failed to apply API toggle:", err);
+    });
+
+    if (!liveSlidesSettings.autoStartServer && !syncSettings.apiEnabled) {
+      return;
+    }
+
     // Best-effort: if it fails (already running / port in use), we'll let Settings/Import UI surface it.
-    startLiveSlidesServer(settings.serverPort).catch((err) => {
-      console.warn(
-        "[LiveSlides] Auto-start server failed (may already be running):",
-        err
-      );
+    startLiveSlidesServer(liveSlidesSettings.serverPort).catch((err) => {
+      const message = err instanceof Error ? err.message : String(err);
+      if (!message.toLowerCase().includes("already running")) {
+        console.warn("[LiveSlides] Auto-start server failed:", err);
+      }
     });
   }, [isSecondScreen]);
 

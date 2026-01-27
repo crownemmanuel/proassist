@@ -5,6 +5,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{broadcast, RwLock};
 use futures_util::{SinkExt, StreamExt};
+use warp::http::StatusCode;
+use warp::Reply;
 use warp::Filter;
 use warp::ws::{Message as WarpWsMessage, WebSocket};
 use rust_embed::RustEmbed;
@@ -103,6 +105,21 @@ pub struct DisplayState {
     pub scripture: DisplayScripture,
     pub slides: Vec<String>,
     pub settings: serde_json::Value, // DisplaySettings as JSON
+}
+
+// ============================================================================
+// Types for HTTP API v1
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApiScriptureGoLiveRequest {
+    pub reference: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApiTimerStartRequest {
+    pub seconds: Option<f64>,
+    pub minutes: Option<f64>,
 }
 
 // ============================================================================
@@ -244,6 +261,7 @@ struct ServerState {
     running: RwLock<bool>,
     port: RwLock<u16>,
     shutdown_tx: RwLock<Option<tokio::sync::oneshot::Sender<()>>>,
+    api_enabled: RwLock<bool>,
 }
 
 // Global state for the Network Sync server
@@ -287,6 +305,7 @@ lazy_static::lazy_static! {
         running: RwLock::new(false),
         port: RwLock::new(9876),
         shutdown_tx: RwLock::new(None),
+        api_enabled: RwLock::new(false),
     });
     
     static ref SYNC_SERVER_STATE: Arc<SyncServerState> = Arc::new(SyncServerState {
@@ -581,6 +600,17 @@ fn serve_embedded_file(path: &str) -> Option<(Vec<u8>, String)> {
         let mime = mime_guess::from_path(path).first_or_octet_stream();
         return Some((content.data.to_vec(), mime.to_string()));
     }
+
+    // In dev, fall back to serving from /public when dist isn't built yet.
+    if cfg!(debug_assertions) && !path.contains("..") {
+        let public_path = std::path::Path::new("../public").join(path);
+        if public_path.exists() {
+            if let Ok(data) = std::fs::read(&public_path) {
+                let mime = mime_guess::from_path(&public_path).first_or_octet_stream();
+                return Some((data, mime.to_string()));
+            }
+        }
+    }
     
     // For SPA routing, return index.html for non-file paths
     if !path.contains('.') || path.ends_with('/') {
@@ -592,11 +622,15 @@ fn serve_embedded_file(path: &str) -> Option<(Vec<u8>, String)> {
     None
 }
 
+fn json_response(value: serde_json::Value, status: StatusCode) -> warp::reply::Response {
+    warp::reply::with_status(warp::reply::json(&value), status).into_response()
+}
+
 // ============================================================================
 // Combined HTTP + WebSocket Server
 // ============================================================================
 
-async fn run_combined_server(port: u16) -> Result<(), String> {
+async fn run_combined_server(port: u16, app: tauri::AppHandle) -> Result<(), String> {
     let state = SERVER_STATE.clone();
     
     // Create shutdown channel
@@ -644,6 +678,166 @@ async fn run_combined_server(port: u16) -> Result<(), String> {
                     "server_running": true,
                 });
                 Ok::<_, warp::Rejection>(warp::reply::json(&response))
+            }
+        });
+
+    // API v1: Scripture go-live
+    let api_app = app.clone();
+    let api_scripture_state = state.clone();
+    let api_scripture_route = warp::path("api")
+        .and(warp::path("v1"))
+        .and(warp::path("scripture"))
+        .and(warp::path("go-live"))
+        .and(warp::path::end())
+        .and(warp::post())
+        .and(warp::body::json())
+        .and_then(move |body: ApiScriptureGoLiveRequest| {
+            let state_clone = api_scripture_state.clone();
+            let app_clone = api_app.clone();
+            async move {
+                if !*state_clone.api_enabled.read().await {
+                    return Ok::<_, warp::Rejection>(json_response(
+                        serde_json::json!({ "error": "api_disabled" }),
+                        StatusCode::FORBIDDEN,
+                    ));
+                }
+
+                let reference = body.reference.trim().to_string();
+                if reference.is_empty() {
+                    return Ok::<_, warp::Rejection>(json_response(
+                        serde_json::json!({ "error": "reference_required" }),
+                        StatusCode::BAD_REQUEST,
+                    ));
+                }
+
+                if let Err(err) = app_clone.emit(
+                    "api-scripture-go-live",
+                    serde_json::json!({ "reference": reference }),
+                ) {
+                    return Ok::<_, warp::Rejection>(json_response(
+                        serde_json::json!({
+                            "error": "emit_failed",
+                            "detail": err.to_string()
+                        }),
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                    ));
+                }
+
+                Ok::<_, warp::Rejection>(json_response(
+                    serde_json::json!({
+                        "status": "queued",
+                        "reference": reference
+                    }),
+                    StatusCode::OK,
+                ))
+            }
+        });
+
+    // API v1: Timer start
+    let api_timer_state = state.clone();
+    let api_timer_app = app.clone();
+    let api_timer_route = warp::path("api")
+        .and(warp::path("v1"))
+        .and(warp::path("timer"))
+        .and(warp::path("start"))
+        .and(warp::path::end())
+        .and(warp::post())
+        .and(warp::body::json())
+        .and_then(move |body: ApiTimerStartRequest| {
+            let state_clone = api_timer_state.clone();
+            let app_clone = api_timer_app.clone();
+            async move {
+                if !*state_clone.api_enabled.read().await {
+                    return Ok::<_, warp::Rejection>(json_response(
+                        serde_json::json!({ "error": "api_disabled" }),
+                        StatusCode::FORBIDDEN,
+                    ));
+                }
+
+                let raw_seconds = body
+                    .seconds
+                    .or_else(|| body.minutes.map(|m| m * 60.0))
+                    .unwrap_or(0.0);
+
+                if !raw_seconds.is_finite() || raw_seconds <= 0.0 {
+                    return Ok::<_, warp::Rejection>(json_response(
+                        serde_json::json!({ "error": "seconds_required" }),
+                        StatusCode::BAD_REQUEST,
+                    ));
+                }
+
+                let seconds = raw_seconds.floor() as i64;
+                if seconds <= 0 {
+                    return Ok::<_, warp::Rejection>(json_response(
+                        serde_json::json!({ "error": "seconds_required" }),
+                        StatusCode::BAD_REQUEST,
+                    ));
+                }
+
+                if let Err(err) = app_clone.emit(
+                    "api-timer-start",
+                    serde_json::json!({ "seconds": seconds }),
+                ) {
+                    return Ok::<_, warp::Rejection>(json_response(
+                        serde_json::json!({
+                            "error": "emit_failed",
+                            "detail": err.to_string()
+                        }),
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                    ));
+                }
+
+                Ok::<_, warp::Rejection>(json_response(
+                    serde_json::json!({
+                        "status": "queued",
+                        "seconds": seconds
+                    }),
+                    StatusCode::OK,
+                ))
+            }
+        });
+
+    // API docs route - serve api-docs.html
+    let api_docs_route = warp::path("api")
+        .and(warp::path("docs"))
+        .and(warp::path::end())
+        .map(|| {
+            match serve_embedded_file("api-docs.html") {
+                Some((content, _)) => {
+                    warp::http::Response::builder()
+                        .header("Content-Type", "text/html")
+                        .header("Access-Control-Allow-Origin", "*")
+                        .body(content)
+                        .unwrap()
+                }
+                None => {
+                    warp::http::Response::builder()
+                        .status(404)
+                        .body(b"API docs not found".to_vec())
+                        .unwrap()
+                }
+            }
+        });
+
+    // API OpenAPI spec
+    let api_openapi_route = warp::path("api")
+        .and(warp::path("openapi.json"))
+        .and(warp::path::end())
+        .map(|| {
+            match serve_embedded_file("api-openapi.json") {
+                Some((content, mime)) => {
+                    warp::http::Response::builder()
+                        .header("Content-Type", mime)
+                        .header("Access-Control-Allow-Origin", "*")
+                        .body(content)
+                        .unwrap()
+                }
+                None => {
+                    warp::http::Response::builder()
+                        .status(404)
+                        .body(b"OpenAPI spec not found".to_vec())
+                        .unwrap()
+                }
             }
         });
     
@@ -774,6 +968,10 @@ async fn run_combined_server(port: u16) -> Result<(), String> {
     let routes = ws_route
         .or(schedule_api_route)
         .or(live_slides_api_route)
+        .or(api_scripture_route)
+        .or(api_timer_route)
+        .or(api_docs_route)
+        .or(api_openapi_route)
         .or(schedule_view_route)
         .or(live_slides_landing_route)
         .or(display_route)
@@ -2623,7 +2821,7 @@ fn ensure_output_folder(path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-async fn start_live_slides_server(port: u16) -> Result<String, String> {
+async fn start_live_slides_server(app: tauri::AppHandle, port: u16) -> Result<String, String> {
     let state = SERVER_STATE.clone();
     
     // Check if already running
@@ -2636,8 +2834,9 @@ async fn start_live_slides_server(port: u16) -> Result<String, String> {
     
     // Start combined HTTP + WebSocket server in background
     let port_clone = port;
+    let app_handle = app.clone();
     tokio::spawn(async move {
-        if let Err(e) = run_combined_server(port_clone).await {
+        if let Err(e) = run_combined_server(port_clone, app_handle).await {
             eprintln!("Server error: {}", e);
         }
         // Mark as not running when server stops
@@ -2738,6 +2937,13 @@ async fn get_live_slides_server_info() -> Result<LiveSlidesState, String> {
         server_port: port,
         local_ip,
     })
+}
+
+#[tauri::command]
+async fn set_api_enabled(enabled: bool) -> Result<(), String> {
+    let state = SERVER_STATE.clone();
+    *state.api_enabled.write().await = enabled;
+    Ok(())
 }
 
 #[tauri::command]
@@ -3152,6 +3358,7 @@ pub fn run() {
             delete_live_slide_session,
             get_live_slide_sessions,
             get_live_slides_server_info,
+            set_api_enabled,
             get_local_ip,
             update_schedule,
             update_timer_state,

@@ -1005,6 +1005,26 @@ const SmartVersesSettings: React.FC = () => {
         </div>
 
         <div style={fieldStyle}>
+          <label style={labelStyle}>Transcription time limit (minutes)</label>
+          <input
+            type="number"
+            min={1}
+            value={settings.transcriptionTimeLimitMinutes ?? 120}
+            onChange={(e) =>
+              handleChange(
+                "transcriptionTimeLimitMinutes",
+                Math.max(1, parseInt(e.target.value, 10) || 120)
+              )
+            }
+            style={inputStyle}
+          />
+          <p style={helpTextStyle}>
+            Show a continuation prompt at this limit (default 120 minutes). If
+            no response in 1 minute, transcription auto-stops.
+          </p>
+        </div>
+
+        <div style={fieldStyle}>
           <label style={checkboxLabelStyle}>
             <input
               type="checkbox"
@@ -1216,6 +1236,25 @@ const SmartVersesSettings: React.FC = () => {
           </div>
           <p style={helpTextStyle}>
             Only show paraphrased verses with confidence above this threshold.
+          </p>
+        </div>
+        <div style={fieldStyle}>
+          <label style={labelStyle}>Minimum Words for AI Analysis</label>
+          <input
+            type="number"
+            min={1}
+            max={20}
+            value={settings.aiMinWordCount}
+            onChange={(e) =>
+              handleChange(
+                "aiMinWordCount",
+                Math.max(1, Math.min(20, parseInt(e.target.value, 10) || 1))
+              )
+            }
+            style={inputStyle}
+          />
+          <p style={helpTextStyle}>
+            Skip AI requests for short phrases like "thank you".
           </p>
         </div>
       </div>

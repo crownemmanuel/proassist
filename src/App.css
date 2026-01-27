@@ -419,6 +419,22 @@ body.theme-light .list-item.selected:hover {
   gap: 15px;
 }
 
+.ai-rate-limit-row {
+  display: flex;
+  justify-content: flex-end;
+  padding: 4px 20px 0;
+}
+
+.ai-rate-limit-banner {
+  font-size: 0.72em;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(255, 99, 71, 0.12);
+  border: 1px solid rgba(255, 99, 71, 0.35);
+  color: var(--app-text-color);
+  white-space: nowrap;
+}
+
 /* Cleanup old Tauri template styles if not needed */
 .logo,
 .logo.vite:hover,
