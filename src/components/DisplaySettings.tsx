@@ -430,7 +430,7 @@ const DisplaySettings: React.FC = () => {
         getSlideRect(0).width,
         getSlideRect(0).height,
       ],
-      { minFontSize: 8, maxFontSize: 48 }
+      { minFontSize: 8, maxFontSize: 300 }
     ),
     useAutoFontSize(
       slideLineBoxRefs[1],
@@ -448,7 +448,7 @@ const DisplaySettings: React.FC = () => {
         getSlideRect(1).width,
         getSlideRect(1).height,
       ],
-      { minFontSize: 8, maxFontSize: 48 }
+      { minFontSize: 8, maxFontSize: 300 }
     ),
     useAutoFontSize(
       slideLineBoxRefs[2],
@@ -466,7 +466,7 @@ const DisplaySettings: React.FC = () => {
         getSlideRect(2).width,
         getSlideRect(2).height,
       ],
-      { minFontSize: 8, maxFontSize: 48 }
+      { minFontSize: 8, maxFontSize: 300 }
     ),
     useAutoFontSize(
       slideLineBoxRefs[3],
@@ -484,7 +484,7 @@ const DisplaySettings: React.FC = () => {
         getSlideRect(3).width,
         getSlideRect(3).height,
       ],
-      { minFontSize: 8, maxFontSize: 48 }
+      { minFontSize: 8, maxFontSize: 300 }
     ),
     useAutoFontSize(
       slideLineBoxRefs[4],
@@ -502,7 +502,7 @@ const DisplaySettings: React.FC = () => {
         getSlideRect(4).width,
         getSlideRect(4).height,
       ],
-      { minFontSize: 8, maxFontSize: 48 }
+      { minFontSize: 8, maxFontSize: 300 }
     ),
     useAutoFontSize(
       slideLineBoxRefs[5],
@@ -520,7 +520,7 @@ const DisplaySettings: React.FC = () => {
         getSlideRect(5).width,
         getSlideRect(5).height,
       ],
-      { minFontSize: 8, maxFontSize: 48 }
+      { minFontSize: 8, maxFontSize: 300 }
     ),
   ];
 
@@ -1526,7 +1526,7 @@ const DisplaySettings: React.FC = () => {
             <input
               type="range"
               min={16}
-              max={96}
+              max={300}
               step={2}
               value={settings.timerFontSize}
               onChange={(event) =>
@@ -1540,7 +1540,7 @@ const DisplaySettings: React.FC = () => {
             <input
               type="number"
               min={12}
-              max={120}
+              max={300}
               step={1}
               value={settings.timerFontSize}
               onChange={(event) =>

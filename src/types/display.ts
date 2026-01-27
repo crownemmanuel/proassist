@@ -126,5 +126,5 @@ export const DEFAULT_DISPLAY_SETTINGS: DisplaySettings = {
   slidesLayout: DEFAULT_SLIDES_LAYOUT,
   slidesLineStyles: [],
   showTimer: false,
-  timerFontSize: 32,
+  timerFontSize: 150,
 };

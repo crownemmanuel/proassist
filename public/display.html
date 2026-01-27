@@ -382,7 +382,7 @@
                     );
                     applyStyles(contentEl, getFontStyle(lineStyle));
                     requestAnimationFrame(() => {
-                        autoFontSize(box, contentEl, content, 14, 180);
+                        autoFontSize(box, contentEl, content, 14, 300);
                     });
                 } else {
                     box.style.display = 'none';
@@ -395,7 +395,7 @@
             if (shouldShowTimer) {
                 const isOverrun = timerState.time_left < 0;
                 timerOverlay.style.display = 'block';
-                timerOverlay.style.fontSize = `${settings.timerFontSize || 32}px`;
+                timerOverlay.style.fontSize = `${settings.timerFontSize || 150}px`;
                 timerOverlay.style.color = isOverrun ? '#ef4444' : '#ffffff';
                 timerOverlay.textContent = formatTime(timerState.time_left);
             } else {

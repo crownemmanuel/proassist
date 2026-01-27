@@ -214,7 +214,7 @@ const AudienceDisplayPage: React.FC = () => {
         settings.slidesLayout[0]?.width,
         settings.slidesLayout[0]?.height,
       ],
-      { minFontSize: 14, maxFontSize: 180 }
+      { minFontSize: 14, maxFontSize: 300 }
     ),
     useAutoFontSize(
       slideLineBoxRefs[1],
@@ -232,7 +232,7 @@ const AudienceDisplayPage: React.FC = () => {
         settings.slidesLayout[1]?.width,
         settings.slidesLayout[1]?.height,
       ],
-      { minFontSize: 14, maxFontSize: 180 }
+      { minFontSize: 14, maxFontSize: 300 }
     ),
     useAutoFontSize(
       slideLineBoxRefs[2],
@@ -250,7 +250,7 @@ const AudienceDisplayPage: React.FC = () => {
         settings.slidesLayout[2]?.width,
         settings.slidesLayout[2]?.height,
       ],
-      { minFontSize: 14, maxFontSize: 180 }
+      { minFontSize: 14, maxFontSize: 300 }
     ),
     useAutoFontSize(
       slideLineBoxRefs[3],
@@ -268,7 +268,7 @@ const AudienceDisplayPage: React.FC = () => {
         settings.slidesLayout[3]?.width,
         settings.slidesLayout[3]?.height,
       ],
-      { minFontSize: 14, maxFontSize: 180 }
+      { minFontSize: 14, maxFontSize: 300 }
     ),
     useAutoFontSize(
       slideLineBoxRefs[4],
@@ -286,7 +286,7 @@ const AudienceDisplayPage: React.FC = () => {
         settings.slidesLayout[4]?.width,
         settings.slidesLayout[4]?.height,
       ],
-      { minFontSize: 14, maxFontSize: 180 }
+      { minFontSize: 14, maxFontSize: 300 }
     ),
     useAutoFontSize(
       slideLineBoxRefs[5],
@@ -304,7 +304,7 @@ const AudienceDisplayPage: React.FC = () => {
         settings.slidesLayout[5]?.width,
         settings.slidesLayout[5]?.height,
       ],
-      { minFontSize: 14, maxFontSize: 180 }
+      { minFontSize: 14, maxFontSize: 300 }
     ),
   ];
 

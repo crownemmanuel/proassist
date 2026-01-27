@@ -184,7 +184,7 @@ const SlidesLayoutEditorModal: React.FC<SlidesLayoutEditorModalProps> = ({
         lineStyles[0]?.bold,
         lineStyles[0]?.italic,
       ],
-      { minFontSize: 10, maxFontSize: 120 }
+      { minFontSize: 10, maxFontSize: 300 }
     ),
     useAutoFontSize(
       lineBoxRefs[1],
@@ -200,7 +200,7 @@ const SlidesLayoutEditorModal: React.FC<SlidesLayoutEditorModalProps> = ({
         lineStyles[1]?.bold,
         lineStyles[1]?.italic,
       ],
-      { minFontSize: 10, maxFontSize: 120 }
+      { minFontSize: 10, maxFontSize: 300 }
     ),
     useAutoFontSize(
       lineBoxRefs[2],
@@ -216,7 +216,7 @@ const SlidesLayoutEditorModal: React.FC<SlidesLayoutEditorModalProps> = ({
         lineStyles[2]?.bold,
         lineStyles[2]?.italic,
       ],
-      { minFontSize: 10, maxFontSize: 120 }
+      { minFontSize: 10, maxFontSize: 300 }
     ),
     useAutoFontSize(
       lineBoxRefs[3],
@@ -232,7 +232,7 @@ const SlidesLayoutEditorModal: React.FC<SlidesLayoutEditorModalProps> = ({
         lineStyles[3]?.bold,
         lineStyles[3]?.italic,
       ],
-      { minFontSize: 10, maxFontSize: 120 }
+      { minFontSize: 10, maxFontSize: 300 }
     ),
     useAutoFontSize(
       lineBoxRefs[4],
@@ -248,7 +248,7 @@ const SlidesLayoutEditorModal: React.FC<SlidesLayoutEditorModalProps> = ({
         lineStyles[4]?.bold,
         lineStyles[4]?.italic,
       ],
-      { minFontSize: 10, maxFontSize: 120 }
+      { minFontSize: 10, maxFontSize: 300 }
     ),
     useAutoFontSize(
       lineBoxRefs[5],
@@ -264,7 +264,7 @@ const SlidesLayoutEditorModal: React.FC<SlidesLayoutEditorModalProps> = ({
         lineStyles[5]?.bold,
         lineStyles[5]?.italic,
       ],
-      { minFontSize: 10, maxFontSize: 120 }
+      { minFontSize: 10, maxFontSize: 300 }
     ),
   ];
 
