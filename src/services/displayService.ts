@@ -55,6 +55,9 @@ export function loadDisplaySettings(): DisplaySettings {
       if (parsed.webEnabled === undefined) {
         settings.webEnabled = false;
       }
+      if (parsed.windowAudienceScreen === undefined) {
+        settings.windowAudienceScreen = false;
+      }
 
       // Guard against invalid values from older/local data
       if (typeof parsed.enabled !== "boolean") {

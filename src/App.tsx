@@ -464,7 +464,7 @@ function AppContent({
 }
 
 function App() {
-  const [windowLabel, setWindowLabel] = useState<string>(() => {
+  const [windowLabel] = useState<string>(() => {
     try {
       return getCurrentWindow().label;
     } catch {

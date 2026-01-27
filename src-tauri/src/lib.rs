@@ -16,7 +16,7 @@ use base64::Engine;
 use tauri::Emitter;
 
 mod window_commands;
-use window_commands::{get_monitors, open_dialog, update_second_screen_number};
+use window_commands::{get_monitors, open_dialog, close_dialog, update_second_screen_number};
 
 // ============================================================================
 // Embedded Frontend Assets
@@ -3107,6 +3107,7 @@ pub fn run() {
             open_audience_display_window,
             get_monitors,
             open_dialog,
+            close_dialog,
             update_second_screen_number,
             get_available_system_fonts,
             list_native_audio_input_devices,

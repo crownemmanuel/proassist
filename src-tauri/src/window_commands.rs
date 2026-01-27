@@ -60,22 +60,26 @@ async fn open_dialog_impl(
     monitor_index: Option<usize>,
 ) -> Result<(), String> {
     let dialog_label = format!("dialog-{}", dialog_window);
-    let title = dialog_window.clone();
+    let title = if dialog_window == "audience-test" {
+        "Audience Screen".to_string()
+    } else {
+        dialog_window.clone()
+    };
 
     if let Some(existing_window) = handle.get_webview_window(&dialog_label) {
         if let Err(e) = existing_window.set_focus() {
             error!("Error focusing the dialog window: {:?}", e);
         }
     } else {
-        // Check if this is the second screen window
-        let is_second_screen = dialog_window == "second-screen";
+        // Check if this is the second screen window or the audience test window
+        let is_second_screen = dialog_window == "second-screen" || dialog_window == "audience-test";
         
         // Define the URL to load.
         let url = tauri::WebviewUrl::default();
         
         let mut builder = WebviewWindowBuilder::new(&handle, &dialog_label, url)
             .title(title)
-            .decorations(!is_second_screen) // Borderless for second screen
+            .decorations(!is_second_screen) // Borderless for second screen and audience test
             .inner_size(800.0, 600.0)
             .min_inner_size(800.0, 600.0);
 
@@ -142,6 +146,15 @@ async fn open_dialog_impl(
                 return Err(format!("Failed to build window: {}", e));
             }
         }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn close_dialog(app_handle: AppHandle, dialog_window: String) -> Result<(), String> {
+    let dialog_label = format!("dialog-{}", dialog_window);
+    if let Some(window) = app_handle.get_webview_window(&dialog_label) {
+        window.close().map_err(|e| e.to_string())?;
     }
     Ok(())
 }

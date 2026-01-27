@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { invoke } from "@tauri-apps/api/core";
+import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import type { Monitor } from "@tauri-apps/api/window";
 import { useDebouncedEffect } from "../hooks/useDebouncedEffect";
 import { useAutoFontSize } from "../hooks/useAutoFontSize";
@@ -52,8 +53,19 @@ const DisplaySettings: React.FC = () => {
   const [serverInfo, setServerInfo] = useState<{ local_ip: string; server_port: number; server_running: boolean } | null>(null);
   const [urlCopied, setUrlCopied] = useState(false);
   const [isStartingServer, setIsStartingServer] = useState(false);
-  const [testTextInput, setTestTextInput] = useState<string>("");
   const [testWindowStatus, setTestWindowStatus] = useState<string>("");
+  const [osType, setOsType] = useState<"windows" | "mac" | "linux" | "unknown">("unknown");
+
+  useEffect(() => {
+    const userAgent = navigator.userAgent;
+    if (userAgent.indexOf("Win") !== -1) {
+      setOsType("windows");
+    } else if (userAgent.indexOf("Mac") !== -1) {
+      setOsType("mac");
+    } else if (userAgent.indexOf("Linux") !== -1) {
+      setOsType("linux");
+    }
+  }, []);
 
   useEffect(() => {
     const loaded = loadDisplaySettings();
@@ -167,16 +179,9 @@ const DisplaySettings: React.FC = () => {
       }
 
       try {
-        // First try convertFileSrc (works for most cases)
-        const convertedUrl = convertFileSrc(settings.backgroundImagePath);
-        // Verify it's actually a URL and not the raw path
-        if (convertedUrl && (convertedUrl.startsWith("http://") || convertedUrl.startsWith("https://") || convertedUrl.startsWith("tauri://"))) {
-          setBackgroundImageUrl(convertedUrl);
-          return;
-        }
-        
-        // Fallback: Read file as base64 and convert to data URL
-        console.log("[Display] convertFileSrc returned non-URL, trying base64 fallback for:", settings.backgroundImagePath);
+        // Use read_file_as_base64 as primary method for robustness
+        // convertFileSrc can have issues with asset protocol configuration or CSP
+        console.log("[Display] Loading background image via base64:", settings.backgroundImagePath);
         const base64 = await invoke<string>("read_file_as_base64", {
           filePath: settings.backgroundImagePath,
         });
@@ -196,7 +201,18 @@ const DisplaySettings: React.FC = () => {
         setBackgroundImageUrl(dataUrl);
       } catch (error) {
         console.error("[Display] Failed to load background image:", error);
-        setBackgroundImageUrl("");
+        
+        // Fallback to convertFileSrc if base64 fails
+        try {
+          const convertedUrl = convertFileSrc(settings.backgroundImagePath);
+          if (convertedUrl && (convertedUrl.startsWith("http://") || convertedUrl.startsWith("https://") || convertedUrl.startsWith("tauri://"))) {
+             setBackgroundImageUrl(convertedUrl);
+          } else {
+             setBackgroundImageUrl("");
+          }
+        } catch (e) {
+           setBackgroundImageUrl("");
+        }
       }
     };
 
@@ -261,36 +277,53 @@ const DisplaySettings: React.FC = () => {
     }
   };
 
-  const openTestWindow = async () => {
-    try {
-      setTestWindowStatus("Opening test window...");
-      await invoke("open_dialog", {
-        dialogWindow: "audience-test",
-      });
-      setTestWindowStatus("Test window opened.");
-      window.setTimeout(() => setTestWindowStatus(""), 3000);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      setTestWindowStatus(`Failed to open test window: ${message}`);
-      console.error("[Display Test] Failed to open test window:", error);
-    }
-  };
+  useEffect(() => {
+    if (!settingsLoaded) return;
 
-  const saveTestText = async () => {
-    if (testTextInput.trim() === "") return;
-    try {
-      await invoke("update_second_screen_number", {
-        number: testTextInput,
-      });
-      setTestTextInput("");
-      setTestWindowStatus("Text sent to test window.");
-      window.setTimeout(() => setTestWindowStatus(""), 3000);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      setTestWindowStatus(`Failed to send text: ${message}`);
-      console.error("[Display Test] Failed to update test text:", error);
-    }
-  };
+    const manageAudienceWindow = async () => {
+      if (settings.windowAudienceScreen) {
+        try {
+          // If a monitor is not selected, try to select one automatically
+          let currentMonitorIndex = settings.monitorIndex;
+          if (currentMonitorIndex === null && monitors.length > 0) {
+            const defaultIndex = monitors.length > 1 ? 1 : 0;
+            currentMonitorIndex = defaultIndex;
+            // Update settings silently so it persists
+            setSettings((prev) => ({ ...prev, monitorIndex: defaultIndex }));
+          }
+
+          setTestWindowStatus("Opening audience window...");
+          await invoke("open_dialog", {
+            dialogWindow: "audience-test",
+            monitorIndex: currentMonitorIndex,
+          });
+          setTestWindowStatus("Audience window opened.");
+          setTimeout(() => setTestWindowStatus(""), 3000);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          setTestWindowStatus(`Failed to open window: ${message}`);
+          console.error("[Display] Failed to open audience window:", error);
+          // Revert checkbox if it fails
+          setSettings((prev) => ({ ...prev, windowAudienceScreen: false }));
+        }
+      } else {
+        try {
+          await invoke("close_dialog", { dialogWindow: "audience-test" });
+          setTestWindowStatus("Audience window closed.");
+          setTimeout(() => setTestWindowStatus(""), 2000);
+        } catch (error) {
+          console.warn("[Display] Failed to close audience window:", error);
+          // Fallback to JS API if command fails (though command is preferred)
+          try {
+            const w = await WebviewWindow.getByLabel("dialog-audience-test");
+            if (w) await w.close();
+          } catch (e) { /* ignore */ }
+        }
+      }
+    };
+
+    void manageAudienceWindow();
+  }, [settings.windowAudienceScreen, settingsLoaded, monitors.length]); // Intentionally omitting monitorIndex to avoid re-opening on change for now
 
   const rectStyle = (rect: DisplayLayout["text"]): React.CSSProperties => ({
     position: "absolute",
@@ -359,6 +392,7 @@ const DisplaySettings: React.FC = () => {
       </p>
 
       <div style={{ marginTop: "var(--spacing-4)", display: "grid", gap: "18px" }}>
+        {osType === "windows" && (
         <div
           style={{
             padding: "var(--spacing-4)",
@@ -369,33 +403,42 @@ const DisplaySettings: React.FC = () => {
             gap: "12px",
           }}
         >
-          <div>
-            <div style={{ fontWeight: 600 }}>Audience Display Test Window</div>
-            <div style={{ fontSize: "0.85rem", color: "var(--app-text-color-secondary)" }}>
-              Opens a bordered test window on the same monitor as the main app.
+          <label style={{ display: "flex", gap: "12px", alignItems: "center" }}>
+            <input
+              type="checkbox"
+              checked={settings.windowAudienceScreen}
+              onChange={(event) => {
+                const newEnabled = event.target.checked;
+                setSettings((prev) => ({
+                  ...prev,
+                  windowAudienceScreen: newEnabled,
+                }));
+              }}
+              style={{ width: "18px", height: "18px", cursor: "pointer" }}
+            />
+            <div>
+              <div style={{ fontWeight: 600 }}>Enable audience screen (Windows)</div>
+              <div style={{ fontSize: "0.85rem", color: "var(--app-text-color-secondary)" }}>
+                Opens a second audience window on the selected monitor.
+              </div>
             </div>
-          </div>
-
-          <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
-            <button type="button" className="secondary" onClick={openTestWindow}>
-              Open New Window
-            </button>
-          </div>
+          </label>
 
           {testWindowStatus && (
             <div
               style={{
+                marginTop: "10px",
                 fontSize: "0.85rem",
                 color: testWindowStatus.startsWith("Failed")
                   ? "#ef4444"
-                  : testWindowStatus.startsWith("Test window opened") || testWindowStatus.startsWith("Text sent")
+                  : testWindowStatus.startsWith("Audience window opened")
                   ? "#22c55e"
                   : "var(--app-text-color-secondary)",
                 fontWeight: testWindowStatus.startsWith("Failed") ? 600 : 400,
                 padding: "8px",
                 backgroundColor: testWindowStatus.startsWith("Failed")
                   ? "rgba(239, 68, 68, 0.1)"
-                  : testWindowStatus.startsWith("Test window opened") || testWindowStatus.startsWith("Text sent")
+                  : testWindowStatus.startsWith("Audience window opened")
                   ? "rgba(34, 197, 94, 0.1)"
                   : "transparent",
                 borderRadius: "6px",
@@ -407,29 +450,10 @@ const DisplaySettings: React.FC = () => {
               {testWindowStatus}
             </div>
           )}
-
-          <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
-            <label htmlFor="display-test-text" style={{ minWidth: "120px" }}>
-              Text
-            </label>
-            <input
-              id="display-test-text"
-              type="text"
-              value={testTextInput}
-              onChange={(event) => setTestTextInput(event.target.value)}
-              placeholder="Enter text"
-              style={{
-                padding: "0.5rem",
-                fontSize: "1rem",
-                minWidth: "220px",
-              }}
-            />
-            <button type="button" className="primary" onClick={saveTestText}>
-              Save
-            </button>
-          </div>
         </div>
+        )}
 
+        {osType === "mac" && (
         <div
           style={{
             padding: "var(--spacing-4)",
@@ -469,9 +493,9 @@ const DisplaySettings: React.FC = () => {
               style={{ width: "18px", height: "18px", cursor: "pointer" }}
             />
             <div>
-              <div style={{ fontWeight: 600 }}>Enable audience screen</div>
+              <div style={{ fontWeight: 600 }}>Enable audience screen (Mac)</div>
               <div style={{ fontSize: "0.85rem", color: "var(--app-text-color-secondary)" }}>
-                Opens a borderless fullscreen window on the selected monitor.
+                Opens a second audience window on the selected monitor.
                 {monitors.length === 0 && (
                   <span style={{ color: "#ef4444", marginLeft: "8px" }}>
                     (No monitors detected)
@@ -481,6 +505,50 @@ const DisplaySettings: React.FC = () => {
             </div>
           </label>
         </div>
+        )}
+
+        {/* Fallback for Linux or detection failure: Show both or Mac logic as default? Let's show Mac style if unknown/Linux for now as it's the more standard implementation, but maybe hide both if unsure? User requested logic based on OS. I will assume if unknown we might want to default to showing one or both. For now I will strictly follow OS detection. If unknown, maybe show Mac version as it uses standard Tauri multiwindow. Or better, just show both if unknown so they can pick. I'll stick to strict separation for now as requested. */}
+        {osType !== "windows" && osType !== "mac" && (
+           <div
+           style={{
+             padding: "var(--spacing-4)",
+             backgroundColor: "var(--app-header-bg)",
+             borderRadius: "12px",
+             border: "1px solid var(--app-border-color)",
+             display: "flex",
+             alignItems: "center",
+             gap: "12px",
+           }}
+         >
+           <label style={{ display: "flex", gap: "12px", alignItems: "center" }}>
+             <input
+               type="checkbox"
+               checked={settings.enabled}
+               onChange={(event) => {
+                  /* Standard implementation logic */
+                  const newEnabled = event.target.checked;
+                  if (newEnabled && monitors.length === 0) {
+                    setErrorMessage("No monitors detected.");
+                    return;
+                  }
+                  if (newEnabled && settings.monitorIndex === null && monitors.length > 0) {
+                     const defaultIndex = monitors.length > 1 ? 1 : 0;
+                     setSettings((prev) => ({ ...prev, enabled: newEnabled, monitorIndex: defaultIndex }));
+                  } else {
+                     setSettings((prev) => ({ ...prev, enabled: newEnabled }));
+                  }
+               }}
+               style={{ width: "18px", height: "18px", cursor: "pointer" }}
+             />
+             <div>
+               <div style={{ fontWeight: 600 }}>Enable audience screen</div>
+               <div style={{ fontSize: "0.85rem", color: "var(--app-text-color-secondary)" }}>
+                 Opens a second audience window on the selected monitor.
+               </div>
+             </div>
+           </label>
+         </div>
+        )}
 
         <div
           style={{

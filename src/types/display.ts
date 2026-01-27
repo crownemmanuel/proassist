@@ -32,6 +32,7 @@ export type FontStyle = {
 
 export type DisplaySettings = {
   enabled: boolean;
+  windowAudienceScreen: boolean;
   webEnabled: boolean;
   monitorIndex: number | null;
   backgroundColor: string;
@@ -67,6 +68,7 @@ export const DEFAULT_DISPLAY_LAYOUT: DisplayLayout = {
 
 export const DEFAULT_DISPLAY_SETTINGS: DisplaySettings = {
   enabled: false,
+  windowAudienceScreen: false,
   webEnabled: false,
   monitorIndex: null,
   backgroundColor: "#000000",
