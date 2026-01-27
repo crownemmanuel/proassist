@@ -52,6 +52,8 @@ const DisplaySettings: React.FC = () => {
   const [serverInfo, setServerInfo] = useState<{ local_ip: string; server_port: number; server_running: boolean } | null>(null);
   const [urlCopied, setUrlCopied] = useState(false);
   const [isStartingServer, setIsStartingServer] = useState(false);
+  const [testTextInput, setTestTextInput] = useState<string>("");
+  const [testWindowStatus, setTestWindowStatus] = useState<string>("");
 
   useEffect(() => {
     const loaded = loadDisplaySettings();
@@ -259,6 +261,37 @@ const DisplaySettings: React.FC = () => {
     }
   };
 
+  const openTestWindow = async () => {
+    try {
+      setTestWindowStatus("Opening test window...");
+      await invoke("open_dialog", {
+        dialogWindow: "audience-test",
+      });
+      setTestWindowStatus("Test window opened.");
+      window.setTimeout(() => setTestWindowStatus(""), 3000);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setTestWindowStatus(`Failed to open test window: ${message}`);
+      console.error("[Display Test] Failed to open test window:", error);
+    }
+  };
+
+  const saveTestText = async () => {
+    if (testTextInput.trim() === "") return;
+    try {
+      await invoke("update_second_screen_number", {
+        number: testTextInput,
+      });
+      setTestTextInput("");
+      setTestWindowStatus("Text sent to test window.");
+      window.setTimeout(() => setTestWindowStatus(""), 3000);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setTestWindowStatus(`Failed to send text: ${message}`);
+      console.error("[Display Test] Failed to update test text:", error);
+    }
+  };
+
   const rectStyle = (rect: DisplayLayout["text"]): React.CSSProperties => ({
     position: "absolute",
     left: `${rect.x * 100}%`,
@@ -326,6 +359,77 @@ const DisplaySettings: React.FC = () => {
       </p>
 
       <div style={{ marginTop: "var(--spacing-4)", display: "grid", gap: "18px" }}>
+        <div
+          style={{
+            padding: "var(--spacing-4)",
+            backgroundColor: "var(--app-header-bg)",
+            borderRadius: "12px",
+            border: "1px solid var(--app-border-color)",
+            display: "grid",
+            gap: "12px",
+          }}
+        >
+          <div>
+            <div style={{ fontWeight: 600 }}>Audience Display Test Window</div>
+            <div style={{ fontSize: "0.85rem", color: "var(--app-text-color-secondary)" }}>
+              Opens a bordered test window on the same monitor as the main app.
+            </div>
+          </div>
+
+          <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
+            <button type="button" className="secondary" onClick={openTestWindow}>
+              Open New Window
+            </button>
+          </div>
+
+          {testWindowStatus && (
+            <div
+              style={{
+                fontSize: "0.85rem",
+                color: testWindowStatus.startsWith("Failed")
+                  ? "#ef4444"
+                  : testWindowStatus.startsWith("Test window opened") || testWindowStatus.startsWith("Text sent")
+                  ? "#22c55e"
+                  : "var(--app-text-color-secondary)",
+                fontWeight: testWindowStatus.startsWith("Failed") ? 600 : 400,
+                padding: "8px",
+                backgroundColor: testWindowStatus.startsWith("Failed")
+                  ? "rgba(239, 68, 68, 0.1)"
+                  : testWindowStatus.startsWith("Test window opened") || testWindowStatus.startsWith("Text sent")
+                  ? "rgba(34, 197, 94, 0.1)"
+                  : "transparent",
+                borderRadius: "6px",
+                border: testWindowStatus.startsWith("Failed")
+                  ? "1px solid rgba(239, 68, 68, 0.3)"
+                  : "none",
+              }}
+            >
+              {testWindowStatus}
+            </div>
+          )}
+
+          <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
+            <label htmlFor="display-test-text" style={{ minWidth: "120px" }}>
+              Text
+            </label>
+            <input
+              id="display-test-text"
+              type="text"
+              value={testTextInput}
+              onChange={(event) => setTestTextInput(event.target.value)}
+              placeholder="Enter text"
+              style={{
+                padding: "0.5rem",
+                fontSize: "1rem",
+                minWidth: "220px",
+              }}
+            />
+            <button type="button" className="primary" onClick={saveTestText}>
+              Save
+            </button>
+          </div>
+        </div>
+
         <div
           style={{
             padding: "var(--spacing-4)",

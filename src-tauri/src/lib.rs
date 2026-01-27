@@ -15,6 +15,9 @@ use std::sync::Mutex;
 use base64::Engine;
 use tauri::Emitter;
 
+mod window_commands;
+use window_commands::{get_monitors, open_dialog, update_second_screen_number};
+
 // ============================================================================
 // Embedded Frontend Assets
 // ============================================================================
@@ -1176,6 +1179,15 @@ fn open_audience_display_window(
         }
     }
 }
+
+// ============================================================================
+// Audience Display Test Window (Fresh Flow)
+// ============================================================================
+
+
+
+
+
 
 // ============================================================================
 // Font Enumeration
@@ -3071,11 +3083,18 @@ fn send_midi_note(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
-        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_process::init());
+
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        builder = builder.plugin(tauri_plugin_window_state::Builder::new().build());
+    }
+
+    builder
         .setup(|app| {
             #[cfg(desktop)]
             app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
@@ -3086,6 +3105,9 @@ pub fn run() {
             toggle_devtools,
             get_available_monitors_safe,
             open_audience_display_window,
+            get_monitors,
+            open_dialog,
+            update_second_screen_number,
             get_available_system_fonts,
             list_native_audio_input_devices,
             start_native_audio_stream,

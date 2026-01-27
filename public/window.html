@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Second Window</title>
+    <style>
+        body {
+            background-color: #252526;
+            color: white;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            overflow: hidden;
+        }
+        h1 { 
+            font-size: 3rem; 
+            margin-bottom: 2rem; 
+            opacity: 0.8;
+        }
+        #number { 
+            font-size: 15rem; 
+            font-weight: bold; 
+            line-height: 1;
+        }
+        .status {
+            position: absolute;
+            bottom: 10px;
+            right: 10px;
+            font-size: 0.8rem;
+            opacity: 0.5;
+        }
+    </style>
+</head>
+<body>
+    <h1>Second Screen</h1>
+    <div id="number">0</div>
+    <div class="status" id="status">Waiting for data...</div>
+
+    <script>
+        // Simple logging to help debug
+        function log(msg) {
+            console.log('[SecondScreen]', msg);
+            document.getElementById('status').innerText = msg;
+        }
+
+        log('Initializing...');
+
+        // Wait for Tauri to be ready
+        document.addEventListener('DOMContentLoaded', () => {
+            log('DOM Loaded');
+            
+            if (window.__TAURI__) {
+                log('Tauri API detected');
+                const { listen } = window.__TAURI__.event;
+                
+                listen('number-updated', (event) => {
+                    log('Update received: ' + event.payload);
+                    const numberEl = document.getElementById('number');
+                    if (numberEl) {
+                        numberEl.innerText = event.payload;
+                    }
+                }).then(() => {
+                    log('Listener registered');
+                }).catch(err => {
+                    log('Error registering listener: ' + err);
+                });
+            } else {
+                log('Tauri API NOT found. Is "withGlobalTauri": true?');
+            }
+        });
+    </script>
+</body>
+</html>

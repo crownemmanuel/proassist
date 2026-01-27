@@ -7,6 +7,7 @@ import {
   useLocation,
   useNavigate,
 } from "react-router-dom";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   FaHome,
   FaCog,
@@ -30,6 +31,9 @@ import StageAssistPage from "./pages/StageAssistPage";
 import SmartVersesPage from "./pages/SmartVersesPage";
 import RecorderPage from "./pages/RecorderPage";
 import AudienceDisplayPage from "./pages/AudienceDisplayPage";
+import AudienceDisplayTestWindow from "./pages/AudienceDisplayTestWindow";
+import WindowControlPage from "./pages/WindowControlPage";
+import SecondScreen from "./components/SecondScreen";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { loadEnabledFeatures } from "./services/recorderService";
 import { EnabledFeatures } from "./types/recorder";
@@ -132,6 +136,13 @@ function Navigation({
         </Link>
       )}
       <Link
+        to="/window"
+        className={`nav-action-button ${isActive("/window") ? "active" : ""}`}
+      >
+        <FaStickyNote />
+        <span>Window</span>
+      </Link>
+      <Link
         to="/settings"
         className={`nav-action-button ${isActive("/settings") ? "active" : ""}`}
       >
@@ -229,16 +240,18 @@ function Navigation({
 function AppContent({
   theme,
   toggleTheme,
+  enabledFeatures,
 }: {
   theme: string;
   toggleTheme: () => void;
+  enabledFeatures: EnabledFeatures;
 }) {
   const location = useLocation();
   const { schedule, startCountdown, startCountdownToTime, stopTimer: _stopStageTimer } = useStageAssist();
   const isNotepadPage = location.pathname.includes("/live-slides/notepad/");
 
   // Enabled features state
-  const [enabledFeatures, setEnabledFeatures] = useState<EnabledFeatures>(() => loadEnabledFeatures());
+  const [enabledFeaturesState, setEnabledFeatures] = useState<EnabledFeatures>(enabledFeatures);
 
   // Listen for features-updated events
   useEffect(() => {
@@ -401,11 +414,12 @@ function AppContent({
   const isStageAssistPage = location.pathname === "/stage-assist";
   const isRecorderPage = location.pathname === "/recorder";
   const isHelpPage = location.pathname === "/help";
+  const isWindowPage = location.pathname === "/window";
 
   return (
     <>
       <div className="container">
-        <Navigation theme={theme} toggleTheme={toggleTheme} enabledFeatures={enabledFeatures} />
+        <Navigation theme={theme} toggleTheme={toggleTheme} enabledFeatures={enabledFeaturesState} />
         {/* Keep all components mounted but show/hide based on route */}
         <div style={{ display: isMainPage ? "block" : "none" }}>
           <MainApplicationPage />
@@ -425,11 +439,14 @@ function AppContent({
           <StageAssistPage />
         </div>
         {/* Only render RecorderPage when the feature is enabled to prevent camera access when disabled */}
-        {enabledFeatures.recorder && (
+        {enabledFeaturesState.recorder && (
           <div style={{ display: isRecorderPage ? "block" : "none" }}>
             <RecorderPage />
           </div>
         )}
+        <div style={{ display: isWindowPage ? "block" : "none" }}>
+          <WindowControlPage />
+        </div>
         <div style={{ display: isHelpPage ? "block" : "none" }}>
           <HelpPage />
         </div>
@@ -460,12 +477,32 @@ function AppContent({
 }
 
 function App() {
+  const [windowLabel, setWindowLabel] = useState<string>(() => {
+    try {
+      return getCurrentWindow().label;
+    } catch {
+      console.warn("Failed to get initial window label");
+      return "unknown";
+    }
+  });
+
+  // Calculate isSecondScreen purely from initial state to prevent flash of main app
+  const isSecondScreen = windowLabel.startsWith("dialog-");
+
   const [theme, setTheme] = useState(
     localStorage.getItem("app-theme") || "dark"
   );
 
+  // Apply theme immediately to body to prevent flash of unstyled content
+  useEffect(() => {
+    document.body.classList.remove("theme-light", "theme-dark");
+    document.body.classList.add(`theme-${theme}`);
+    localStorage.setItem("app-theme", theme);
+  }, [theme]);
+
   // Global shortcut to open DevTools / Inspector (useful on production machines to debug issues).
   useEffect(() => {
+    if (isSecondScreen) return;
     const handler = async (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
       const tag = target?.tagName?.toLowerCase();
@@ -495,10 +532,11 @@ function App() {
 
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, []);
+  }, [isSecondScreen]);
 
   // Auto-start Live Slides WebSocket server if enabled in settings.
   useEffect(() => {
+    if (isSecondScreen) return;
     const settings = loadLiveSlidesSettings();
     if (!settings.autoStartServer) return;
     // Best-effort: if it fails (already running / port in use), we'll let Settings/Import UI surface it.
@@ -508,22 +546,29 @@ function App() {
         err
       );
     });
-  }, []);
-
-  useEffect(() => {
-    document.body.classList.remove("theme-light", "theme-dark");
-    document.body.classList.add(`theme-${theme}`);
-    localStorage.setItem("app-theme", theme);
-  }, [theme]);
+  }, [isSecondScreen]);
 
   const toggleTheme = () => {
     setTheme((prevTheme) => (prevTheme === "light" ? "dark" : "light"));
   };
 
+  // If this is a secondary window, render ONLY that component.
+  // CRITICAL: Do NOT render Router, StageAssistProvider, or any other main app context here.
+  if (isSecondScreen) {
+    if (windowLabel === "dialog-second-screen") {
+      return <SecondScreen />;
+    }
+    // Fallback for other dialogs or test windows
+    return <AudienceDisplayTestWindow />;
+  }
+
+  // Load enabled features only for the main app
+  const enabledFeatures = loadEnabledFeatures();
+
   return (
     <Router>
       <StageAssistProvider>
-        <AppContent theme={theme} toggleTheme={toggleTheme} />
+        <AppContent theme={theme} toggleTheme={toggleTheme} enabledFeatures={enabledFeatures} />
         <UpdateNotification />
       </StageAssistProvider>
     </Router>
