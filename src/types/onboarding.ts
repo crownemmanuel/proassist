@@ -4,6 +4,8 @@
 
 export type OnboardingScreen =
   | "welcome"
+  | "usage-mode"
+  | "standalone-setup"
   | "smart-verses-intro"
   | "transcription-provider"
   | "assemblyai-setup"
@@ -13,11 +15,25 @@ export type OnboardingScreen =
   | "mic-setup"
   | "test-smart-verses"
   | "test-keypoint"
+  | "propresenter-setup-slide"
+  | "propresenter-link-files"
+  | "propresenter-enable-network"
+  | "propresenter-connection"
+  | "propresenter-slide-setup"
+  | "propresenter-test"
   | "additional-features";
 
 export interface OnboardingState {
   // Current screen
   currentScreen: OnboardingScreen;
+
+  // Usage mode
+  usageMode?: "propresenter" | "standalone";
+
+  // Standalone configuration
+  audienceScreenEnabled: boolean;
+  selectedMonitorIndex: number | null;
+  autoTriggerScriptures: boolean;
 
   // Feature enablement
   smartVersesEnabled: boolean;
@@ -52,6 +68,9 @@ export interface OnboardingState {
 
 export const DEFAULT_ONBOARDING_STATE: OnboardingState = {
   currentScreen: "welcome",
+  audienceScreenEnabled: false,
+  selectedMonitorIndex: null,
+  autoTriggerScriptures: false,
   smartVersesEnabled: true,
   transcriptionConfigured: false,
   paraphrasingConfigured: false,

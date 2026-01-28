@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { checkForUpdates, clearSkippedVersion, downloadAndInstallUpdate, UpdateResult } from '../utils/updater';
+import { resetOnboardingState } from '../types/onboarding';
 import LogViewer from './LogViewer';
 import '../App.css';
 
@@ -260,6 +261,19 @@ const VersionSettings: React.FC = () => {
             title="Shortcut: F12 (Windows/Linux) or Cmd+Opt+I (macOS)"
           >
             Open Inspector
+          </button>
+          <button
+            onClick={() => {
+              resetOnboardingState();
+              window.location.reload();
+            }}
+            style={{
+              ...styles.button,
+              backgroundColor: '#8b5cf6',
+              color: '#ffffff',
+            }}
+          >
+            Open Onboarding Screen
           </button>
         </div>
         {devtoolsError && (

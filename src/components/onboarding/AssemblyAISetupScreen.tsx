@@ -2,8 +2,8 @@
  * Screen 4: AssemblyAI Setup
  */
 
-import React, { useState } from "react";
-import { FaCheck, FaTimes, FaExternalLinkAlt } from "react-icons/fa";
+import React, { useState, useEffect } from "react";
+import { FaCheck, FaTimes } from "react-icons/fa";
 import { getAssemblyAITemporaryToken } from "../../services/assemblyaiTokenService";
 import { saveSmartVersesSettings, loadSmartVersesSettings } from "../../services/transcriptionService";
 import "./onboarding.css";
@@ -23,16 +23,36 @@ const AssemblyAISetupScreen: React.FC<AssemblyAISetupScreenProps> = ({
   onBack,
   onSkip,
 }) => {
-  const [key, setKey] = useState(apiKey || "");
+  const [key, setKey] = useState("");
   const [testing, setTesting] = useState(false);
   const [testStatus, setTestStatus] = useState<"idle" | "success" | "error">("idle");
   const [testMessage, setTestMessage] = useState("");
+  const [isExistingKey, setIsExistingKey] = useState(false);
+
+  // Load existing key from settings on mount
+  useEffect(() => {
+    const settings = loadSmartVersesSettings();
+    const existingKey = settings.assemblyAIApiKey || apiKey || "";
+    if (existingKey) {
+      setKey(existingKey);
+      onApiKeyChange(existingKey);
+      setIsExistingKey(true);
+      setTestStatus("success");
+      setTestMessage("Using saved API key from settings");
+    }
+  }, []);
 
   const handleKeyChange = (value: string) => {
     setKey(value);
     onApiKeyChange(value);
+    setIsExistingKey(false);
     setTestStatus("idle");
     setTestMessage("");
+
+    // Save immediately to settings
+    const settings = loadSmartVersesSettings();
+    settings.assemblyAIApiKey = value;
+    saveSmartVersesSettings(settings);
   };
 
   const handleTestKey = async () => {
@@ -76,18 +96,29 @@ const AssemblyAISetupScreen: React.FC<AssemblyAISetupScreenProps> = ({
     onNext();
   };
 
-  const openAssemblyAI = () => {
-    window.open("https://www.assemblyai.com/dashboard", "_blank");
-  };
-
   return (
     <div className="onboarding-screen">
       <div className="onboarding-content">
-        <h1 className="onboarding-title">Connect AssemblyAI</h1>
+        <h1 className="onboarding-title">
+          <img
+            src="/assets/onboarding/assemblyai.jpg"
+            alt="AssemblyAI"
+            className="onboarding-title-icon"
+          />
+          Connect AssemblyAI
+        </h1>
         <p className="onboarding-body">
           Enter your AssemblyAI API key so Smart Verses can transcribe your
           services in the cloud.
         </p>
+
+        {/* Status Message for Existing Configuration */}
+        {isExistingKey && (
+          <div className="onboarding-message onboarding-message-success">
+            <FaCheck style={{ marginRight: "8px" }} />
+            Already configured! Using saved AssemblyAI API key from settings.
+          </div>
+        )}
 
         {/* API Key Input */}
         <div className="onboarding-form-field">
@@ -121,7 +152,7 @@ const AssemblyAISetupScreen: React.FC<AssemblyAISetupScreenProps> = ({
           </div>
 
           {/* Test Status */}
-          {testStatus === "success" && (
+          {testStatus === "success" && !isExistingKey && (
             <div className="onboarding-message onboarding-message-success">
               <FaCheck style={{ marginRight: "8px" }} />
               {testMessage}
@@ -135,15 +166,20 @@ const AssemblyAISetupScreen: React.FC<AssemblyAISetupScreenProps> = ({
           )}
         </div>
 
-        {/* Link to AssemblyAI Dashboard */}
-        <button
-          onClick={openAssemblyAI}
-          className="onboarding-button onboarding-button-secondary"
-          style={{ display: "flex", alignItems: "center", gap: "8px" }}
+        <p
+          className="onboarding-body"
+          style={{ marginTop: "0.75rem", fontSize: "0.95rem" }}
         >
-          <FaExternalLinkAlt />
-          Open AssemblyAI dashboard
-        </button>
+          Get your API key at{" "}
+          <a
+            href="https://www.assemblyai.com/dashboard/api-keys"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ color: "var(--onboarding-cyan-bright)" }}
+          >
+            assemblyai.com/dashboard/api-keys
+          </a>
+        </p>
 
         {/* Important Note */}
         <div className="onboarding-message onboarding-message-info">

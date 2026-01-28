@@ -3,7 +3,7 @@
  */
 
 import React, { useState, useEffect } from "react";
-import { getAppSettings } from "../../utils/aiConfig";
+import { getAppSettings, saveAppSettings } from "../../utils/aiConfig";
 import {
   loadSmartVersesSettings,
   saveSmartVersesSettings,
@@ -28,8 +28,9 @@ const ParaphrasingSetupScreen: React.FC<ParaphrasingSetupScreenProps> = ({
   const [availableProviders, setAvailableProviders] = useState<
     { value: string; label: string; hasKey: boolean }[]
   >([]);
+  const [groqKey, setGroqKey] = useState("");
 
-  useEffect(() => {
+  const refreshProviders = () => {
     const appSettings = getAppSettings();
     const providers = [
       {
@@ -50,10 +51,15 @@ const ParaphrasingSetupScreen: React.FC<ParaphrasingSetupScreenProps> = ({
     ];
     setAvailableProviders(providers);
 
-    // Auto-select Groq if available
     if (!provider && appSettings.groqConfig?.apiKey) {
       onProviderChange("groq");
     }
+  };
+
+  useEffect(() => {
+    const appSettings = getAppSettings();
+    setGroqKey(appSettings.groqConfig?.apiKey || "");
+    refreshProviders();
   }, [provider, onProviderChange]);
 
   const handleProviderSelect = (selectedProvider: string) => {
@@ -64,6 +70,20 @@ const ParaphrasingSetupScreen: React.FC<ParaphrasingSetupScreenProps> = ({
     const settings = loadSmartVersesSettings();
     settings.bibleSearchProvider = providerValue;
     saveSmartVersesSettings(settings);
+  };
+
+  const handleGroqKeyChange = (value: string) => {
+    setGroqKey(value);
+
+    const appSettings = getAppSettings();
+    appSettings.groqConfig = { apiKey: value };
+    saveAppSettings(appSettings);
+
+    const settings = loadSmartVersesSettings();
+    settings.groqApiKey = value;
+    saveSmartVersesSettings(settings);
+
+    refreshProviders();
   };
 
   const providersWithKeys = availableProviders.filter((p) => p.hasKey);
@@ -83,8 +103,8 @@ const ParaphrasingSetupScreen: React.FC<ParaphrasingSetupScreenProps> = ({
             <strong>No AI providers configured</strong>
             <p style={{ margin: "8px 0 0", fontSize: "0.9rem" }}>
               You haven't set up any AI providers yet. You can configure them in
-              Settings → AI Configuration after onboarding, or skip this step for
-              now.
+              Settings → AI Configuration after onboarding, or add a Groq API
+              key below to get started.
             </p>
           </div>
         ) : (
@@ -115,6 +135,37 @@ const ParaphrasingSetupScreen: React.FC<ParaphrasingSetupScreenProps> = ({
             ))}
           </div>
         )}
+
+        <div className="onboarding-form-field" style={{ marginTop: "1.25rem" }}>
+          <label className="onboarding-label" htmlFor="groq-api-key">
+            Groq API Key
+          </label>
+          <div className="onboarding-input-group">
+            <input
+              id="groq-api-key"
+              type="password"
+              value={groqKey}
+              onChange={(e) => handleGroqKeyChange(e.target.value)}
+              placeholder="Enter your Groq API key"
+              className="onboarding-input"
+              style={{ flex: 1 }}
+            />
+          </div>
+          <p
+            className="onboarding-body"
+            style={{ marginTop: "0.5rem", fontSize: "0.9rem" }}
+          >
+            Get your free API key from{" "}
+            <a
+              href="https://console.groq.com/keys"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ color: "var(--onboarding-cyan-bright)" }}
+            >
+              console.groq.com/keys
+            </a>
+          </p>
+        </div>
 
         <p className="onboarding-help-text">
           API keys are configured in Settings → AI Configuration. You can set

@@ -3,6 +3,7 @@
  */
 
 import React from "react";
+import SmartVersesDemo from "./SmartVersesDemo";
 import "./onboarding.css";
 
 interface SmartVersesIntroScreenProps {
@@ -23,32 +24,9 @@ const SmartVersesIntroScreen: React.FC<SmartVersesIntroScreenProps> = ({
   return (
     <div className="onboarding-screen">
       <div className="onboarding-split">
-        {/* Visual side: Animated GIF or placeholder */}
+        {/* Visual side: Live Demo Animation */}
         <div className="onboarding-visual">
-          <div style={{ textAlign: "center", padding: "var(--spacing-5)" }}>
-            {/* Placeholder for animated GIF */}
-            <div
-              style={{
-                width: "100%",
-                height: "300px",
-                background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-                borderRadius: "12px",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                flexDirection: "column",
-                gap: "var(--spacing-3)",
-                color: "white",
-              }}
-            >
-              <div style={{ fontSize: "3rem" }}>🎤</div>
-              <div style={{ fontSize: "2rem" }}>📖</div>
-              <div style={{ fontSize: "1.5rem" }}>✨</div>
-              <p style={{ margin: 0, fontSize: "0.9rem", opacity: 0.9 }}>
-                Smart Verses in action
-              </p>
-            </div>
-          </div>
+          <SmartVersesDemo />
         </div>
 
         {/* Content side */}
@@ -62,22 +40,19 @@ const SmartVersesIntroScreen: React.FC<SmartVersesIntroScreenProps> = ({
           </p>
 
           {/* Toggle */}
-          <div className="onboarding-toggle">
-            <label className="onboarding-toggle-label" htmlFor="smart-verses-toggle">
-              Enable Smart Verses
-            </label>
-            <label className="toggle-switch">
-              <input
-                id="smart-verses-toggle"
-                type="checkbox"
-                checked={enabled}
-                onChange={(e) => onToggle(e.target.checked)}
-              />
-              <span className="toggle-slider"></span>
-            </label>
+          <div
+            className="onboarding-toggle"
+            onClick={() => onToggle(!enabled)}
+            style={{ cursor: "pointer" }}
+          >
+            <span className="onboarding-toggle-label">Enable Smart Verses</span>
+            <div className={`toggle-switch ${enabled ? "active" : ""}`}></div>
           </div>
 
-          <p className="onboarding-help-text">
+          <p
+            className="onboarding-body"
+            style={{ fontSize: "0.9rem", marginTop: "0.5rem" }}
+          >
             You can change this anytime from Settings.
           </p>
 

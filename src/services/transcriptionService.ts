@@ -1126,6 +1126,17 @@ export class OfflineWhisperTranscriptionService implements ITranscriptionService
   private lastProcessedBufferLength: number = 0; // Track how much audio was in the buffer when we last processed it
   private lastTranscriptionText: string = ""; // Track last transcription to detect and remove overlap
   private readonly CONTEXT_OVERLAP_SAMPLES = WHISPER_SAMPLING_RATE * 3; // Keep last 3 seconds (in samples) for context
+  
+  // Model loading progress tracking
+  private loadingStage: string = "";
+  private loadingStageProgress: number = 0; // Progress within current stage (0-100)
+  private currentStageIndex: number = -1; // Which stage we're in (0-3)
+  private readonly LOADING_STAGES = [
+    "Loading tokenizer...",
+    "Loading processor...",
+    "Loading model...",
+    "Warming up model...",
+  ];
 
   constructor(
     modelId: string,
@@ -1151,6 +1162,24 @@ export class OfflineWhisperTranscriptionService implements ITranscriptionService
 
   setCallbacks(callbacks: TranscriptionCallbacks): void {
     this.callbacks = callbacks;
+  }
+
+  private emitLoadingProgress(): void {
+    if (!this.loadingStage || this.currentStageIndex === -1) {
+      return;
+    }
+
+    // Calculate overall progress:
+    // Each stage is worth 25% (0-3 stages = 0%, 25%, 50%, 75%)
+    // Plus the progress within the current stage (0-25%)
+    const stageBaseProgress = this.currentStageIndex * 25;
+    const stageProgress = (this.loadingStageProgress / 100) * 25;
+    const overallProgress = Math.min(100, stageBaseProgress + stageProgress);
+
+    this.callbacks.onModelLoadingProgress?.({
+      stage: this.loadingStage,
+      progress: overallProgress,
+    });
   }
 
   setAudioCaptureMode(mode: "webrtc" | "native"): void {
@@ -1203,6 +1232,29 @@ export class OfflineWhisperTranscriptionService implements ITranscriptionService
         case "loading":
           console.log("📦 Whisper:", message);
           this.callbacks.onStatusChange?.("connecting");
+          
+          // Track loading stage - match by checking if message contains stage keywords
+          if (message.includes("tokenizer")) {
+            this.currentStageIndex = 0;
+            this.loadingStage = this.LOADING_STAGES[0];
+            this.loadingStageProgress = 0;
+            this.emitLoadingProgress();
+          } else if (message.includes("processor")) {
+            this.currentStageIndex = 1;
+            this.loadingStage = this.LOADING_STAGES[1];
+            this.loadingStageProgress = 0;
+            this.emitLoadingProgress();
+          } else if (message.includes("Loading model")) {
+            this.currentStageIndex = 2;
+            this.loadingStage = this.LOADING_STAGES[2];
+            this.loadingStageProgress = 0;
+            this.emitLoadingProgress();
+          } else if (message.includes("Warming up")) {
+            this.currentStageIndex = 3;
+            this.loadingStage = this.LOADING_STAGES[3];
+            this.loadingStageProgress = 0;
+            this.emitLoadingProgress();
+          }
           break;
 
         case "info":
@@ -1211,11 +1263,26 @@ export class OfflineWhisperTranscriptionService implements ITranscriptionService
 
         case "progress":
           console.log(`📥 ${file}: ${progress?.toFixed(1)}%`);
+          // Update progress within current stage
+          if (typeof progress === "number" && !isNaN(progress)) {
+            this.loadingStageProgress = Math.min(100, Math.max(0, progress));
+            this.emitLoadingProgress();
+          }
           break;
 
         case "ready":
           console.log("✅ Whisper model ready");
           this.isModelReady = true;
+          // Set progress to 100%
+          this.loadingStageProgress = 100;
+          this.emitLoadingProgress();
+          // Clear loading state after a brief delay
+          setTimeout(() => {
+            this.loadingStage = "";
+            this.currentStageIndex = -1;
+            this.loadingStageProgress = 0;
+          }, 500);
+          
           if (this._isRecording) {
             this.callbacks.onStatusChange?.("recording");
             if (this.audioCaptureMode === "webrtc") {

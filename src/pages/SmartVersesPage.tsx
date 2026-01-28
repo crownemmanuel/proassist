@@ -183,7 +183,7 @@ async function resolveReferencesFromList(
 }
 
 /**
- * Renders verse text with highlighted words in bold red
+ * Renders verse text with highlighted words in bold light yellow
  * @param verseText - The verse text to render
  * @param highlightWords - Array of words to highlight (case-insensitive)
  * @returns JSX element with highlighted words
@@ -227,7 +227,7 @@ function renderHighlightedVerseText(
         key={`highlight-${match.index}`}
         style={{
           fontWeight: 'bold',
-          color: '#ff0000', // Red color
+          color: '#fef08a', // Light yellow
         }}
       >
         {match[0]}

@@ -913,12 +913,12 @@ const SmartVersesSettings: React.FC = () => {
             <p style={helpTextStyle}>
               Get your API key from{" "}
               <a
-                href="https://www.assemblyai.com/dashboard"
+                href="https://www.assemblyai.com/dashboard/api-keys"
                 target="_blank"
                 rel="noopener noreferrer"
                 style={{ color: "var(--app-primary-color)" }}
               >
-                assemblyai.com/dashboard
+                assemblyai.com/dashboard/api-keys
               </a>
             </p>
           </div>

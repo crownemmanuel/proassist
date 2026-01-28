@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useRef } from "react";
 import { FaSearch, FaBook, FaRocket, FaCog, FaDesktop, FaExclamationTriangle, FaGlobe, FaClock, FaBible, FaStickyNote, FaNetworkWired, FaRobot, FaMagic, FaFileImport, FaEdit, FaBug, FaCheckCircle, FaInfoCircle, FaVideo, FaMicrophone, FaShieldAlt } from "react-icons/fa";
+import { resetOnboardingState } from "../types/onboarding";
 import "../App.css";
 
 interface SectionData {
@@ -290,6 +291,40 @@ const HelpPage: React.FC = () => {
             <li>Pick a template and click <strong>Process</strong>, then select an item.</li>
             <li>When ready, click <strong>Go Live</strong> on a slide.</li>
           </ol>
+          <div style={{ marginTop: "20px" }}>
+            <button
+              onClick={() => {
+                resetOnboardingState();
+                window.location.reload();
+              }}
+              style={{
+                padding: "10px 20px",
+                borderRadius: "6px",
+                border: "none",
+                backgroundColor: "var(--app-primary-color)",
+                color: "#ffffff",
+                fontSize: "14px",
+                fontWeight: 500,
+                cursor: "pointer",
+                transition: "all 0.2s",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "8px",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.opacity = "0.9";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.opacity = "1";
+              }}
+            >
+              <FaRocket />
+              Open Onboarding Screen
+            </button>
+            <p style={{ marginTop: "12px", color: "var(--text-secondary-color)", fontSize: "0.9rem" }}>
+              Need to set up features like SmartVerses, transcription, or other ProAssist capabilities? Click above to restart the setup wizard.
+            </p>
+          </div>
         </Section>
 
         <Section id="templates" title="Templates 101" icon={<FaCog />} searchQuery={searchQuery} ref={(el) => (sectionRefs.current["templates"] = el)}>

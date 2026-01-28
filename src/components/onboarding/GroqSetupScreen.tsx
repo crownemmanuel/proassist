@@ -2,8 +2,8 @@
  * Screen 5: Groq Setup
  */
 
-import React, { useState } from "react";
-import { FaCheck, FaTimes, FaExternalLinkAlt } from "react-icons/fa";
+import React, { useState, useEffect } from "react";
+import { FaCheck, FaTimes } from "react-icons/fa";
 import { saveSmartVersesSettings, loadSmartVersesSettings } from "../../services/transcriptionService";
 import { getAppSettings, saveAppSettings } from "../../utils/aiConfig";
 import "./onboarding.css";
@@ -23,16 +23,41 @@ const GroqSetupScreen: React.FC<GroqSetupScreenProps> = ({
   onBack,
   onSkip,
 }) => {
-  const [key, setKey] = useState(apiKey || "");
+  const [key, setKey] = useState("");
   const [testing, setTesting] = useState(false);
   const [testStatus, setTestStatus] = useState<"idle" | "success" | "error">("idle");
   const [testMessage, setTestMessage] = useState("");
+  const [isExistingKey, setIsExistingKey] = useState(false);
+
+  // Load existing key from settings on mount
+  useEffect(() => {
+    const settings = loadSmartVersesSettings();
+    const existingKey = settings.groqApiKey || apiKey || "";
+    if (existingKey) {
+      setKey(existingKey);
+      onApiKeyChange(existingKey);
+      setIsExistingKey(true);
+      setTestStatus("success");
+      setTestMessage("Using saved API key from settings");
+    }
+  }, []);
 
   const handleKeyChange = (value: string) => {
     setKey(value);
     onApiKeyChange(value);
+    setIsExistingKey(false);
     setTestStatus("idle");
     setTestMessage("");
+
+    // Save immediately to settings
+    const smartVersesSettings = loadSmartVersesSettings();
+    smartVersesSettings.groqApiKey = value;
+    saveSmartVersesSettings(smartVersesSettings);
+
+    // Also save to AI config for paraphrasing
+    const appSettings = getAppSettings();
+    appSettings.groqConfig = { apiKey: value };
+    saveAppSettings(appSettings);
   };
 
   const handleTestKey = async () => {
@@ -90,18 +115,29 @@ const GroqSetupScreen: React.FC<GroqSetupScreenProps> = ({
     onNext();
   };
 
-  const openGroq = () => {
-    window.open("https://console.groq.com/keys", "_blank");
-  };
-
   return (
     <div className="onboarding-screen">
       <div className="onboarding-content">
-        <h1 className="onboarding-title">Connect Groq</h1>
+        <h1 className="onboarding-title">
+          <img
+            src="/assets/onboarding/groq.jpg"
+            alt="Groq"
+            className="onboarding-title-icon"
+          />
+          Connect Groq
+        </h1>
         <p className="onboarding-body">
           Groq can handle your transcription in the cloud and offers a generous
           free quota each day.
         </p>
+
+        {/* Status Message for Existing Configuration */}
+        {isExistingKey && (
+          <div className="onboarding-message onboarding-message-success">
+            <FaCheck style={{ marginRight: "8px" }} />
+            Already configured! Using saved Groq API key from settings.
+          </div>
+        )}
 
         {/* API Key Input */}
         <div className="onboarding-form-field">
@@ -135,7 +171,7 @@ const GroqSetupScreen: React.FC<GroqSetupScreenProps> = ({
           </div>
 
           {/* Test Status */}
-          {testStatus === "success" && (
+          {testStatus === "success" && !isExistingKey && (
             <div className="onboarding-message onboarding-message-success">
               <FaCheck style={{ marginRight: "8px" }} />
               {testMessage}
@@ -149,15 +185,20 @@ const GroqSetupScreen: React.FC<GroqSetupScreenProps> = ({
           )}
         </div>
 
-        {/* Link to Groq Console */}
-        <button
-          onClick={openGroq}
-          className="onboarding-button onboarding-button-secondary"
-          style={{ display: "flex", alignItems: "center", gap: "8px" }}
+        <p
+          className="onboarding-body"
+          style={{ marginTop: "0.75rem", fontSize: "0.95rem" }}
         >
-          <FaExternalLinkAlt />
-          Open Groq console
-        </button>
+          Get your free API key from{" "}
+          <a
+            href="https://console.groq.com/keys"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ color: "var(--onboarding-cyan-bright)" }}
+          >
+            console.groq.com/keys
+          </a>
+        </p>
 
         {/* Info Note */}
         <div className="onboarding-message onboarding-message-info">

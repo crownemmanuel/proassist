@@ -26,6 +26,12 @@ export interface TranscriptionSegment {
   isFinal: boolean;
 }
 
+export interface ModelLoadingProgress {
+  stage: string; // e.g., "Loading tokenizer...", "Loading model...", "Warming up model..."
+  progress: number; // 0-100
+  file?: string; // Current file being loaded
+}
+
 export interface TranscriptionCallbacks {
   onInterimTranscript?: (text: string) => void;
   onFinalTranscript?: (text: string, segment: TranscriptionSegment) => void;
@@ -33,6 +39,7 @@ export interface TranscriptionCallbacks {
   onConnectionClose?: (code: number, reason: string) => void;
   onStatusChange?: (status: TranscriptionStatus) => void;
   onAudioLevel?: (level: number) => void;
+  onModelLoadingProgress?: (progress: ModelLoadingProgress) => void;
 }
 
 export type TranscriptionStatus = 'idle' | 'connecting' | 'recording' | 'error' | 'waiting_for_browser';
