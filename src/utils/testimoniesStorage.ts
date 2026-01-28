@@ -46,7 +46,7 @@ export function loadLiveTestimoniesSettings(): LiveTestimoniesSettings {
       return {
         firebaseConfig: parsed.firebaseConfig || null,
         liveTestimonyOutputPath:
-          parsed.liveTestimonyOutputPath || "/tmp/proassist/live_testimony/",
+          parsed.liveTestimonyOutputPath || "~/Documents/ProAssist/Templates",
         liveTestimonyFileName:
           parsed.liveTestimonyFileName || "live_testimony.txt",
         nameFormatting: parsed.nameFormatting || {
@@ -61,7 +61,7 @@ export function loadLiveTestimoniesSettings(): LiveTestimoniesSettings {
   // Return defaults
   return {
     firebaseConfig: null,
-    liveTestimonyOutputPath: "/tmp/proassist/live_testimony/",
+    liveTestimonyOutputPath: "~/Documents/ProAssist/Templates",
     liveTestimonyFileName: "live_testimony.txt",
     nameFormatting: {
       type: "default",

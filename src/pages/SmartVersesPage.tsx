@@ -38,15 +38,23 @@ import {
   lookupVerse,
 } from "../services/smartVersesBibleService";
 import {
-  AssemblyAITranscriptionService,
   loadSmartVersesSettings,
+  createTranscriptionService,
+  ITranscriptionService,
 } from "../services/transcriptionService";
+import { isModelDownloaded } from "../services/offlineModelService";
+import { getOfflineModelPreloadStatus } from "../services/offlineModelPreloadService";
 import {
   analyzeTranscriptChunk,
   searchBibleWithAI,
   resolveParaphrasedVerses,
 } from "../services/smartVersesAIService";
 import { searchBibleTextAsReferences } from "../services/bibleTextSearchService";
+import {
+  loadDisplaySettings,
+  openDisplayWindow,
+  sendScriptureToDisplay,
+} from "../services/displayService";
 import { triggerPresentationOnConnections } from "../services/propresenterService";
 import { broadcastTranscriptionStreamMessage } from "../services/transcriptionBroadcastService";
 import { LiveSlidesWebSocket, getLiveSlidesServerInfo } from "../services/liveSlideService";
@@ -175,7 +183,7 @@ async function resolveReferencesFromList(
 }
 
 /**
- * Renders verse text with highlighted words in bold red
+ * Renders verse text with highlighted words in bold light yellow
  * @param verseText - The verse text to render
  * @param highlightWords - Array of words to highlight (case-insensitive)
  * @returns JSX element with highlighted words
@@ -219,7 +227,7 @@ function renderHighlightedVerseText(
         key={`highlight-${match.index}`}
         style={{
           fontWeight: 'bold',
-          color: '#ff0000', // Red color
+          color: '#fef08a', // Light yellow
         }}
       >
         {match[0]}
@@ -262,7 +270,7 @@ const SmartVersesPage: React.FC = () => {
   const [audioLevel, setAudioLevel] = useState(0);
   const [transcriptionElapsedMs, setTranscriptionElapsedMs] = useState(0);
   const [showTranscriptionLimitPrompt, setShowTranscriptionLimitPrompt] = useState(false);
-  const transcriptionServiceRef = useRef<AssemblyAITranscriptionService | null>(null);
+  const transcriptionServiceRef = useRef<ITranscriptionService | null>(null);
   const detectedReferencesRef = useRef<DetectedBibleReference[]>([]);
   const transcriptionStartRef = useRef<number | null>(null);
   const transcriptionNextPromptAtRef = useRef<number | null>(null);
@@ -421,6 +429,8 @@ const SmartVersesPage: React.FC = () => {
       // Cleanup transcription on unmount
       if (transcriptionServiceRef.current) {
         transcriptionServiceRef.current.stopTranscription();
+        // Call destroy() to properly terminate workers and release resources
+        transcriptionServiceRef.current.destroy?.();
       }
       // Cleanup browser transcription WebSocket on unmount
       if (browserTranscriptionWsRef.current) {
@@ -836,27 +846,59 @@ const SmartVersesPage: React.FC = () => {
       }
 
       const basePath = settings.bibleOutputPath?.replace(/\/?$/, "/") || "";
+      const verseText = reference.verseText || "";
+      const displayRef = reference.displayRef || "";
       
+      // Update audience display if enabled (don't block on file output or ProPresenter)
+      const displaySettings = loadDisplaySettings();
+      const shouldUpdateDisplay =
+        displaySettings.enabled ||
+        displaySettings.webEnabled ||
+        displaySettings.windowAudienceScreen;
+      if (shouldUpdateDisplay) {
+        if (displaySettings.enabled) {
+          try {
+            await openDisplayWindow(displaySettings);
+          } catch (error) {
+            console.warn("[Display] Failed to open audience screen:", error);
+          }
+        }
+        try {
+          await sendScriptureToDisplay({
+            verseText,
+            reference: displayRef,
+          });
+        } catch (error) {
+          console.warn("[Display] Failed to update audience screen:", error);
+        }
+      }
+
       // Write verse text to file
       if (basePath && settings.bibleTextFileName) {
         const textFilePath = `${basePath}${settings.bibleTextFileName}`;
-        const verseText = reference.verseText || "";
         console.log(`Writing verse text to: ${textFilePath}, Content: "${verseText}"`);
-        await invoke("write_text_to_file", {
-          filePath: textFilePath,
-          content: verseText,
-        });
+        try {
+          await invoke("write_text_to_file", {
+            filePath: textFilePath,
+            content: verseText,
+          });
+        } catch (error) {
+          console.warn("[SmartVerses] Failed to write verse text file:", error);
+        }
       }
 
       // Write reference to file
       if (basePath && settings.bibleReferenceFileName) {
         const refFilePath = `${basePath}${settings.bibleReferenceFileName}`;
-        const displayRef = reference.displayRef || "";
         console.log(`Writing reference to: ${refFilePath}, Content: "${displayRef}"`);
-        await invoke("write_text_to_file", {
-          filePath: refFilePath,
-          content: displayRef,
-        });
+        try {
+          await invoke("write_text_to_file", {
+            filePath: refFilePath,
+            content: displayRef,
+          });
+        } catch (error) {
+          console.warn("[SmartVerses] Failed to write reference file:", error);
+        }
       }
 
       // Trigger ProPresenter if configured
@@ -864,13 +906,25 @@ const SmartVersesPage: React.FC = () => {
         const { presentationUuid, slideIndex, activationClicks } = settings.proPresenterActivation;
         const clicks = activationClicks ?? 1;
         console.log(`Triggering ProPresenter: ${presentationUuid}, slide ${slideIndex}, clicks: ${clicks}`);
-        await triggerPresentationOnConnections(
-          { presentationUuid, slideIndex },
-          settings.proPresenterConnectionIds,
-          clicks,
-          100
-        );
+        try {
+          await triggerPresentationOnConnections(
+            { presentationUuid, slideIndex },
+            settings.proPresenterConnectionIds,
+            clicks,
+            100
+          );
+        } catch (error) {
+          console.warn("[SmartVerses] Failed to trigger ProPresenter:", error);
+        }
       }
+
+      // Add system message
+      setChatHistory(prev => [...prev, {
+        id: `live-${Date.now()}`,
+        type: "system",
+        content: `📺 Went live: ${reference.displayRef}`,
+        timestamp: Date.now(),
+      }]);
 
       // Auto-clear text AFTER a delay (do NOT clear immediately at 0ms; that causes blank files)
       const clearDelay = settings.clearTextDelay ?? 0;
@@ -879,16 +933,34 @@ const SmartVersesPage: React.FC = () => {
           try {
             if (settings.bibleTextFileName) {
               const textFilePath = `${basePath}${settings.bibleTextFileName}`;
-              await invoke("write_text_to_file", { filePath: textFilePath, content: "" });
+              try {
+                await invoke("write_text_to_file", { filePath: textFilePath, content: "" });
+              } catch (error) {
+                console.warn("[SmartVerses] Failed to auto-clear verse text file:", error);
+              }
             }
             if (settings.bibleReferenceFileName) {
               const refFilePath = `${basePath}${settings.bibleReferenceFileName}`;
-              await invoke("write_text_to_file", { filePath: refFilePath, content: "" });
+              try {
+                await invoke("write_text_to_file", { filePath: refFilePath, content: "" });
+              } catch (error) {
+                console.warn("[SmartVerses] Failed to auto-clear reference file:", error);
+              }
             }
-            setLiveReferenceId(null);
-          } catch (e) {
-            console.error("Failed to auto-clear SmartVerses files:", e);
+            const displaySettings = loadDisplaySettings();
+            const shouldUpdateDisplay =
+              displaySettings.enabled ||
+              displaySettings.webEnabled ||
+              displaySettings.windowAudienceScreen;
+            if (shouldUpdateDisplay) {
+              try {
+                await sendScriptureToDisplay({ verseText: "", reference: "" });
+              } catch (error) {
+                console.warn("[Display] Failed to auto-clear audience screen:", error);
+              }
+            }
           } finally {
+            setLiveReferenceId(null);
             autoClearTimeoutRef.current = null;
           }
         }, clearDelay);
@@ -916,19 +988,40 @@ const SmartVersesPage: React.FC = () => {
         if (basePath && settings.bibleTextFileName) {
           const textFilePath = `${basePath}${settings.bibleTextFileName}`;
           console.log(`Clearing verse text file: ${textFilePath}`);
-          await invoke("write_text_to_file", {
-            filePath: textFilePath,
-            content: "",
-          });
+          try {
+            await invoke("write_text_to_file", {
+              filePath: textFilePath,
+              content: "",
+            });
+          } catch (error) {
+            console.warn("[SmartVerses] Failed to clear verse text file:", error);
+          }
         }
 
         if (basePath && settings.bibleReferenceFileName) {
           const refFilePath = `${basePath}${settings.bibleReferenceFileName}`;
           console.log(`Clearing reference file: ${refFilePath}`);
-          await invoke("write_text_to_file", {
-            filePath: refFilePath,
-            content: "",
-          });
+          try {
+            await invoke("write_text_to_file", {
+              filePath: refFilePath,
+              content: "",
+            });
+          } catch (error) {
+            console.warn("[SmartVerses] Failed to clear reference file:", error);
+          }
+        }
+      }
+
+      const displaySettings = loadDisplaySettings();
+      const shouldUpdateDisplay =
+        displaySettings.enabled ||
+        displaySettings.webEnabled ||
+        displaySettings.windowAudienceScreen;
+      if (shouldUpdateDisplay) {
+        try {
+          await sendScriptureToDisplay({ verseText: "", reference: "" });
+        } catch (error) {
+          console.warn("[Display] Failed to clear audience screen:", error);
         }
       }
 
@@ -939,12 +1032,16 @@ const SmartVersesPage: React.FC = () => {
         
         if (clicks > 0) {
           console.log(`Triggering ProPresenter take off: ${presentationUuid}, slide ${slideIndex}, clicks: ${clicks}`);
-          await triggerPresentationOnConnections(
-            { presentationUuid, slideIndex },
-            settings.proPresenterConnectionIds,
-            clicks,
-            100
-          );
+          try {
+            await triggerPresentationOnConnections(
+              { presentationUuid, slideIndex },
+              settings.proPresenterConnectionIds,
+              clicks,
+              100
+            );
+          } catch (error) {
+            console.warn("[SmartVerses] Failed to trigger ProPresenter take off:", error);
+          }
         }
       }
 
@@ -1368,9 +1465,63 @@ const SmartVersesPage: React.FC = () => {
   }, []);
 
   const handleStartTranscription = useCallback(async () => {
-    if (!settings.assemblyAIApiKey) {
+    // Validate API keys based on selected engine
+    if (settings.transcriptionEngine === "assemblyai" && !settings.assemblyAIApiKey) {
       alert("Please configure your AssemblyAI API key in Settings > SmartVerses");
       return;
+    }
+
+    if (settings.transcriptionEngine === "groq" && !settings.groqApiKey) {
+      alert("Please configure your Groq API key in Settings > SmartVerses");
+      return;
+    }
+
+    // Validate offline models are downloaded
+    const preloadStatus = getOfflineModelPreloadStatus();
+    if (settings.transcriptionEngine === "offline-whisper") {
+      const modelId =
+        settings.offlineWhisperModel || "onnx-community/whisper-base";
+      if (!isModelDownloaded(modelId)) {
+        if (
+          preloadStatus?.modelId === modelId &&
+          preloadStatus.phase !== "ready"
+        ) {
+          const progressLabel = preloadStatus.progress
+            ? ` (${Math.round(preloadStatus.progress)}%)`
+            : "";
+          alert(
+            `The selected Whisper model is still downloading${progressLabel}. Please wait for it to finish.`
+          );
+        } else {
+          alert(
+            "The selected Whisper model is not downloaded yet. Go to Settings > SmartVerses and select it to start the download."
+          );
+        }
+        return;
+      }
+    }
+
+    if (settings.transcriptionEngine === "offline-moonshine") {
+      const modelId =
+        settings.offlineMoonshineModel || "onnx-community/moonshine-base-ONNX";
+      if (!isModelDownloaded(modelId)) {
+        if (
+          preloadStatus?.modelId === modelId &&
+          preloadStatus.phase !== "ready"
+        ) {
+          const progressLabel = preloadStatus.progress
+            ? ` (${Math.round(preloadStatus.progress)}%)`
+            : "";
+          alert(
+            `The selected Moonshine model is still downloading${progressLabel}. Please wait for it to finish.`
+          );
+        } else {
+          alert(
+            "The selected Moonshine model is not downloaded yet. Go to Settings > SmartVerses and select it to start the download."
+          );
+        }
+        return;
+      }
     }
 
     // Reset interim parse state for a fresh session
@@ -1396,8 +1547,8 @@ const SmartVersesPage: React.FC = () => {
     setTranscriptionStatus("connecting");
 
     try {
-      const service = new AssemblyAITranscriptionService(
-        settings.assemblyAIApiKey,
+      const service = createTranscriptionService(
+        settings,
         {
           onInterimTranscript: (text) => {
             setInterimTranscript(text);
@@ -1601,9 +1752,9 @@ const SmartVersesPage: React.FC = () => {
       );
 
       // Configure audio capture mode (WebRTC vs Native)
-      service.setAudioCaptureMode(settings.audioCaptureMode === "native" ? "native" : "webrtc");
+      service.setAudioCaptureMode?.(settings.audioCaptureMode === "native" ? "native" : "webrtc");
       if (settings.audioCaptureMode === "native") {
-        service.setNativeMicrophoneDeviceId(settings.selectedNativeMicrophoneId || null);
+        service.setNativeMicrophoneDeviceId?.(settings.selectedNativeMicrophoneId || null);
       }
 
       if (settings.selectedMicrophoneId) {
@@ -1624,6 +1775,9 @@ const SmartVersesPage: React.FC = () => {
     try {
       if (transcriptionServiceRef.current) {
         await transcriptionServiceRef.current.stopTranscription();
+        // Call destroy() to properly terminate workers and release resources
+        // This is especially important for offline transcription services that use web workers
+        transcriptionServiceRef.current.destroy?.();
         transcriptionServiceRef.current = null;
       }
       // Also disconnect browser transcription WebSocket if connected

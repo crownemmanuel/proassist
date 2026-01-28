@@ -1319,7 +1319,7 @@ const StageAssistPage: React.FC = () => {
         {/* Next Session */}
         <div
           style={{
-            backgroundColor: "rgba(255, 162, 0, 0.5)",
+            backgroundColor: "var(--timer-next-bg)",
             borderRadius: "12px",
             padding: "var(--spacing-6)",
             textAlign: "center",

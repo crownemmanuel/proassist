@@ -17,6 +17,9 @@ use std::sync::Mutex;
 use base64::Engine;
 use tauri::Emitter;
 
+mod window_commands;
+use window_commands::{open_dialog, close_dialog};
+
 // ============================================================================
 // Embedded Frontend Assets
 // ============================================================================
@@ -85,6 +88,23 @@ pub struct TimerState {
     pub session_name: Option<String>,
     pub end_time: Option<String>,
     pub is_overrun: bool,
+}
+
+// ============================================================================
+// Types for Display (Audience Display)
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DisplayScripture {
+    pub verse_text: String,
+    pub reference: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DisplayState {
+    pub scripture: DisplayScripture,
+    pub slides: Vec<String>,
+    pub settings: serde_json::Value, // DisplaySettings as JSON
 }
 
 // ============================================================================
@@ -219,6 +239,14 @@ pub enum WsMessage {
     TimerUpdate { timer_state: TimerState },
     #[serde(rename = "join_timer")]
     JoinTimer,
+    #[serde(rename = "join_display")]
+    JoinDisplay,
+    #[serde(rename = "display_update")]
+    DisplayUpdate { 
+        scripture: DisplayScripture,
+        slides: Vec<String>,
+        settings: serde_json::Value,
+    },
     #[serde(rename = "error")]
     Error { message: String },
 }
@@ -228,6 +256,7 @@ struct ServerState {
     sessions: RwLock<HashMap<String, LiveSlideSession>>,
     schedule: RwLock<ScheduleState>,
     timer_state: RwLock<TimerState>,
+    display_state: RwLock<DisplayState>,
     broadcast_tx: broadcast::Sender<String>,
     running: RwLock<bool>,
     port: RwLock<u16>,
@@ -263,6 +292,14 @@ lazy_static::lazy_static! {
             session_name: None,
             end_time: None,
             is_overrun: false,
+        }),
+        display_state: RwLock::new(DisplayState {
+            scripture: DisplayScripture {
+                verse_text: String::new(),
+                reference: String::new(),
+            },
+            slides: Vec::new(),
+            settings: serde_json::json!({}),
         }),
         broadcast_tx: broadcast::channel(100).0,
         running: RwLock::new(false),
@@ -521,6 +558,18 @@ async fn handle_ws_connection(ws: WebSocket, state: Arc<ServerState>) {
                             let timer_state = state.timer_state.read().await;
                             let update = WsMessage::TimerUpdate {
                                 timer_state: timer_state.clone(),
+                            };
+                            if let Ok(json) = serde_json::to_string(&update) {
+                                let _ = state.broadcast_tx.send(json);
+                            }
+                        }
+                        WsMessage::JoinDisplay => {
+                            // Send current display state to the joining client
+                            let display_state = state.display_state.read().await;
+                            let update = WsMessage::DisplayUpdate {
+                                scripture: display_state.scripture.clone(),
+                                slides: display_state.slides.clone(),
+                                settings: display_state.settings.clone(),
                             };
                             if let Ok(json) = serde_json::to_string(&update) {
                                 let _ = state.broadcast_tx.send(json);
@@ -835,6 +884,27 @@ async fn run_combined_server(port: u16, app: tauri::AppHandle) -> Result<(), Str
                 }
             }
         });
+
+    // Display route - serve display.html for web audience display
+    let display_route = warp::path("display")
+        .and(warp::path::end())
+        .map(|| {
+            match serve_embedded_file("display.html") {
+                Some((content, _)) => {
+                    warp::http::Response::builder()
+                        .header("Content-Type", "text/html")
+                        .header("Access-Control-Allow-Origin", "*")
+                        .body(content)
+                        .unwrap()
+                }
+                None => {
+                    warp::http::Response::builder()
+                        .status(404)
+                        .body(b"Display page not found".to_vec())
+                        .unwrap()
+                }
+            }
+        });
     
     // Static files route - serve embedded frontend assets
     let static_route = warp::path::tail()
@@ -904,6 +974,7 @@ async fn run_combined_server(port: u16, app: tauri::AppHandle) -> Result<(), Str
         .or(api_openapi_route)
         .or(schedule_view_route)
         .or(live_slides_landing_route)
+        .or(display_route)
         .or(root_route)
         .or(static_route)
         .with(cors);
@@ -1097,6 +1168,275 @@ fn greet(name: &str) -> String {
 fn toggle_devtools(window: tauri::WebviewWindow) -> Result<(), String> {
     window.open_devtools();
     Ok(())
+}
+
+// Safe monitor information structure for serialization
+// Note: workArea is not included as it's not available via the Monitor API
+// and was causing serialization errors when it was None
+#[derive(Debug, Clone, Serialize)]
+struct SafeMonitorInfo {
+    name: Option<String>,
+    position: (i32, i32),
+    size: (u32, u32),
+    scale_factor: f64,
+}
+
+// Get available monitors safely (avoids workArea serialization issues)
+#[tauri::command]
+fn get_available_monitors_safe(
+    window: tauri::WebviewWindow,
+) -> Result<Vec<SafeMonitorInfo>, String> {
+    match window.available_monitors() {
+        Ok(monitors) => {
+            let mut safe_monitors = Vec::new();
+            for monitor in monitors {
+                let pos = monitor.position();
+                let size = monitor.size();
+                let scale = monitor.scale_factor();
+                
+                safe_monitors.push(SafeMonitorInfo {
+                    name: monitor.name().map(|s| s.clone()),
+                    position: (pos.x, pos.y),
+                    size: (size.width, size.height),
+                    scale_factor: scale,
+                });
+            }
+            Ok(safe_monitors)
+        }
+        Err(e) => {
+            eprintln!("[Display] Failed to get monitors: {:?}", e);
+            Err(format!("Failed to get monitors: {:?}", e))
+        }
+    }
+}
+
+// Create or show the audience display window
+#[tauri::command]
+fn open_audience_display_window(
+    app_handle: tauri::AppHandle,
+    parent_window: tauri::WebviewWindow,
+    monitor_index: Option<usize>,
+) -> Result<(), String> {
+    use tauri::{Manager, WebviewWindowBuilder};
+
+    const WINDOW_LABEL: &str = "audience-display";
+
+    // Check if window already exists
+    if let Some(existing_window) = app_handle.get_webview_window(WINDOW_LABEL) {
+        // Window exists, just focus it
+        if let Err(e) = existing_window.set_focus() {
+            eprintln!("[Display] Error focusing audience display window: {:?}", e);
+            return Err(format!("Failed to focus window: {:?}", e));
+        }
+        return Ok(());
+    }
+
+    // Helper to get offset position from parent
+    let get_offset_position = || -> (f64, f64, i32, i32) {
+        let offset_x = 100.0;
+        let offset_y = 100.0;
+        match (parent_window.outer_position(), parent_window.outer_size()) {
+            (Ok(pos), Ok(size)) => {
+                let logical_x = pos.x as f64 + size.width as f64 + offset_x;
+                let logical_y = pos.y as f64;
+                let physical_x = pos.x + size.width as i32 + offset_x as i32;
+                let physical_y = pos.y;
+                (logical_x, logical_y, physical_x, physical_y)
+            }
+            _ => (offset_x, offset_y, offset_x as i32, offset_y as i32)
+        }
+    };
+
+    // Determine window position and size
+    #[allow(unused_variables)]
+    let (new_x, new_y, width, height, is_fullscreen, physical_x, physical_y, physical_width, physical_height) = if let Some(index) = monitor_index {
+        // Try to find the monitor by index
+        match parent_window.available_monitors() {
+            Ok(monitors) => {
+                if let Some(monitor) = monitors.get(index) {
+                    let pos = monitor.position();
+                    let size = monitor.size();
+                    let scale = monitor.scale_factor();
+                    let logical_x = pos.x as f64 / scale;
+                    let logical_y = pos.y as f64 / scale;
+                    let logical_width = size.width as f64 / scale;
+                    let logical_height = size.height as f64 / scale;
+                    println!(
+                        "[Display] Opening on monitor {}: pos=({},{}), size={}x{}, scale={}",
+                        index, pos.x, pos.y, size.width, size.height, scale
+                    );
+                    (
+                        logical_x,
+                        logical_y,
+                        logical_width,
+                        logical_height,
+                        true,
+                        pos.x,
+                        pos.y,
+                        size.width,
+                        size.height,
+                    )
+                } else {
+                    eprintln!("[Display] Monitor index {} not found, falling back to offset", index);
+                    let (x, y, phys_x, phys_y) = get_offset_position();
+                    (x, y, 1200.0, 800.0, false, phys_x, phys_y, 1200, 800)
+                }
+            }
+            Err(e) => {
+                eprintln!("[Display] Failed to get available monitors: {:?}", e);
+                let (x, y, phys_x, phys_y) = get_offset_position();
+                (x, y, 1200.0, 800.0, false, phys_x, phys_y, 1200, 800)
+            }
+        }
+    } else {
+        let (x, y, phys_x, phys_y) = get_offset_position();
+        (x, y, 1200.0, 800.0, false, phys_x, phys_y, 1200, 800)
+    };
+
+    let build_window = || {
+        let window_builder = WebviewWindowBuilder::new(
+            &app_handle,
+            WINDOW_LABEL,
+            tauri::WebviewUrl::App("/audience-display".into())
+        )
+            .title("Audience Display")
+            .decorations(!is_fullscreen) // No decorations if fullscreen
+            .min_inner_size(800.0, 600.0)
+            .resizable(true)
+            .visible(false) // Start hidden to avoid flickering
+            .focused(false); // Don't steal focus from main window
+
+        #[cfg(target_os = "windows")]
+        let window_builder = window_builder
+            .inner_size(physical_width as f64, physical_height as f64)
+            .position(physical_x as f64, physical_y as f64);
+
+        #[cfg(not(target_os = "windows"))]
+        let window_builder = window_builder
+            .inner_size(width, height)
+            .position(new_x, new_y); // Position on selected monitor
+
+        window_builder
+    };
+
+    // Try to set parent window (helps with window management on most platforms).
+    // On macOS, parenting keeps the window tied to the same Space and makes it
+    // move with the parent, which breaks dual-monitor display behavior.
+    #[cfg(not(target_os = "macos"))]
+    let window_builder = {
+        let window_builder = build_window();
+        if is_fullscreen {
+            window_builder
+        } else {
+            match window_builder.parent(&parent_window) {
+                Ok(builder) => builder,
+                Err(e) => {
+                    eprintln!("[Display] Warning: Could not set parent window: {:?}", e);
+                    // Recreate the builder without parent since parent() consumes it
+                    build_window()
+                }
+            }
+        }
+    };
+
+    #[cfg(target_os = "macos")]
+    let window_builder = build_window();
+
+    match window_builder.build() {
+        Ok(window) => {
+            if is_fullscreen {
+                // On macOS, maximizing can pull the window back to the active Space.
+                // We already set position/size to the target monitor, so skip maximize there.
+                #[cfg(target_os = "windows")]
+                {
+                    if let Err(e) = window.set_position(tauri::Position::Logical(tauri::LogicalPosition::new(
+                        physical_x as f64,
+                        physical_y as f64,
+                    ))) {
+                        eprintln!("[Display] Failed to set window position: {:?}", e);
+                    }
+                    if let Err(e) = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(
+                        physical_width as f64,
+                        physical_height as f64,
+                    ))) {
+                        eprintln!("[Display] Failed to set window size: {:?}", e);
+                    }
+                }
+                #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+                {
+                    if let Err(e) = window.maximize() {
+                        eprintln!("[Display] Failed to maximize window: {:?}", e);
+                    }
+                }
+            }
+            if let Err(e) = window.show() {
+                eprintln!("[Display] Failed to show window: {:?}", e);
+            }
+            println!("[Display] Audience display window created successfully");
+            Ok(())
+        },
+        Err(e) => {
+            eprintln!("[Display] Error creating audience display window: {:?}", e);
+            Err(format!("Failed to create window: {:?}", e))
+        }
+    }
+}
+
+// ============================================================================
+// Audience Display Test Window (Fresh Flow)
+// ============================================================================
+
+
+
+
+
+
+// ============================================================================
+// Font Enumeration
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SystemFont {
+    pub family: String,
+    pub postscript_name: Option<String>,
+}
+
+// Get available system fonts
+#[tauri::command]
+fn get_available_system_fonts() -> Result<Vec<SystemFont>, String> {
+    use fontdb::Database;
+    
+    let mut db = Database::new();
+    db.load_system_fonts();
+    
+    let mut fonts: Vec<SystemFont> = Vec::new();
+    let mut seen_families = std::collections::HashSet::new();
+    
+    // Iterate through all fonts in the database
+    // db.faces() returns an iterator over FaceInfo references
+    for face in db.faces() {
+        // Get the font family name
+        let family = face
+            .families
+            .first()
+            .map(|f| f.0.clone())
+            .unwrap_or_else(|| "Unknown".to_string());
+        
+        // Only add each family once (avoid duplicates)
+        if !seen_families.contains(&family) {
+            seen_families.insert(family.clone());
+            
+            fonts.push(SystemFont {
+                family: family.clone(),
+                postscript_name: Some(face.post_script_name.clone()),
+            });
+        }
+    }
+    
+    // Sort fonts alphabetically by family name
+    fonts.sort_by(|a, b| a.family.to_lowercase().cmp(&b.family.to_lowercase()));
+    
+    Ok(fonts)
 }
 
 // ============================================================================
@@ -2676,6 +3016,42 @@ async fn update_timer_state(
     Ok(())
 }
 
+#[tauri::command]
+async fn update_display_state(
+    verse_text: String,
+    reference: String,
+    slides: Vec<String>,
+    settings: serde_json::Value,
+) -> Result<(), String> {
+    let state = SERVER_STATE.clone();
+    
+    // Update display state
+    {
+        let mut display_state = state.display_state.write().await;
+        display_state.scripture = DisplayScripture {
+            verse_text: verse_text.clone(),
+            reference: reference.clone(),
+        };
+        display_state.slides = slides.clone();
+        display_state.settings = settings.clone();
+    }
+    
+    // Broadcast display update to all connected clients
+    let update = WsMessage::DisplayUpdate {
+        scripture: DisplayScripture {
+            verse_text,
+            reference,
+        },
+        slides,
+        settings,
+    };
+    if let Ok(json) = serde_json::to_string(&update) {
+        let _ = state.broadcast_tx.send(json);
+    }
+    
+    Ok(())
+}
+
 // ============================================================================
 // Network Sync Tauri Commands
 // ============================================================================
@@ -2920,11 +3296,18 @@ fn send_midi_note(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
-        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_process::init());
+
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        builder = builder.plugin(tauri_plugin_window_state::Builder::new().build());
+    }
+
+    builder
         .setup(|app| {
             #[cfg(desktop)]
             app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
@@ -2933,6 +3316,11 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             greet,
             toggle_devtools,
+            get_available_monitors_safe,
+            open_audience_display_window,
+            open_dialog,
+            close_dialog,
+            get_available_system_fonts,
             list_native_audio_input_devices,
             start_native_audio_stream,
             stop_native_audio_stream,
@@ -2974,6 +3362,7 @@ pub fn run() {
             get_local_ip,
             update_schedule,
             update_timer_state,
+            update_display_state,
             // Network Sync commands
             start_sync_server,
             stop_sync_server,

@@ -1,6 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { ScheduleItem, TimerState, TimeAdjustmentMode, ScheduleItemAutomation } from "../types/propresenter";
 import { startTimerOnAllEnabled, stopTimerOnAllEnabled } from "../services/propresenterService";
+import { saveDisplayTimerState } from "../services/displayService";
 import { loadNetworkSyncSettings, networkSyncManager } from "../services/networkSyncService";
 import { mergeScheduleWithLocalAutomations, stripScheduleAutomations } from "../utils/scheduleSync";
 
@@ -568,6 +569,11 @@ export const StageAssistProvider: React.FC<{ children: React.ReactNode }> = ({ c
         // Silently fail if server is not running
         console.debug("Timer service not available:", error);
       });
+  }, [timerState]);
+
+  // Keep audience display timer in sync
+  useEffect(() => {
+    saveDisplayTimerState(timerState);
   }, [timerState]);
 
   // Countdown ticking (lives at app level so it survives route changes)

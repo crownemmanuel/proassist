@@ -57,6 +57,7 @@ import { useNetworkSync } from "../hooks/useNetworkSync";
 import { loadNetworkSyncSettings } from "../services/networkSyncService";
 import { useStageAssist } from "../contexts/StageAssistContext";
 import AIAutomationDropdown from "../components/AIAutomationDropdown";
+import { sendSlidesToDisplay } from "../services/displayService";
 
 const MainApplicationPage: React.FC = () => {
   // Access schedule from StageAssist context for auto-timer assignment
@@ -803,6 +804,13 @@ const MainApplicationPage: React.FC = () => {
     }
 
     const lines = slide.text.split("\n");
+
+    try {
+      await sendSlidesToDisplay(lines);
+    } catch (error) {
+      console.warn("[Display] Failed to update slides on audience display:", error);
+    }
+
     const rawBasePath = isLiveSlidesItem
       ? liveSlidesSettings?.outputPath
       : template?.outputPath;
@@ -1122,6 +1130,12 @@ const MainApplicationPage: React.FC = () => {
     if (!template && !isLiveSlidesItem) {
       console.warn("Template not found for take off action");
       return;
+    }
+
+    try {
+      await sendSlidesToDisplay([]);
+    } catch (error) {
+      console.warn("[Display] Failed to clear slides on audience display:", error);
     }
 
     const liveSlidesSettings = isLiveSlidesItem
@@ -2163,7 +2177,7 @@ const MainApplicationPage: React.FC = () => {
     borderRight: "1px solid var(--app-border-color)",
     overflowY: "auto",
     padding: isPlaylistCollapsed ? "var(--spacing-2)" : "var(--spacing-3)",
-    backgroundColor: "#1e1e1e",
+    backgroundColor: "var(--surface-2)",
     transition: "width 0.2s ease",
     display: "flex",
     flexDirection: "column",
