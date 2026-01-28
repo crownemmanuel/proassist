@@ -26,6 +26,7 @@ ProAssist is a desktop application for creating and managing presentations with 
 ### 🔄 ProPresenter Integration (Optional)
 
 - **File-Based Linking**: Seamless integration via ProPresenter's Linked Text feature
+- **ProPresenter API**: Direct integration with ProPresenter's API for advanced control
 - **Live Slide Sync**: Instantly update ProPresenter slides with "Go Live" functionality
 - **Multi-File Support**: Write to up to 6 text files per template for complex layouts
 - **Auto-Scripture Support**: Automatic Bible verse lookup and formatting
