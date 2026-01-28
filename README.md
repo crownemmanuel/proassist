@@ -1,8 +1,8 @@
 # ProAssist
 
-**AI-powered automation bridge for ProPresenter and file-based presentation software**
+**AI-powered standalone presentation software with optional ProPresenter integration**
 
-ProAssist is a desktop application that adds intelligent automation, AI-powered content processing, and seamless integration to ProPresenter and any presentation software that supports file-based text linking. Transform raw text into beautifully formatted slides with custom templates, AI assistance, and real-time synchronization.
+ProAssist is a desktop application for creating and managing presentations with intelligent automation and AI-powered content processing. Use it as a standalone presentation tool, or integrate it with ProPresenter and other presentation software that supports file-based text linking. Transform raw text into beautifully formatted slides with custom templates, AI assistance, and real-time synchronization.
 
 ## 🎯 Features
 
@@ -23,7 +23,7 @@ ProAssist is a desktop application that adds intelligent automation, AI-powered 
 - **Customizable Output**: Configure output paths, file naming, and layout options
 - **Visual Templates**: Color-coded templates with custom icons
 
-### 🔄 Real-Time ProPresenter Integration
+### 🔄 ProPresenter Integration (Optional)
 
 - **File-Based Linking**: Seamless integration via ProPresenter's Linked Text feature
 - **Live Slide Sync**: Instantly update ProPresenter slides with "Go Live" functionality
@@ -51,7 +51,7 @@ ProAssist is a desktop application that adds intelligent automation, AI-powered 
 
 - **Dark/Light Themes**: Comfortable viewing in any environment
 - **Intuitive Interface**: Clean, organized layout for efficient workflow
-- **Real-Time Preview**: See slides before sending to ProPresenter
+- **Real-Time Preview**: See slides before exporting or sending to ProPresenter
 - **Auto-Updates**: Automatic update notifications and installation
 
 ## 🚀 Getting Started
@@ -60,7 +60,7 @@ ProAssist is a desktop application that adds intelligent automation, AI-powered 
 
 - **Node.js** (v18 or higher)
 - **Rust** (latest stable)
-- **ProPresenter** (any version with Linked Text support)
+- **ProPresenter** (optional, any version with Linked Text support - only needed for ProPresenter integration)
 - **AI API Keys** (optional, for AI features):
   - OpenAI API key ([Get one here](https://platform.openai.com/api-keys))
   - Google Gemini API key ([Get one here](https://makersuite.google.com/app/apikey))
@@ -96,7 +96,19 @@ ProAssist is a desktop application that adds intelligent automation, AI-powered 
    npm run build:windows
    ```
 
-## 📖 ProPresenter Setup Guide
+## 📖 Using ProAssist
+
+ProAssist can be used as a standalone presentation tool for creating, managing, and previewing slides. You can also optionally integrate it with ProPresenter for live presentation workflows.
+
+### Standalone Usage
+
+1. **Import Content**: Click **Import** and paste text or upload a file
+2. **Select Template**: Choose a template to format your content
+3. **Preview Slides**: Review the generated slides in real-time
+4. **Save to Playlist**: Organize slides into playlists
+5. **Export**: Download playlists as formatted text files or use the "Go Live" feature to send to ProPresenter (if integrated)
+
+## 📖 ProPresenter Integration Setup (Optional)
 
 ### Step 1: Configure Template Output Path
 
@@ -119,7 +131,7 @@ ProAssist is a desktop application that adds intelligent automation, AI-powered 
      - Third line → `prefix3.txt`
      - (Continue for up to 6 lines)
 
-### Step 3: Use ProAssist
+### Step 3: Use ProAssist with ProPresenter
 
 1. **Import Content**: Click **Import** and paste text or upload a file
 2. **Select Template**: Choose a template with your configured output path
@@ -161,7 +173,7 @@ Live Slides enables real-time collaboration for presentations. Perfect for live 
    - Use Tab to create sub-items (indented lines)
    - Changes appear instantly in ProAssist's Live Preview
 
-5. **Send to ProPresenter**:
+5. **Send to ProPresenter** (if integrated):
    - Import Live Slides sessions into playlists
    - Use **Go Live** to send slides to ProPresenter
    - Slides update automatically as content changes in the notepad
@@ -256,7 +268,8 @@ We welcome contributions! Here's how you can help:
 Before submitting:
 
 - Test on both macOS and Windows if possible
-- Verify ProPresenter integration works
+- Verify standalone functionality works
+- Verify ProPresenter integration works (if applicable)
 - Check that AI features work with both providers
 - Ensure no console errors or warnings
 
