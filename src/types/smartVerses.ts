@@ -291,7 +291,7 @@ export interface SmartVersesSettings {
 
 export const DEFAULT_SMART_VERSES_SETTINGS: SmartVersesSettings = {
   transcriptionEngine: 'assemblyai',
-  audioCaptureMode: 'webrtc',
+  audioCaptureMode: 'native',
   streamTranscriptionsToWebSocket: true,
   remoteTranscriptionEnabled: false,
   remoteTranscriptionHost: "",
