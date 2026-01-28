@@ -630,11 +630,11 @@ const SlidesLayoutEditorModal: React.FC<SlidesLayoutEditorModalProps> = ({
             <label style={{ display: "flex", alignItems: "center", gap: "8px" }}>
               <span style={{ fontSize: "0.9rem" }}>Font</span>
               <select
-                value={selectedLineStyle.fontFamily || ""}
+                value={selectedLineStyle.fontFamily ?? ""}
                 onChange={(event) => {
                   const value = event.target.value;
                   updateLineStyle(selectedIndex, {
-                    fontFamily: value === "" ? null : value,
+                    fontFamily: value === "" ? undefined : value,
                   });
                 }}
                 className="select-css"

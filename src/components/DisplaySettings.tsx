@@ -865,12 +865,18 @@ const DisplaySettings: React.FC = () => {
               <option value="" disabled>
                 Select a monitor
               </option>
-              {monitors.map((monitor, index) => (
-                <option key={`${monitor.name || "monitor"}-${index}`} value={index}>
-                  {monitor.name || `Monitor ${index + 1}`} ({monitor.size.width}x
-                  {monitor.size.height})
-                </option>
-              ))}
+              {monitors.map((monitor, index) => {
+                const width = monitor.size?.width ?? 0;
+                const height = monitor.size?.height ?? 0;
+                const isPrimary = monitor.position?.x === 0 && monitor.position?.y === 0;
+                const primaryLabel = isPrimary ? " - Primary" : "";
+                return (
+                  <option key={`${monitor.name || "monitor"}-${index}`} value={index}>
+                    Monitor {index + 1} ({width}x{height})
+                    {primaryLabel}
+                  </option>
+                );
+              })}
             </select>
             <button className="secondary" onClick={() => void loadMonitors()}>
               Refresh
