@@ -104,7 +104,7 @@ const SmartVersesSettings: React.FC = () => {
     const savedSettings = loadSmartVersesSettings();
     setSettings(savedSettings);
     loadMicrophones();
-    if ((savedSettings.audioCaptureMode || "webrtc") === "native") {
+    if ((savedSettings.audioCaptureMode || "native") === "native") {
       loadNativeDevices();
     }
     
@@ -972,7 +972,7 @@ const SmartVersesSettings: React.FC = () => {
         <div style={fieldStyle}>
           <label style={labelStyle}>Audio Capture</label>
           <select
-            value={(settings.audioCaptureMode || "webrtc") as AudioCaptureMode}
+            value={(settings.audioCaptureMode || "native") as AudioCaptureMode}
             onChange={(e) => {
               const mode = e.target.value as AudioCaptureMode;
               handleChange("audioCaptureMode", mode);
@@ -985,7 +985,7 @@ const SmartVersesSettings: React.FC = () => {
           >
             <option value="webrtc">WebView (WebRTC) — simplest</option>
             <option value="native">
-              Native (CoreAudio/WASAPI) — more devices
+              Native (CoreAudio/WASAPI) — recommended
             </option>
           </select>
           <p style={helpTextStyle}>
@@ -1045,7 +1045,7 @@ const SmartVersesSettings: React.FC = () => {
 
         <div style={fieldStyle}>
           <label style={labelStyle}>Microphone</label>
-          {(settings.audioCaptureMode || "webrtc") === "native" ? (
+          {(settings.audioCaptureMode || "native") === "native" ? (
             <>
               <select
                 value={settings.selectedNativeMicrophoneId || ""}
