@@ -83,7 +83,7 @@ ProAssist is a desktop application that adds intelligent automation, AI-powered 
 3. **Run in development mode**:
 
    ```bash
-   npm run dev
+   npm run tauri dev
    ```
 
 4. **Build for production**:
@@ -201,9 +201,8 @@ proassist/
 
 ### Available Scripts
 
-- `npm run dev` - Start development server
-- `npm run build` - Build frontend
 - `npm run tauri dev` - Run Tauri app in development
+- `npm run build` - Build frontend
 - `npm run build:mac` - Build macOS app
 - `npm run build:windows` - Build Windows app
 
@@ -231,7 +230,7 @@ We welcome contributions! Here's how you can help:
    - Update documentation as needed
 4. **Test your changes**:
    ```bash
-   npm run dev
+   npm run tauri dev
    npm run build
    ```
 5. **Commit your changes**:
