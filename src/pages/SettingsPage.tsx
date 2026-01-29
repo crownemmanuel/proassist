@@ -164,7 +164,7 @@ const SettingsPage: React.FC = () => {
       aiPrompt: "",
       aiProvider: undefined,
       aiModel: undefined,
-      outputPath: "~/Documents/ProAssist/Templates",
+      outputPath: "~/Documents/SmartVerses/Templates",
       outputFileNamePrefix: "new_template_slide_",
     };
     setTemplates((prev) => [...prev, newTemplate]);

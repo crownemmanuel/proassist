@@ -3,7 +3,7 @@ import { AppSettings, AIProvider, AIProviderType, AIModelSetting } from "../type
 import { getAppSettings, saveAppSettings } from "../utils/aiConfig";
 import { fetchOpenAIModels, fetchGeminiModels, fetchGroqModels } from "../services/aiService";
 import { formatGroqModelLabel } from "../utils/groqModelLimits";
-import { FaSpinner, FaChevronDown, FaChevronUp, FaPlus, FaTrash, FaMagic, FaDownload } from "react-icons/fa";
+import { FaSpinner, FaChevronDown, FaChevronUp, FaPlus, FaTrash, FaMagic, FaDownload, FaKey, FaRobot } from "react-icons/fa";
 import {
   ProPresenterAITemplate,
   ProPresenterAITemplateUseCase,
@@ -516,9 +516,31 @@ const AISettingsForm: React.FC<AISettingsFormProps> = () => {
     }
   }, [enabledConnections, selectedConnectionId]);
 
+  const sectionStyle: React.CSSProperties = {
+    marginBottom: "var(--spacing-6)",
+    padding: "var(--spacing-4)",
+    backgroundColor: "var(--app-header-bg)",
+    borderRadius: "12px",
+    border: "1px solid var(--app-border-color)",
+  };
+
+  const sectionHeaderStyle: React.CSSProperties = {
+    display: "flex",
+    alignItems: "center",
+    gap: "var(--spacing-2)",
+    marginBottom: "var(--spacing-4)",
+    paddingBottom: "var(--spacing-3)",
+    borderBottom: "1px solid var(--app-border-color)",
+  };
+
   return (
-    <div className="settings-form-section">
-      <h3>AI Provider Configuration</h3>
+    <div>
+      {/* AI Provider Configuration */}
+      <div style={sectionStyle}>
+        <div style={sectionHeaderStyle}>
+          <FaKey />
+          <h3 style={{ margin: 0 }}>AI Provider Configuration</h3>
+        </div>
       <div className="form-group">
         <label htmlFor="groq-key">Groq API Key (Recommended - Super Fast):</label>
         <input
@@ -656,23 +678,19 @@ const AISettingsForm: React.FC<AISettingsFormProps> = () => {
           )}
         </div>
       </div>
+      </div>
 
-      {/* AI Model Settings Section */}
-      <div
-        style={{
-          marginTop: "24px",
-          paddingTop: "20px",
-          borderTop: "1px solid var(--app-border-color)",
-        }}
-      >
-        <h4 style={{ marginBottom: "16px", color: "var(--app-text-color)" }}>
-          AI Model Settings
-        </h4>
+      {/* AI Model Settings */}
+      <div style={sectionStyle}>
+        <div style={sectionHeaderStyle}>
+          <FaRobot />
+          <h3 style={{ margin: 0 }}>AI Model Settings</h3>
+        </div>
         <p
           style={{
             fontSize: "0.85em",
             color: "var(--app-text-color-secondary)",
-            marginBottom: "16px",
+            marginBottom: "var(--spacing-4)",
           }}
         >
           Configure which AI model to use for specific features. If not set, the default provider will be used.
@@ -1148,20 +1166,12 @@ const AISettingsForm: React.FC<AISettingsFormProps> = () => {
           </div>
         </div>
       </div>
+
       {saveStatus && (
         <p style={{ marginTop: "16px", fontSize: "0.85em", color: "var(--app-text-color-secondary)" }}>
           {saveStatus}
         </p>
       )}
-      <p
-        style={{
-          fontSize: "0.8em",
-          color: "var(--app-text-color-secondary)",
-          marginTop: "10px",
-        }}
-      >
-        Note: API keys are stored locally in your browser's storage.
-      </p>
 
       <style>{`
         @keyframes spin {

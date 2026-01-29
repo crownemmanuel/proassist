@@ -432,7 +432,7 @@ const RecorderSettings: React.FC = () => {
             type="text"
             value={settings.outputBasePath}
             onChange={(e) => handleChange("outputBasePath", e.target.value)}
-            placeholder="~/Documents/ProAssist/Recordings"
+            placeholder="~/Documents/SmartVerses/Recordings"
             style={inputStyle}
           />
           <p style={helpTextStyle}>

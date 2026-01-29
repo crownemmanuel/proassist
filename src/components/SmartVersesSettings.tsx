@@ -66,6 +66,7 @@ import {
 } from "../services/aiService";
 import { formatGroqModelLabel } from "../utils/groqModelLimits";
 import { useDebouncedEffect } from "../hooks/useDebouncedEffect";
+import { isDevModeEnabled } from "../utils/devFlags";
 import "../App.css";
 
 // =============================================================================
@@ -126,6 +127,7 @@ const SmartVersesSettings: React.FC<SmartVersesSettingsProps> = ({
 
   const isMac =
     typeof navigator !== "undefined" && navigator.userAgent.includes("Mac");
+  const isDevMode = isDevModeEnabled();
 
   const getRemoteTranscriptionPinId = useCallback(() => {
     if (remoteTranscriptionPinIdRef.current) {
@@ -226,18 +228,31 @@ const SmartVersesSettings: React.FC<SmartVersesSettingsProps> = ({
   useEffect(() => {
     if (!settingsLoaded) return;
 
-    if (isMac && settings.transcriptionEngine === "offline-whisper") {
+    if (
+      isMac &&
+      !isDevMode &&
+      settings.transcriptionEngine === "offline-whisper"
+    ) {
       setSettings((prev) => ({
         ...prev,
         transcriptionEngine: "offline-whisper-native",
       }));
-    } else if (!isMac && settings.transcriptionEngine === "offline-whisper-native") {
+    } else if (
+      !isMac &&
+      !isDevMode &&
+      settings.transcriptionEngine === "offline-whisper-native"
+    ) {
       setSettings((prev) => ({
         ...prev,
         transcriptionEngine: "offline-whisper",
       }));
     }
-  }, [settingsLoaded, isMac, settings.transcriptionEngine]);
+  }, [
+    settingsLoaded,
+    isMac,
+    isDevMode,
+    settings.transcriptionEngine,
+  ]);
 
   useEffect(() => {
     setRemoteTranscriptionTestStatus("idle");
@@ -1158,13 +1173,19 @@ const SmartVersesSettings: React.FC<SmartVersesSettingsProps> = ({
                   </optgroup>
                   <optgroup label="Offline (runs locally)">
                     <option value="offline-moonshine">Moonshine Offline (Experimental)</option>
-                    {isMac && (
-                      <option value="offline-whisper-native">
-                        Whisper Offline Mac (Recommended)
+                    {(!isMac || isDevMode) && (
+                      <option value="offline-whisper">
+                        {isMac
+                          ? "Whisper Offline (Windows - Dev)"
+                          : "Whisper Offline (Recommended)"}
                       </option>
                     )}
-                    {!isMac && (
-                      <option value="offline-whisper">Whisper Offline (Recommended)</option>
+                    {(isMac || isDevMode) && (
+                      <option value="offline-whisper-native">
+                        {isMac
+                          ? "Whisper Offline Mac (Recommended)"
+                          : "Whisper Offline Mac (Dev)"}
+                      </option>
                     )}
                   </optgroup>
                   <optgroup label="Coming Soon">

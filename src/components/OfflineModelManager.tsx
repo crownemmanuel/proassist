@@ -36,6 +36,7 @@ import {
   deleteNativeWhisperModel,
   isNativeWhisperModelDownloaded,
 } from "../services/nativeWhisperModelService";
+import { isDevModeEnabled } from "../utils/devFlags";
 
 interface OfflineModelManagerProps {
   isOpen: boolean;
@@ -64,6 +65,7 @@ const OfflineModelManager: React.FC<OfflineModelManagerProps> = ({
 }) => {
   const isMac =
     typeof navigator !== "undefined" && navigator.userAgent.includes("Mac");
+  const isDevMode = isDevModeEnabled();
   const [models, setModels] = useState<OfflineModelInfo[]>([]);
   const [nativeModels, setNativeModels] = useState<NativeModelWithStatus[]>([]);
   const [downloadProgress, setDownloadProgress] = useState<Record<string, number>>({});
@@ -86,20 +88,30 @@ const OfflineModelManager: React.FC<OfflineModelManagerProps> = ({
 
   const refreshModels = useCallback(() => {
     const downloaded = getDownloadedModelIds();
-    const availableModels = isMac
-      ? AVAILABLE_OFFLINE_MODELS.filter((model) => model.type !== "whisper")
-      : AVAILABLE_OFFLINE_MODELS;
+    const availableModels =
+      isMac && !isDevMode
+        ? AVAILABLE_OFFLINE_MODELS.filter((model) => model.type !== "whisper")
+        : AVAILABLE_OFFLINE_MODELS;
     setModels(
       availableModels.map((model) => ({
         ...model,
         isDownloaded: downloaded.includes(model.modelId),
       }))
     );
-  }, [isMac]);
+  }, [isMac, isDevMode]);
 
   const refreshNativeModels = useCallback(async () => {
     if (!isMac) {
-      setNativeModels([]);
+      if (isDevMode) {
+        setNativeModels(
+          NATIVE_WHISPER_MODELS.map((model) => ({
+            ...model,
+            isDownloaded: false,
+          }))
+        );
+      } else {
+        setNativeModels([]);
+      }
       return;
     }
 
@@ -114,7 +126,7 @@ const OfflineModelManager: React.FC<OfflineModelManagerProps> = ({
     } catch (err) {
       console.error("Failed to refresh native Whisper models:", err);
     }
-  }, [isMac]);
+  }, [isMac, isDevMode]);
 
   // Load models and check WebGPU support
   useEffect(() => {
@@ -331,6 +343,8 @@ const OfflineModelManager: React.FC<OfflineModelManagerProps> = ({
 
   const whisperModels = models.filter((m) => m.type === "whisper");
   const moonshineModels = models.filter((m) => m.type === "moonshine");
+  const showNativeWhisperModels = isMac || isDevMode;
+  const showOfflineWhisperModels = !isMac || isDevMode;
 
   return (
     <div
@@ -516,31 +530,34 @@ const OfflineModelManager: React.FC<OfflineModelManagerProps> = ({
               </span>
             </h3>
             <div style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-2)" }}>
-              {isMac
-                ? nativeModels.map((model) => (
-                    <ModelCard
-                      key={model.id}
-                      model={model}
-                      isDownloading={nativeDownloadingModels.has(model.fileName)}
-                      isDeleting={nativeDeletingModels.has(model.fileName)}
-                      progress={nativeDownloadProgress[model.fileName]}
-                      currentFile={nativeCurrentFile[model.fileName]}
-                      onDownload={() => handleNativeDownload(model)}
-                      onDelete={() => handleNativeDelete(model)}
-                    />
-                  ))
-                : whisperModels.map((model) => (
-                    <ModelCard
-                      key={model.id}
-                      model={model}
-                      isDownloading={downloadingModels.has(model.modelId)}
-                      isDeleting={deletingModels.has(model.modelId)}
-                      progress={downloadProgress[model.modelId]}
-                      currentFile={currentFile[model.modelId]}
-                      onDownload={() => handleDownload(model)}
-                      onDelete={() => handleDelete(model)}
-                    />
-                  ))}
+              {showNativeWhisperModels &&
+                nativeModels.map((model) => (
+                  <ModelCard
+                    key={`native-${model.id}`}
+                    model={model}
+                    isDownloading={nativeDownloadingModels.has(model.fileName)}
+                    isDeleting={nativeDeletingModels.has(model.fileName)}
+                    progress={nativeDownloadProgress[model.fileName]}
+                    currentFile={nativeCurrentFile[model.fileName]}
+                    onDownload={() => handleNativeDownload(model)}
+                    onDelete={() => handleNativeDelete(model)}
+                    isActionDisabled={!isMac}
+                    disabledLabel="Mac only"
+                  />
+                ))}
+              {showOfflineWhisperModels &&
+                whisperModels.map((model) => (
+                  <ModelCard
+                    key={model.id}
+                    model={model}
+                    isDownloading={downloadingModels.has(model.modelId)}
+                    isDeleting={deletingModels.has(model.modelId)}
+                    progress={downloadProgress[model.modelId]}
+                    currentFile={currentFile[model.modelId]}
+                    onDownload={() => handleDownload(model)}
+                    onDelete={() => handleDelete(model)}
+                  />
+                ))}
             </div>
           </div>
 
@@ -610,6 +627,8 @@ interface ModelCardProps {
   model: ManagedModel;
   isDownloading: boolean;
   isDeleting: boolean;
+  isActionDisabled?: boolean;
+  disabledLabel?: string;
   progress?: number;
   currentFile?: string;
   onDownload: () => void;
@@ -620,6 +639,8 @@ const ModelCard: React.FC<ModelCardProps> = ({
   model,
   isDownloading,
   isDeleting,
+  isActionDisabled = false,
+  disabledLabel = "Unavailable",
   progress,
   currentFile,
   onDownload,
@@ -718,6 +739,20 @@ const ModelCard: React.FC<ModelCardProps> = ({
             >
               <FaSpinner size={12} style={{ animation: "spin 1s linear infinite" }} />
               Removing...
+            </button>
+          ) : isActionDisabled ? (
+            <button
+              className="secondary btn-sm"
+              disabled
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "4px",
+                color: "var(--app-text-color-secondary)",
+              }}
+            >
+              <FaTimes size={12} />
+              {disabledLabel}
             </button>
           ) : model.isDownloaded ? (
             <button
