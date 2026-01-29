@@ -17,7 +17,7 @@ export interface NativeWhisperModelInfo {
 export const NATIVE_WHISPER_MODELS: NativeWhisperModelInfo[] = [
   {
     id: "whisper-native-small",
-    name: "Whisper Small (Native)",
+    name: "Whisper Small",
     tier: "small",
     fileName: "ggml-small.en-q5_1.bin",
     size: "~190MB",
@@ -27,7 +27,7 @@ export const NATIVE_WHISPER_MODELS: NativeWhisperModelInfo[] = [
   },
   {
     id: "whisper-native-medium",
-    name: "Whisper Medium (Native)",
+    name: "Whisper Medium",
     tier: "medium",
     fileName: "ggml-medium.en-q5_0.bin",
     size: "~500MB",
@@ -37,7 +37,7 @@ export const NATIVE_WHISPER_MODELS: NativeWhisperModelInfo[] = [
   },
   {
     id: "whisper-native-large",
-    name: "Whisper Large v2 (Native)",
+    name: "Whisper Large v2",
     tier: "large",
     fileName: "ggml-large-v2-q5_0.bin",
     size: "~1.0GB",
@@ -115,6 +115,6 @@ export async function deleteNativeWhisperModel(
   const fs = await import("@tauri-apps/plugin-fs");
   const path = await resolveNativeWhisperModelPath(fileName);
   if (await fs.exists(path)) {
-    await fs.removeFile(path);
+    await fs.remove(path);
   }
 }

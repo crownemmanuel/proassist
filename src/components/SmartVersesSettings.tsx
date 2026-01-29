@@ -181,28 +181,79 @@ const SmartVersesSettings: React.FC = () => {
   }, [settings.transcriptionEngine, settings.offlineLanguage]);
 
   useEffect(() => {
+    if (!settingsLoaded) return;
+
+    if (isMac && settings.transcriptionEngine === "offline-whisper") {
+      setSettings((prev) => ({
+        ...prev,
+        transcriptionEngine: "offline-whisper-native",
+      }));
+    } else if (!isMac && settings.transcriptionEngine === "offline-whisper-native") {
+      setSettings((prev) => ({
+        ...prev,
+        transcriptionEngine: "offline-whisper",
+      }));
+    }
+  }, [settingsLoaded, isMac, settings.transcriptionEngine]);
+
+  const refreshNativeWhisperDownloaded = useCallback(async () => {
     if (!isMac) return;
 
-    const refreshNativeWhisperDownloaded = async () => {
-      try {
-        const entries = await Promise.all(
-          NATIVE_WHISPER_MODELS.map(async (model) => ({
-            fileName: model.fileName,
-            downloaded: await isNativeWhisperModelDownloaded(model.fileName),
-          }))
-        );
-        const next: Record<string, boolean> = {};
-        entries.forEach((entry) => {
-          next[entry.fileName] = entry.downloaded;
-        });
-        setNativeWhisperDownloaded(next);
-      } catch {
-        // ignore
-      }
-    };
-
-    refreshNativeWhisperDownloaded();
+    try {
+      const entries = await Promise.all(
+        NATIVE_WHISPER_MODELS.map(async (model) => ({
+          fileName: model.fileName,
+          downloaded: await isNativeWhisperModelDownloaded(model.fileName),
+        }))
+      );
+      const next: Record<string, boolean> = {};
+      entries.forEach((entry) => {
+        next[entry.fileName] = entry.downloaded;
+      });
+      setNativeWhisperDownloaded(next);
+    } catch {
+      // ignore
+    }
   }, [isMac]);
+
+  const handleNativeWhisperDownload = async (
+    fileName: string
+  ): Promise<void> => {
+    const model = NATIVE_WHISPER_MODELS.find((m) => m.fileName === fileName);
+    if (!model || nativeWhisperDownloading) return;
+
+    setNativeWhisperDownloadError(null);
+    setNativeWhisperDownloading(true);
+    setNativeWhisperDownload(null);
+
+    try {
+      await downloadNativeWhisperModel(model, {
+        onProgress: (progress) => {
+          setNativeWhisperDownload(progress);
+        },
+        onComplete: () => {
+          setNativeWhisperDownloaded((prev) => ({
+            ...prev,
+            [model.fileName]: true,
+          }));
+          refreshNativeWhisperDownloaded();
+        },
+        onError: (error) => {
+          setNativeWhisperDownloadError(error.message);
+        },
+      });
+    } catch (error) {
+      setNativeWhisperDownloadError(
+        error instanceof Error ? error.message : "Download failed"
+      );
+    } finally {
+      setNativeWhisperDownloading(false);
+    }
+  };
+
+  useEffect(() => {
+    refreshNativeWhisperDownloaded();
+  }, [refreshNativeWhisperDownloaded]);
 
   useEffect(() => {
     if (!settingsLoaded) return;
@@ -502,40 +553,6 @@ const SmartVersesSettings: React.FC = () => {
       .filter(Boolean);
     handleChange("transcriptFilterPhrases", phrases);
     setShowTranscriptFilterDialog(false);
-  };
-
-  const handleNativeWhisperDownload = async (
-    fileName: string
-  ): Promise<void> => {
-    const model = NATIVE_WHISPER_MODELS.find((m) => m.fileName === fileName);
-    if (!model || nativeWhisperDownloading) return;
-
-    setNativeWhisperDownloadError(null);
-    setNativeWhisperDownloading(true);
-    setNativeWhisperDownload(null);
-
-    try {
-      await downloadNativeWhisperModel(model, {
-        onProgress: (progress) => {
-          setNativeWhisperDownload(progress);
-        },
-        onComplete: () => {
-          setNativeWhisperDownloaded((prev) => ({
-            ...prev,
-            [model.fileName]: true,
-          }));
-        },
-        onError: (error) => {
-          setNativeWhisperDownloadError(error.message);
-        },
-      });
-    } catch (error) {
-      setNativeWhisperDownloadError(
-        error instanceof Error ? error.message : "Download failed"
-      );
-    } finally {
-      setNativeWhisperDownloading(false);
-    }
   };
 
   // Handle Get Slide from ProPresenter
@@ -863,13 +880,15 @@ const SmartVersesSettings: React.FC = () => {
               <option value="groq">Groq Whisper (Experimental)</option>
             </optgroup>
             <optgroup label="Offline (runs locally)">
-              <option value="offline-moonshine">Moonshine Offline (More Stable)</option>
+              <option value="offline-moonshine">Moonshine Offline (Experimental)</option>
               {isMac && (
                 <option value="offline-whisper-native">
-                  Whisper Native (Mac · Metal)
+                  Whisper Offline Mac (Recommended)
                 </option>
               )}
-              <option value="offline-whisper">Whisper Offline (Web · Experimental)</option>
+              {!isMac && (
+                <option value="offline-whisper">Whisper Offline (Recommended)</option>
+              )}
             </optgroup>
             <optgroup label="Coming Soon">
               <option value="elevenlabs" disabled>
@@ -920,6 +939,7 @@ const SmartVersesSettings: React.FC = () => {
                 Offline Model Settings
               </h4>
               {(settings.transcriptionEngine === "offline-whisper" ||
+                settings.transcriptionEngine === "offline-whisper-native" ||
                 settings.transcriptionEngine === "offline-moonshine") && (
                 <button
                   onClick={() => setShowModelManager(true)}
@@ -949,64 +969,71 @@ const SmartVersesSettings: React.FC = () => {
                   >
                     {NATIVE_WHISPER_MODELS.map((model) => {
                       const isDownloaded = !!nativeWhisperDownloaded[model.fileName];
-                      const isRecommended = model.tier === "small";
+                      const isRecommended = model.tier === "medium";
+                      
+                      // Get description based on model tier
+                      let description = "";
+                      if (model.tier === "small") {
+                        description = " - Fastest, less accurate";
+                      } else if (model.tier === "medium") {
+                        description = " - Decent accuracy";
+                      } else if (model.tier === "large") {
+                        description = " - Most accurate, slower";
+                      }
+                      
                       return (
                         <option key={model.id} value={model.fileName}>
-                          {model.name}
+                          {model.name}{description}
                           {isRecommended ? " (Recommended)" : ""} ({model.size})
                           {isDownloaded ? " ✓" : " - Not Downloaded"}
                         </option>
                       );
                     })}
                   </select>
-                  {!nativeWhisperDownloaded[selectedNativeWhisperModel] &&
-                    !nativeWhisperDownloading && (
-                      <p
-                        style={{
-                          ...helpTextStyle,
-                          color: "var(--warning)",
-                          marginTop: "var(--spacing-2)",
-                        }}
-                      >
-                        Selected native model is not downloaded. Click "Download"
-                        to fetch it.
-                      </p>
-                    )}
-                  {renderNativeDownloadStatus(nativeWhisperDownload)}
-                  <div style={{ marginTop: "var(--spacing-2)" }}>
-                    <button
-                      onClick={() =>
-                        handleNativeWhisperDownload(selectedNativeWhisperModel)
-                      }
-                      className="primary btn-sm"
-                      disabled={
-                        nativeWhisperDownloading ||
-                        !!nativeWhisperDownloaded[selectedNativeWhisperModel]
-                      }
+                  {!nativeWhisperDownloaded[selectedNativeWhisperModel] && (
+                    <p
                       style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "6px",
+                        ...helpTextStyle,
+                        color: "var(--warning)",
+                        marginTop: "var(--spacing-2)",
                       }}
                     >
-                      {nativeWhisperDownloading ? (
-                        <>
-                          <FaSpinner
-                            size={12}
-                            style={{ animation: "spin 1s linear infinite" }}
-                          />
-                          Downloading...
-                        </>
-                      ) : (
-                        <>
-                          <FaDownload size={12} />
-                          {nativeWhisperDownloaded[selectedNativeWhisperModel]
-                            ? "Downloaded"
-                            : "Download"}
-                        </>
-                      )}
-                    </button>
-                  </div>
+                      Selected native model is not downloaded. Use "Manage Models"
+                      or click Download below.
+                    </p>
+                  )}
+                  {renderNativeDownloadStatus(nativeWhisperDownload)}
+                  {!nativeWhisperDownloaded[selectedNativeWhisperModel] && (
+                    <div style={{ marginTop: "var(--spacing-2)" }}>
+                      <button
+                        onClick={() =>
+                          handleNativeWhisperDownload(selectedNativeWhisperModel)
+                        }
+                        className="primary btn-sm"
+                        disabled={nativeWhisperDownloading}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "6px",
+                        }}
+                      >
+                        {nativeWhisperDownloading ? (
+                          <>
+                            <FaSpinner
+                              size={12}
+                              style={{ animation: "spin 1s linear infinite" }}
+                            />
+                            Downloading...
+                          </>
+                        ) : (
+                          <>
+                            <FaDownload size={12} />
+                            Download
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 <div style={fieldStyle}>
@@ -1037,9 +1064,20 @@ const SmartVersesSettings: React.FC = () => {
                         const isDownloaded = downloadedModelIds.includes(model.modelId);
                         const isRecommended =
                           model.modelId === "onnx-community/whisper-base";
+                        
+                        // Get description based on model ID
+                        let description = "";
+                        if (model.id === "whisper-small") {
+                          description = " - Most accurate";
+                        } else if (model.id === "whisper-base") {
+                          description = " - Average accuracy";
+                        } else if (model.id === "whisper-tiny-en") {
+                          description = " - Fastest, less accurate";
+                        }
+                        
                         return (
                           <option key={model.id} value={model.modelId}>
-                            {model.name}
+                            {model.name}{description}
                             {isRecommended ? " (Recommended)" : ""} ({model.size})
                             {isDownloaded ? " ✓" : " - Not Downloaded"}
                           </option>
@@ -1108,9 +1146,18 @@ const SmartVersesSettings: React.FC = () => {
                   {AVAILABLE_OFFLINE_MODELS.filter((m) => m.type === "moonshine").map(
                     (model) => {
                       const isDownloaded = downloadedModelIds.includes(model.modelId);
+                      
+                      // Get description based on model ID
+                      let description = "";
+                      if (model.id === "moonshine-base") {
+                        description = " - More accurate, slower";
+                      } else if (model.id === "moonshine-tiny") {
+                        description = " - Fastest, less accurate";
+                      }
+                      
                       return (
                         <option key={model.id} value={model.modelId}>
-                          {model.name} ({model.size})
+                          {model.name}{description} ({model.size})
                           {isDownloaded ? " ✓" : " - Not Downloaded"}
                         </option>
                       );
@@ -1235,14 +1282,14 @@ const SmartVersesSettings: React.FC = () => {
             style={inputStyle}
             disabled={settings.remoteTranscriptionEnabled}
           >
-            <option value="webrtc">WebView (WebRTC) — simplest</option>
             <option value="native">
-              Native (CoreAudio/WASAPI) — recommended
+              Core Audio (Recommended)
             </option>
+            <option value="webrtc">WebRTC</option>
           </select>
           <p style={helpTextStyle}>
-            Native capture helps when macOS WKWebView doesn't expose some
-            virtual devices (Teams/Zoom/etc).
+            Choose what audio engine to use. Core Audio is recommended, unless
+            you have a good reason to switch this.
           </p>
         </div>
 
@@ -2243,10 +2290,12 @@ const SmartVersesSettings: React.FC = () => {
         onModelDownloaded={() => {
           // Refresh downloaded models list
           setDownloadedModelIds(getDownloadedModelIds());
+          refreshNativeWhisperDownloaded();
         }}
         onModelDeleted={() => {
           // Refresh downloaded models list
           setDownloadedModelIds(getDownloadedModelIds());
+          refreshNativeWhisperDownloaded();
         }}
       />
 

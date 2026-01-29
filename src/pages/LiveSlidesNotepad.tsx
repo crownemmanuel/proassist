@@ -6,13 +6,13 @@ import React, {
   useMemo,
 } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
-import { FaSun, FaMoon, FaQuestionCircle, FaMicrophone, FaPlus, FaListUl, FaGripLines, FaDownload } from "react-icons/fa";
+import { FaSun, FaMoon, FaQuestionCircle, FaMicrophone, FaPlus, FaListUl, FaListOl, FaGripLines, FaDownload } from "react-icons/fa";
 import { LiveSlidesWebSocket } from "../services/liveSlideService";
 import {
   calculateSlideBoundaries,
   SlideBoundary,
 } from "../utils/liveSlideParser";
-import { LiveSlide, WsTranscriptionStream } from "../types/liveSlides";
+import { LiveSlide, WsSlidesUpdate, WsTranscriptionStream } from "../types/liveSlides";
 import TranscriptOptionsMenu from "../components/transcription/TranscriptOptionsMenu";
 import { saveTranscriptFile } from "../utils/transcriptDownload";
 import "../App.css";
@@ -20,6 +20,7 @@ import "../App.css";
 // Bullet point character for visual display (stripped when importing)
 const BULLET_CHAR = "•";
 const BULLET_PREFIX = `\t${BULLET_CHAR} `; // Tab + bullet + space
+const NUMBERED_PREFIX_REGEX = /^(\t| {4})(\d+)\.\s*/;
 
 // Theme-aware styles factory
 const getNotepadStyles = (isDark: boolean) => {
@@ -495,6 +496,10 @@ const LiveSlidesNotepad: React.FC = () => {
   // Avoid stale closures in WS handlers (we intentionally do NOT re-bind on every keystroke).
   const textRef = useRef<string>("");
   const lastLocalEditAtRef = useRef<number>(0);
+  const pendingRemoteUpdateRef = useRef<WsSlidesUpdate | null>(null);
+  const pendingRemoteApplyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  );
 
   useEffect(() => {
     textRef.current = text;
@@ -645,6 +650,32 @@ const LiveSlidesNotepad: React.FC = () => {
     const ws = new LiveSlidesWebSocket(wsUrl, sessionId, "notepad");
     wsRef.current = ws;
 
+    const applyRemoteUpdate = (update: WsSlidesUpdate) => {
+      const nextText = update.raw_text || "";
+      textRef.current = nextText;
+      setSlides(update.slides);
+      setText(nextText);
+      setBoundaries(calculateSlideBoundaries(nextText));
+    };
+
+    const schedulePendingRemoteApply = () => {
+      if (pendingRemoteApplyTimeoutRef.current) {
+        clearTimeout(pendingRemoteApplyTimeoutRef.current);
+      }
+      pendingRemoteApplyTimeoutRef.current = setTimeout(() => {
+        const pending = pendingRemoteUpdateRef.current;
+        if (!pending) return;
+        const focused = document.activeElement === textareaRef.current;
+        const idleMs = Date.now() - lastLocalEditAtRef.current;
+        if (focused && idleMs < 500) {
+          schedulePendingRemoteApply();
+          return;
+        }
+        applyRemoteUpdate(pending);
+        pendingRemoteUpdateRef.current = null;
+      }, 350);
+    };
+
     ws.connect()
       .then(() => {
         setIsConnected(true);
@@ -657,22 +688,27 @@ const LiveSlidesNotepad: React.FC = () => {
     // Listen for slides updates (from other notepads or initial state)
     const unsubscribe = ws.onSlidesUpdate((update) => {
       if (update.session_id === sessionId) {
-        setSlides(update.slides);
         const currentText = textRef.current;
         const focused = document.activeElement === textareaRef.current;
         const recentlyEditedLocally =
-          Date.now() - lastLocalEditAtRef.current < 800;
+          Date.now() - lastLocalEditAtRef.current < 500;
 
-        // Update if different and we're not actively typing.
-        // This improves main-app -> web reliability even when the textarea is focused,
-        // while still preventing overwrites during active local edits.
-        const shouldUpdate =
-          update.raw_text !== currentText &&
-          (!focused || !recentlyEditedLocally || !currentText.trim().length);
+        if (update.raw_text === currentText) {
+          return;
+        }
 
-        if (shouldUpdate) {
-          setText(update.raw_text);
-          setBoundaries(calculateSlideBoundaries(update.raw_text));
+        // If the user is actively typing, defer applying remote updates until idle.
+        if (focused && recentlyEditedLocally) {
+          pendingRemoteUpdateRef.current = update;
+          schedulePendingRemoteApply();
+          return;
+        }
+
+        applyRemoteUpdate(update);
+        pendingRemoteUpdateRef.current = null;
+        if (pendingRemoteApplyTimeoutRef.current) {
+          clearTimeout(pendingRemoteApplyTimeoutRef.current);
+          pendingRemoteApplyTimeoutRef.current = null;
         }
       }
     });
@@ -702,6 +738,11 @@ const LiveSlidesNotepad: React.FC = () => {
     return () => {
       unsubscribe();
       unsubscribeTranscription();
+      if (pendingRemoteApplyTimeoutRef.current) {
+        clearTimeout(pendingRemoteApplyTimeoutRef.current);
+        pendingRemoteApplyTimeoutRef.current = null;
+      }
+      pendingRemoteUpdateRef.current = null;
       ws.disconnect();
     };
   }, [sessionId, wsUrl]);
@@ -717,9 +758,7 @@ const LiveSlidesNotepad: React.FC = () => {
       setBoundaries(newBoundaries);
 
       // Send update to WebSocket
-      if (wsRef.current && wsRef.current.isConnected) {
-        wsRef.current.sendTextUpdate(newText);
-      }
+      wsRef.current?.sendTextUpdate(newText);
     },
     []
   );
@@ -729,9 +768,7 @@ const LiveSlidesNotepad: React.FC = () => {
       lastLocalEditAtRef.current = Date.now();
       setText(newText);
       setBoundaries(calculateSlideBoundaries(newText));
-      if (wsRef.current && wsRef.current.isConnected) {
-        wsRef.current.sendTextUpdate(newText);
-      }
+      wsRef.current?.sendTextUpdate(newText);
 
       if (
         textareaRef.current &&
@@ -816,6 +853,57 @@ const LiveSlidesNotepad: React.FC = () => {
     return line.startsWith(BULLET_PREFIX) || line.startsWith(`\t${BULLET_CHAR}`) || line.startsWith(`    ${BULLET_CHAR}`);
   }, []);
 
+  const isNumberedLine = useCallback((line: string) => {
+    return NUMBERED_PREFIX_REGEX.test(line);
+  }, []);
+
+  const getNumberedLineInfo = useCallback((line: string) => {
+    const match = line.match(NUMBERED_PREFIX_REGEX);
+    if (!match) return null;
+    return {
+      indent: match[1],
+      number: Number(match[2]),
+      prefix: match[0],
+    };
+  }, []);
+
+  const stripNumberPrefix = useCallback(
+    (line: string) => {
+      const info = getNumberedLineInfo(line);
+      return info ? line.slice(info.prefix.length) : line;
+    },
+    [getNumberedLineInfo]
+  );
+
+  const stripBulletPrefixForEdit = useCallback((line: string) => {
+    if (line.startsWith(BULLET_PREFIX)) return line.slice(BULLET_PREFIX.length);
+    if (line.startsWith(`\t${BULLET_CHAR} `)) return line.slice(3);
+    if (line.startsWith(`    ${BULLET_CHAR} `)) return line.slice(6);
+    if (line.startsWith("\t")) return line.slice(1);
+    if (line.startsWith("    ")) return line.slice(4);
+    return line;
+  }, []);
+
+  const getNumberedStartForBlock = useCallback(
+    (value: string, lineStart: number) => {
+      const before = value.slice(0, lineStart);
+      const lines = before.split("\n");
+      for (let i = lines.length - 1; i >= 0; i--) {
+        const line = lines[i];
+        if (line.trim() === "") {
+          return 1;
+        }
+        const info = getNumberedLineInfo(line);
+        if (info && Number.isFinite(info.number)) {
+          return info.number + 1;
+        }
+        return 1;
+      }
+      return 1;
+    },
+    [getNumberedLineInfo]
+  );
+
   // Helper to get line start index
   const getLineStartIdx = useCallback((value: string, idx: number) => {
     const i = value.lastIndexOf("\n", Math.max(0, idx - 1));
@@ -882,6 +970,62 @@ const LiveSlidesNotepad: React.FC = () => {
     el.focus();
   }, [applyTextUpdate, getLineStartIdx, isBulletLine]);
 
+  const toggleNumberList = useCallback(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+
+    const value = el.value;
+    const start = el.selectionStart ?? 0;
+    const end = el.selectionEnd ?? 0;
+
+    const lineStart = getLineStartIdx(value, start);
+    const lineEndIdx = value.indexOf("\n", end);
+    const lineEnd = lineEndIdx === -1 ? value.length : lineEndIdx;
+
+    const block = value.slice(lineStart, lineEnd);
+    const lines = block.split("\n");
+
+    const allNumbered = lines.every(
+      (line) => line.trim() === "" || isNumberedLine(line)
+    );
+
+    let currentNumber = getNumberedStartForBlock(value, lineStart);
+    const nextLines = lines.map((line) => {
+      if (line.trim() === "") {
+        currentNumber = 1;
+        return line;
+      }
+
+      if (allNumbered) {
+        return stripNumberPrefix(line);
+      }
+
+      const cleaned = stripNumberPrefix(stripBulletPrefixForEdit(line));
+      const indent = line.startsWith("\t")
+        ? "\t"
+        : line.startsWith("    ")
+          ? "    "
+          : "\t";
+      const numberedLine = `${indent}${currentNumber}. ${cleaned}`;
+      currentNumber += 1;
+      return numberedLine;
+    });
+
+    const newBlock = nextLines.join("\n");
+    const newValue = value.slice(0, lineStart) + newBlock + value.slice(lineEnd);
+    const newPos = lineStart + newBlock.length;
+
+    applyTextUpdate(newValue, newPos, newPos);
+    el.focus();
+  }, [
+    applyTextUpdate,
+    getLineStartIdx,
+    getNumberedStartForBlock,
+    isNumberedLine,
+    stripBulletPrefixForEdit,
+    stripNumberPrefix,
+  ]);
+
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
       const el = e.currentTarget;
@@ -891,9 +1035,33 @@ const LiveSlidesNotepad: React.FC = () => {
 
       const lineStart = getLineStartIdx(value, start);
       const currentLine = getCurrentLine(value, start);
+      const numberedInfo = getNumberedLineInfo(currentLine);
+      const isNumbered = !!numberedInfo;
 
       // Handle Enter key - continue bullet list
       if (e.key === "Enter" && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey) {
+        if (isNumbered) {
+          e.preventDefault();
+
+          const contentAfterNumber = stripNumberPrefix(currentLine).trim();
+          if (contentAfterNumber === "") {
+            const lineEndIdx = value.indexOf("\n", start);
+            const lineEnd = lineEndIdx === -1 ? value.length : lineEndIdx;
+            const newValue = value.slice(0, lineStart) + value.slice(lineEnd);
+            const newPos = lineStart;
+            applyTextUpdate(newValue, newPos, newPos);
+            return;
+          }
+
+          const nextNumber = (numberedInfo?.number ?? 0) + 1;
+          const indent = numberedInfo?.indent ?? "\t";
+          const nextPrefix = `${indent}${nextNumber}. `;
+          const newValue = value.slice(0, start) + "\n" + nextPrefix + value.slice(end);
+          const newPos = start + 1 + nextPrefix.length;
+          applyTextUpdate(newValue, newPos, newPos);
+          return;
+        }
+
         if (isBulletLine(currentLine)) {
           e.preventDefault();
           
@@ -919,6 +1087,21 @@ const LiveSlidesNotepad: React.FC = () => {
 
       // Handle Backspace - remove bullet if at start of bullet line
       if (e.key === "Backspace" && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey) {
+        if (isNumbered) {
+          const posInLine = start - lineStart;
+          const prefixLength = numberedInfo?.prefix.length ?? 0;
+          if (posInLine <= prefixLength) {
+            e.preventDefault();
+            const content = stripNumberPrefix(currentLine);
+            const lineEndIdx = value.indexOf("\n", start);
+            const lineEnd = lineEndIdx === -1 ? value.length : lineEndIdx;
+            const newValue = value.slice(0, lineStart) + content + value.slice(lineEnd);
+            const newPos = lineStart;
+            applyTextUpdate(newValue, newPos, newPos);
+            return;
+          }
+        }
+
         if (isBulletLine(currentLine)) {
           const posInLine = start - lineStart;
           // If cursor is right after the bullet prefix, remove the bullet
@@ -945,42 +1128,67 @@ const LiveSlidesNotepad: React.FC = () => {
       const hasMultilineSelection =
         start !== end && value.slice(start, end).includes("\n");
 
-      const outdentLine = (line: string) => {
-        // Remove bullet prefix
-        if (line.startsWith(BULLET_PREFIX)) {
-          return line.slice(BULLET_PREFIX.length);
+      const blockStart = getLineStartIdx(value, start);
+      const blockEndNewline = value.indexOf("\n", end);
+      const blockEnd = blockEndNewline === -1 ? value.length : blockEndNewline;
+      const block = value.slice(blockStart, blockEnd);
+      const blockLines = block.split("\n");
+      const blockHasNumbered = blockLines.some((line) => isNumberedLine(line));
+
+      const outdentLine = (line: string, mode: "bullet" | "number") => {
+        if (mode === "number") {
+          const info = getNumberedLineInfo(line);
+          if (info) return line.slice(info.prefix.length);
+        } else {
+          if (line.startsWith(BULLET_PREFIX)) {
+            return line.slice(BULLET_PREFIX.length);
+          }
+          if (line.startsWith(`\t${BULLET_CHAR} `)) {
+            return line.slice(3);
+          }
+          if (line.startsWith(`    ${BULLET_CHAR} `)) {
+            return line.slice(6);
+          }
         }
-        if (line.startsWith(`\t${BULLET_CHAR} `)) {
-          return line.slice(3);
-        }
-        if (line.startsWith(`    ${BULLET_CHAR} `)) {
-          return line.slice(6);
-        }
-        // Regular indent removal
         if (line.startsWith("\t")) return line.slice(1);
         if (line.startsWith("    ")) return line.slice(4);
         return line;
       };
 
-      const indentLine = (line: string) => {
+      const indentLine = (line: string, mode: "bullet" | "number", num?: number) => {
         if (line.length === 0) return line;
-        // If already bulleted, just return as is
+        if (mode === "number") {
+          if (isNumberedLine(line)) return line;
+          const indent = line.startsWith("\t")
+            ? "\t"
+            : line.startsWith("    ")
+              ? "    "
+              : "\t";
+          return `${indent}${num ?? 1}. ${line}`;
+        }
         if (isBulletLine(line)) return line;
-        // Add bullet prefix
         return BULLET_PREFIX + line;
       };
 
       if (hasMultilineSelection || e.shiftKey) {
-        const blockStart = getLineStartIdx(value, start);
-        const blockEndNewline = value.indexOf("\n", end);
-        const blockEnd = blockEndNewline === -1 ? value.length : blockEndNewline;
-
-        const block = value.slice(blockStart, blockEnd);
-        const lines = block.split("\n");
+        const mode: "bullet" | "number" =
+          blockHasNumbered || isNumbered ? "number" : "bullet";
+        let nextNumber =
+          mode === "number" ? getNumberedStartForBlock(value, blockStart) : 1;
 
         const nextLines = e.shiftKey
-          ? lines.map(outdentLine)
-          : lines.map(indentLine);
+          ? blockLines.map((line) => outdentLine(line, mode))
+          : blockLines.map((line) => {
+              if (mode === "number" && line.trim() === "") {
+                nextNumber = 1;
+                return line;
+              }
+              const result = indentLine(line, mode, nextNumber);
+              if (mode === "number" && line.trim() !== "") {
+                nextNumber += 1;
+              }
+              return result;
+            });
 
         const newBlock = nextLines.join("\n");
         const newValue = value.slice(0, blockStart) + newBlock + value.slice(blockEnd);
@@ -990,7 +1198,14 @@ const LiveSlidesNotepad: React.FC = () => {
         return;
       }
 
-      // If not already a bullet line, convert to bullet (even if empty)
+      // If already a numbered line: just insert tab for additional indentation
+      if (isNumbered) {
+        const newValue = value.slice(0, start) + "\t" + value.slice(end);
+        const newPos = start + 1;
+        applyTextUpdate(newValue, newPos, newPos);
+        return;
+      }
+
       if (!isBulletLine(currentLine)) {
         const lineEndIdx = value.indexOf("\n", start);
         const lineEnd = lineEndIdx === -1 ? value.length : lineEndIdx;
@@ -1006,7 +1221,16 @@ const LiveSlidesNotepad: React.FC = () => {
       const newPos = start + 1;
       applyTextUpdate(newValue, newPos, newPos);
     },
-    [applyTextUpdate, getLineStartIdx, getCurrentLine, isBulletLine]
+    [
+      applyTextUpdate,
+      getLineStartIdx,
+      getCurrentLine,
+      getNumberedLineInfo,
+      getNumberedStartForBlock,
+      isBulletLine,
+      isNumberedLine,
+      stripNumberPrefix,
+    ]
   );
 
   // Track cursor position to detect if on bullet line
@@ -1031,6 +1255,14 @@ const LiveSlidesNotepad: React.FC = () => {
     }
     return false;
   }, [text, cursorLineIndex, isBulletLine]);
+
+  const isCurrentLineNumbered = useMemo(() => {
+    const lines = text.split("\n");
+    if (cursorLineIndex >= 0 && cursorLineIndex < lines.length) {
+      return isNumberedLine(lines[cursorLineIndex]);
+    }
+    return false;
+  }, [text, cursorLineIndex, isNumberedLine]);
 
   // Sync scroll between textarea and line numbers
   const handleScroll = useCallback((e: React.UIEvent<HTMLTextAreaElement>) => {
@@ -1311,6 +1543,48 @@ This is the title of all the slide below
           <FaListUl />
           Bullet List
         </button>
+
+        <button
+          onClick={toggleNumberList}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "6px",
+            padding: "6px 12px",
+            borderRadius: "6px",
+            border: isCurrentLineNumbered
+              ? "1px solid #3B82F6"
+              : `1px solid ${notepadStyles.border}`,
+            backgroundColor: isCurrentLineNumbered
+              ? "#3B82F6"
+              : notepadStyles.helpButton.backgroundColor,
+            color: isCurrentLineNumbered
+              ? "white"
+              : notepadStyles.helpButton.color,
+            cursor: "pointer",
+            fontSize: "0.8rem",
+            fontWeight: 500,
+            transition: "all 0.15s ease",
+          }}
+          title="Toggle numbered list"
+          onMouseEnter={(e) => {
+            if (!isCurrentLineNumbered) {
+              e.currentTarget.style.backgroundColor = isDarkMode
+                ? "#3a3a3a"
+                : "#d8d8d8";
+            }
+          }}
+          onMouseLeave={(e) => {
+            if (!isCurrentLineNumbered) {
+              e.currentTarget.style.backgroundColor = isDarkMode
+                ? "#2a2a2a"
+                : "#e8e8e8";
+            }
+          }}
+        >
+          <FaListOl />
+          Numbered List
+        </button>
         
         <button
           onClick={() => setShowSlideDividers(!showSlideDividers)}
@@ -1361,7 +1635,7 @@ This is the title of all the slide below
             marginLeft: "4px",
           }}
         >
-          Press Tab to bullet • Enter to continue • Backspace to remove
+          Use buttons to toggle • Enter to continue • Backspace to remove
         </span>
       </div>
 

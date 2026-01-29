@@ -54,7 +54,7 @@ import {
   WsTranscriptionStream,
 } from "../types/liveSlides";
 import { TranscriptionStatus } from "../types/smartVerses";
-import { calculateSlideBoundaries, stripBulletPrefix } from "../utils/liveSlideParser";
+import { stripBulletPrefix } from "../utils/liveSlideParser";
 import { triggerPresentationOnConnections } from "../services/propresenterService";
 import { useNetworkSync } from "../hooks/useNetworkSync";
 import { loadNetworkSyncSettings } from "../services/networkSyncService";
@@ -301,6 +301,7 @@ const MainApplicationPage: React.FC = () => {
   const liveSlidesWsMapRef = useRef<Map<string, LiveSlidesWebSocket>>(
     new Map()
   );
+  const pendingLiveSlidesSyncRef = useRef<Record<string, string>>({});
   // When a slide is currently being output ("Live"), avoid overwriting that slide from incoming WS updates.
   const [liveSlidesLockBySession, setLiveSlidesLockBySession] = useState<
     Record<string, number | null>
@@ -333,6 +334,65 @@ const MainApplicationPage: React.FC = () => {
   const [liveSlidesTypingUrls, setLiveSlidesTypingUrls] = useState<
     Record<string, string>
   >({});
+
+  const buildRawTextFromSlides = (slides: Slide[]): string => {
+    return slides
+      .slice()
+      .sort((a, b) => a.order - b.order)
+      .map((s) => (s.text || "").trim())
+      .filter((t) => t.length > 0)
+      .join("\n\n");
+  };
+
+  const ensureLiveSlidesSocket = useCallback(
+    (sessionId: string): LiveSlidesWebSocket | null => {
+      if (!liveSlidesWsUrl) return null;
+      let ws = liveSlidesWsMapRef.current.get(sessionId);
+      if (!ws) {
+        ws = new LiveSlidesWebSocket(liveSlidesWsUrl, sessionId, "viewer");
+        liveSlidesWsMapRef.current.set(sessionId, ws);
+      }
+      if (!ws.isConnected) {
+        ws.connect().catch(() => {});
+      }
+      return ws;
+    },
+    [liveSlidesWsUrl]
+  );
+
+  const syncLiveSlidesSession = useCallback(
+    (sessionId: string, slides: Slide[], rawText?: string) => {
+      const nextRaw = rawText ?? buildRawTextFromSlides(slides);
+      const prevRaw = liveSlidesRawTextBySession[sessionId];
+      if (prevRaw !== nextRaw) {
+        setLiveSlidesRawTextBySession((prev) => ({
+          ...prev,
+          [sessionId]: nextRaw,
+        }));
+      }
+      const ws = ensureLiveSlidesSocket(sessionId);
+      if (!ws) {
+        pendingLiveSlidesSyncRef.current[sessionId] = nextRaw;
+        return;
+      }
+      ws.sendTextUpdate(nextRaw);
+    },
+    [buildRawTextFromSlides, ensureLiveSlidesSocket, liveSlidesRawTextBySession]
+  );
+
+  useEffect(() => {
+    if (!liveSlidesWsUrl) return;
+    const pending = pendingLiveSlidesSyncRef.current;
+    const entries = Object.entries(pending);
+    if (!entries.length) return;
+    entries.forEach(([sessionId, rawText]) => {
+      const ws = ensureLiveSlidesSocket(sessionId);
+      if (ws) {
+        ws.sendTextUpdate(rawText);
+      }
+    });
+    pendingLiveSlidesSyncRef.current = {};
+  }, [liveSlidesWsUrl, ensureLiveSlidesSocket]);
 
   // Network Sync - handle receiving synced playlist items
   const handleSyncPlaylistItem = useCallback(
@@ -1292,19 +1352,29 @@ const MainApplicationPage: React.FC = () => {
         alert("Please select a playlist and an item to add a slide.");
         return;
       }
-      if (
-        currentPlaylistItem?.liveSlidesSessionId &&
-        (currentPlaylistItem.liveSlidesLinked ?? true)
-      ) {
-        alert("Detach Live Slides to add new slides.");
-        return;
-      }
+      if (!currentPlaylistItem) return;
 
       const cleaned = text.trim();
       if (!cleaned) return;
 
+      const isLiveSlidesItem =
+        !!currentPlaylistItem.liveSlidesSessionId &&
+        (currentPlaylistItem.liveSlidesLinked ?? true);
+      const liveSessionId = currentPlaylistItem.liveSlidesSessionId;
       const lineCount = cleaned.split("\n").length;
       const layout = getLayoutForLineCount(lineCount);
+
+      const order = currentPlaylistItem.slides.length + 1;
+      const newSlide: Slide = {
+        id: `slide-${Date.now()}`,
+        text: cleaned,
+        layout,
+        order,
+      };
+      const nextSlides = [...currentPlaylistItem.slides, newSlide];
+      const nextRaw = isLiveSlidesItem
+        ? buildRawTextFromSlides(nextSlides)
+        : undefined;
 
       setPlaylists((prevPlaylists) =>
         prevPlaylists.map((p) => {
@@ -1313,16 +1383,12 @@ const MainApplicationPage: React.FC = () => {
               ...p,
               items: p.items.map((item) => {
                 if (item.id === selectedItemId) {
-                  const order = item.slides.length + 1;
-                  const newSlide: Slide = {
-                    id: `slide-${Date.now()}`,
-                    text: cleaned,
-                    layout,
-                    order,
-                  };
                   return {
                     ...item,
-                    slides: [...item.slides, newSlide],
+                    slides: nextSlides,
+                    liveSlidesCachedRawText: isLiveSlidesItem
+                      ? nextRaw
+                      : item.liveSlidesCachedRawText,
                   };
                 }
                 return item;
@@ -1332,13 +1398,18 @@ const MainApplicationPage: React.FC = () => {
           return p;
         })
       );
+
+      if (isLiveSlidesItem && liveSessionId && nextRaw !== undefined) {
+        syncLiveSlidesSession(liveSessionId, nextSlides, nextRaw);
+      }
     },
     [
       selectedPlaylistId,
       selectedItemId,
-      currentPlaylistItem?.liveSlidesLinked,
-      currentPlaylistItem?.liveSlidesSessionId,
+      currentPlaylistItem,
       getLayoutForLineCount,
+      buildRawTextFromSlides,
+      syncLiveSlidesSession,
     ]
   );
 
@@ -1347,12 +1418,21 @@ const MainApplicationPage: React.FC = () => {
       alert("Please select a playlist and an item within it to add a slide.");
       return;
     }
+    if (!currentPlaylistItem) return;
     const newSlide: Slide = {
       id: `slide-${Date.now()}`,
       text: "New Slide", // Default text
       layout: layout,
-      order: (currentPlaylistItem?.slides.length || 0) + 1,
+      order: currentPlaylistItem.slides.length + 1,
     };
+    const isLiveSlidesItem =
+      !!currentPlaylistItem.liveSlidesSessionId &&
+      (currentPlaylistItem.liveSlidesLinked ?? true);
+    const liveSessionId = currentPlaylistItem.liveSlidesSessionId;
+    const nextSlides = [...currentPlaylistItem.slides, newSlide];
+    const nextRaw = isLiveSlidesItem
+      ? buildRawTextFromSlides(nextSlides)
+      : undefined;
 
     setPlaylists((prevPlaylists) =>
       prevPlaylists.map((p) => {
@@ -1363,7 +1443,10 @@ const MainApplicationPage: React.FC = () => {
               if (item.id === selectedItemId) {
                 return {
                   ...item,
-                  slides: [...item.slides, newSlide],
+                  slides: nextSlides,
+                  liveSlidesCachedRawText: isLiveSlidesItem
+                    ? nextRaw
+                    : item.liveSlidesCachedRawText,
                 };
               }
               return item;
@@ -1373,6 +1456,9 @@ const MainApplicationPage: React.FC = () => {
         return p;
       })
     );
+    if (isLiveSlidesItem && liveSessionId && nextRaw !== undefined) {
+      syncLiveSlidesSession(liveSessionId, nextSlides, nextRaw);
+    }
     // Optionally, you might want to auto-select the new slide for editing
     // This would require passing setEditingSlideId and setEditingLines down or a callback
   };
@@ -1382,6 +1468,17 @@ const MainApplicationPage: React.FC = () => {
       alert("Cannot delete slide: No playlist or item selected.");
       return;
     }
+    if (!currentPlaylistItem) return;
+    const isLiveSlidesItem =
+      !!currentPlaylistItem.liveSlidesSessionId &&
+      (currentPlaylistItem.liveSlidesLinked ?? true);
+    const liveSessionId = currentPlaylistItem.liveSlidesSessionId;
+    const nextSlides = currentPlaylistItem.slides
+      .filter((s) => s.id !== slideIdToDelete)
+      .map((s, index) => ({ ...s, order: index + 1 }));
+    const nextRaw = isLiveSlidesItem
+      ? buildRawTextFromSlides(nextSlides)
+      : undefined;
     setPlaylists((prevPlaylists) =>
       prevPlaylists.map((p) => {
         if (p.id === selectedPlaylistId) {
@@ -1391,9 +1488,10 @@ const MainApplicationPage: React.FC = () => {
               if (item.id === selectedItemId) {
                 return {
                   ...item,
-                  slides: item.slides
-                    .filter((s) => s.id !== slideIdToDelete)
-                    .map((s, index) => ({ ...s, order: index + 1 })), // Re-order remaining slides
+                  slides: nextSlides, // Re-order remaining slides
+                  liveSlidesCachedRawText: isLiveSlidesItem
+                    ? nextRaw
+                    : item.liveSlidesCachedRawText,
                 };
               }
               return item;
@@ -1403,6 +1501,9 @@ const MainApplicationPage: React.FC = () => {
         return p;
       })
     );
+    if (isLiveSlidesItem && liveSessionId && nextRaw !== undefined) {
+      syncLiveSlidesSession(liveSessionId, nextSlides, nextRaw);
+    }
   };
 
   const handleChangeSlideLayout = (
@@ -1548,6 +1649,13 @@ const MainApplicationPage: React.FC = () => {
     correctedSlideIds?: string[]
   ) => {
     if (!selectedPlaylistId || !currentPlaylistItem) return;
+    const isLiveSlidesItem =
+      !!currentPlaylistItem.liveSlidesSessionId &&
+      (currentPlaylistItem.liveSlidesLinked ?? true);
+    const liveSessionId = currentPlaylistItem.liveSlidesSessionId;
+    const nextRaw = isLiveSlidesItem
+      ? buildRawTextFromSlides(updatedSlides)
+      : undefined;
 
     setPlaylists((prevPlaylists) =>
       prevPlaylists.map((p) => {
@@ -1559,6 +1667,9 @@ const MainApplicationPage: React.FC = () => {
                 return {
                   ...item,
                   slides: updatedSlides,
+                  liveSlidesCachedRawText: isLiveSlidesItem
+                    ? nextRaw
+                    : item.liveSlidesCachedRawText,
                 };
               }
               return item;
@@ -1568,6 +1679,10 @@ const MainApplicationPage: React.FC = () => {
         return p;
       })
     );
+
+    if (isLiveSlidesItem && liveSessionId && nextRaw !== undefined) {
+      syncLiveSlidesSession(liveSessionId, updatedSlides, nextRaw);
+    }
 
     // Set corrected slide IDs for visual indicator
     if (correctedSlideIds && correctedSlideIds.length > 0) {
@@ -1757,15 +1872,6 @@ const MainApplicationPage: React.FC = () => {
     });
   };
 
-  const buildRawTextFromSlides = (slides: Slide[]): string => {
-    return slides
-      .slice()
-      .sort((a, b) => a.order - b.order)
-      .map((s) => (s.text || "").trim())
-      .filter((t) => t.length > 0)
-      .join("\n\n");
-  };
-
   const handleResumeCurrentLiveSlidesSession = async () => {
     if (!currentPlaylist || !currentPlaylistItem?.liveSlidesSessionId) return;
 
@@ -1802,14 +1908,19 @@ const MainApplicationPage: React.FC = () => {
         return;
       }
 
-      // Create a fresh session and seed it with our cached content.
-      const session = await createLiveSlideSession(currentPlaylistItem.title);
-
+      const existingSession = info.sessions?.[sessionId];
       const seedRaw = currentPlaylistItem.liveSlidesCachedRawText?.trim().length
         ? currentPlaylistItem.liveSlidesCachedRawText
         : buildRawTextFromSlides(currentPlaylistItem.slides);
 
-      // Update item to point at new session id (so future reconnects + WS updates work).
+      let activeSessionId = sessionId;
+      if (!existingSession) {
+        // Create a fresh session when the server doesn't have this one.
+        const session = await createLiveSlideSession(currentPlaylistItem.title);
+        activeSessionId = session.id;
+      }
+
+      // Update item to point at the active session and cache our local copy.
       setPlaylists((prev) =>
         prev.map((p) => {
           if (p.id !== currentPlaylist.id) return p;
@@ -1819,7 +1930,7 @@ const MainApplicationPage: React.FC = () => {
               if (it.id !== currentPlaylistItem.id) return it;
               return {
                 ...it,
-                liveSlidesSessionId: session.id,
+                liveSlidesSessionId: activeSessionId,
                 liveSlidesLinked: true,
                 liveSlidesCachedRawText: seedRaw,
               };
@@ -1830,32 +1941,39 @@ const MainApplicationPage: React.FC = () => {
 
       // Seed the server via WS - ensure text is sent before notepad connects.
       const wsUrl = generateWebSocketUrl(info.local_ip, info.server_port);
-      const ws = new LiveSlidesWebSocket(wsUrl, session.id, "viewer");
-      liveSlidesWsMapRef.current.set(session.id, ws);
-      await ws.connect();
-
-      // Send the text update to seed the session
-      if (seedRaw.trim().length > 0) {
-        ws.sendTextUpdate(seedRaw);
-        // Give the server a moment to process the update before showing the URL
-        // This ensures the notepad will receive the pre-populated content when it connects
-        await new Promise((resolve) => setTimeout(resolve, 300));
+      let ws = liveSlidesWsMapRef.current.get(activeSessionId);
+      if (!ws) {
+        ws = new LiveSlidesWebSocket(wsUrl, activeSessionId, "viewer");
+        liveSlidesWsMapRef.current.set(activeSessionId, ws);
       }
+      await ws.connect().catch(() => {});
+
+      // Always push our local copy so the notepad mirrors the app after refresh.
+      ws.sendTextUpdate(seedRaw || "");
+      setLiveSlidesRawTextBySession((prev) => ({
+        ...prev,
+        [activeSessionId]: seedRaw || "",
+      }));
+
+      // Give the server a moment to process the update before showing the URL
+      // This ensures the notepad will receive the pre-populated content when it connects
+      await new Promise((resolve) => setTimeout(resolve, 300));
 
       // Store typing URL for this session
-      // Use the server port (which serves both HTTP and WebSocket) instead of hardcoded dev port
       const typingUrl = generateShareableNotepadUrl(
         info.local_ip,
-        settings.serverPort,
-        session.id
+        info.server_port,
+        activeSessionId
       );
       setLiveSlidesTypingUrls((prev) => ({
         ...prev,
-        [session.id]: typingUrl,
+        [activeSessionId]: typingUrl,
       }));
 
-      // Update server session IDs to include the new session
-      setLiveSlidesServerSessionIds((prev) => new Set(prev).add(session.id));
+      // Update server session IDs to include the new session if we created one
+      if (activeSessionId !== sessionId) {
+        setLiveSlidesServerSessionIds((prev) => new Set(prev).add(activeSessionId));
+      }
 
       // Show typing URL modal
       setTypingUrlModal({ url: typingUrl });
@@ -1871,8 +1989,8 @@ const MainApplicationPage: React.FC = () => {
       setCreatingLiveSlidesSessions((prev) => {
         const next = new Set(prev);
         next.delete(sessionId);
-        if (session.id !== sessionId) {
-          next.delete(session.id);
+        if (activeSessionId !== sessionId) {
+          next.delete(activeSessionId);
         }
         return next;
       });
@@ -1885,32 +2003,6 @@ const MainApplicationPage: React.FC = () => {
         return next;
       });
     }
-  };
-
-  const patchSlideIntoRawText = (
-    rawText: string,
-    slideOrder: number,
-    newSlideText: string
-  ): string => {
-    const safeLines = newSlideText
-      .split("\n")
-      // Avoid creating new slide boundaries from empty lines inside a slide.
-      .map((l) => l.trimEnd())
-      .filter((l) => l.trim() !== "");
-
-    const lines = rawText.split("\n");
-    const boundaries = calculateSlideBoundaries(rawText);
-    const boundary = boundaries.find((b) => b.slideIndex === slideOrder - 1);
-    if (!boundary) {
-      // If we can't find it, fallback to appending at the end as a best-effort.
-      const prefix = rawText.trim().length ? `${rawText.trimEnd()}\n\n` : "";
-      return `${prefix}${safeLines.join("\n")}`;
-    }
-
-    const before = lines.slice(0, boundary.startLine);
-    const after = lines.slice(boundary.endLine + 1);
-    const nextLines = [...before, ...safeLines, ...after];
-    return nextLines.join("\n");
   };
 
   const handleUpdateLiveSlidesSlide = async (
@@ -1927,26 +2019,13 @@ const MainApplicationPage: React.FC = () => {
     const slide = it.slides.find((s) => s.id === slideId);
     if (!slide) return;
 
-    const ws = liveSlidesWsMapRef.current.get(sid);
-    if (!ws) {
-      alert("Live Slides connection is not ready yet. Try again in a moment.");
-      return;
-    }
-    if (!ws.isConnected) {
-      // Best-effort: connect in the background; the WS client will queue messages until open.
-      ws.connect().catch(() => {});
-    }
-
     // Lock this slide while we patch + send.
     setLiveSlidesEditLockBySession((prev) => ({ ...prev, [sid]: slide.order }));
 
-    const baseRaw =
-      liveSlidesRawTextBySession[sid] &&
-      liveSlidesRawTextBySession[sid].trim().length
-        ? liveSlidesRawTextBySession[sid]
-        : buildRawTextFromSlides(it.slides);
-
-    const nextRaw = patchSlideIntoRawText(baseRaw, slide.order, newText);
+    const nextSlides = it.slides.map((s) =>
+      s.id === slideId ? { ...s, text: newText } : s
+    );
+    const nextRaw = buildRawTextFromSlides(nextSlides);
 
     // Optimistically update local slides (WS update will reconcile).
     setPlaylists((prev) =>
@@ -1958,17 +2037,14 @@ const MainApplicationPage: React.FC = () => {
             if (x.id !== itemId) return x;
             return {
               ...x,
-              slides: x.slides.map((s) =>
-                s.id === slideId ? { ...s, text: newText } : s
-              ),
+              slides: nextSlides,
+              liveSlidesCachedRawText: nextRaw,
             };
           }),
         };
       })
     );
-
-    setLiveSlidesRawTextBySession((prev) => ({ ...prev, [sid]: nextRaw }));
-    ws.sendTextUpdate(nextRaw);
+    syncLiveSlidesSession(sid, nextSlides, nextRaw);
 
     // Unlock after save; future updates can overwrite again.
     setLiveSlidesEditLockBySession((prev) => ({ ...prev, [sid]: null }));
