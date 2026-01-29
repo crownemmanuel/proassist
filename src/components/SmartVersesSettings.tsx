@@ -18,6 +18,7 @@ import {
   FaKey,
   FaSpinner,
   FaDesktop,
+  FaDownload,
   FaCheck,
   FaTimes,
   FaDatabase,
@@ -29,6 +30,12 @@ import {
   AudioCaptureMode,
   AVAILABLE_OFFLINE_MODELS,
 } from "../types/smartVerses";
+import {
+  NATIVE_WHISPER_MODELS,
+  NativeWhisperDownloadProgress,
+  downloadNativeWhisperModel,
+  isNativeWhisperModelDownloaded,
+} from "../services/nativeWhisperModelService";
 import OfflineModelManager from "./OfflineModelManager";
 import { getDownloadedModelIds, isModelDownloaded } from "../services/offlineModelService";
 import {
@@ -83,6 +90,21 @@ const SmartVersesSettings: React.FC = () => {
   const [downloadedModelIds, setDownloadedModelIds] = useState<string[]>([]);
   const [offlineModelLoad, setOfflineModelLoad] =
     useState<OfflineModelPreloadStatus | null>(null);
+  const [nativeWhisperDownload, setNativeWhisperDownload] =
+    useState<NativeWhisperDownloadProgress | null>(null);
+  const [nativeWhisperDownloading, setNativeWhisperDownloading] =
+    useState<boolean>(false);
+  const [nativeWhisperDownloadError, setNativeWhisperDownloadError] =
+    useState<string | null>(null);
+  const [nativeWhisperDownloaded, setNativeWhisperDownloaded] = useState<
+    Record<string, boolean>
+  >({});
+  const [showTranscriptFilterDialog, setShowTranscriptFilterDialog] =
+    useState(false);
+  const [transcriptFilterDraft, setTranscriptFilterDraft] = useState("");
+
+  const isMac =
+    typeof navigator !== "undefined" && navigator.userAgent.includes("Mac");
 
 
   // ProPresenter activation state
@@ -151,6 +173,87 @@ const SmartVersesSettings: React.FC = () => {
     const unsubscribe = subscribeOfflineModelPreload(setOfflineModelLoad);
     return unsubscribe;
   }, []);
+
+  useEffect(() => {
+    if (settings.transcriptionEngine !== "offline-whisper-native") return;
+    if (settings.offlineLanguage === "en") return;
+    setSettings((prev) => ({ ...prev, offlineLanguage: "en" }));
+  }, [settings.transcriptionEngine, settings.offlineLanguage]);
+
+  useEffect(() => {
+    if (!settingsLoaded) return;
+
+    if (isMac && settings.transcriptionEngine === "offline-whisper") {
+      setSettings((prev) => ({
+        ...prev,
+        transcriptionEngine: "offline-whisper-native",
+      }));
+    } else if (!isMac && settings.transcriptionEngine === "offline-whisper-native") {
+      setSettings((prev) => ({
+        ...prev,
+        transcriptionEngine: "offline-whisper",
+      }));
+    }
+  }, [settingsLoaded, isMac, settings.transcriptionEngine]);
+
+  const refreshNativeWhisperDownloaded = useCallback(async () => {
+    if (!isMac) return;
+
+    try {
+      const entries = await Promise.all(
+        NATIVE_WHISPER_MODELS.map(async (model) => ({
+          fileName: model.fileName,
+          downloaded: await isNativeWhisperModelDownloaded(model.fileName),
+        }))
+      );
+      const next: Record<string, boolean> = {};
+      entries.forEach((entry) => {
+        next[entry.fileName] = entry.downloaded;
+      });
+      setNativeWhisperDownloaded(next);
+    } catch {
+      // ignore
+    }
+  }, [isMac]);
+
+  const handleNativeWhisperDownload = async (
+    fileName: string
+  ): Promise<void> => {
+    const model = NATIVE_WHISPER_MODELS.find((m) => m.fileName === fileName);
+    if (!model || nativeWhisperDownloading) return;
+
+    setNativeWhisperDownloadError(null);
+    setNativeWhisperDownloading(true);
+    setNativeWhisperDownload(null);
+
+    try {
+      await downloadNativeWhisperModel(model, {
+        onProgress: (progress) => {
+          setNativeWhisperDownload(progress);
+        },
+        onComplete: () => {
+          setNativeWhisperDownloaded((prev) => ({
+            ...prev,
+            [model.fileName]: true,
+          }));
+          refreshNativeWhisperDownloaded();
+        },
+        onError: (error) => {
+          setNativeWhisperDownloadError(error.message);
+        },
+      });
+    } catch (error) {
+      setNativeWhisperDownloadError(
+        error instanceof Error ? error.message : "Download failed"
+      );
+    } finally {
+      setNativeWhisperDownloading(false);
+    }
+  };
+
+  useEffect(() => {
+    refreshNativeWhisperDownloaded();
+  }, [refreshNativeWhisperDownloaded]);
 
   useEffect(() => {
     if (!settingsLoaded) return;
@@ -432,6 +535,26 @@ const SmartVersesSettings: React.FC = () => {
     setSaveMessage(null);
   };
 
+  const DEFAULT_TRANSCRIPT_FILTERS = ["[BLANK_AUDIO]", "[INAUDIBLE]"];
+
+  const openTranscriptFilterDialog = () => {
+    const phrases =
+      settings.transcriptFilterPhrases && settings.transcriptFilterPhrases.length > 0
+        ? settings.transcriptFilterPhrases
+        : DEFAULT_TRANSCRIPT_FILTERS;
+    setTranscriptFilterDraft(phrases.join("\n"));
+    setShowTranscriptFilterDialog(true);
+  };
+
+  const handleSaveTranscriptFilters = () => {
+    const phrases = transcriptFilterDraft
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+    handleChange("transcriptFilterPhrases", phrases);
+    setShowTranscriptFilterDialog(false);
+  };
+
   // Handle Get Slide from ProPresenter
   const handleGetSlide = async () => {
     setIsLoadingSlide(true);
@@ -577,6 +700,8 @@ const SmartVersesSettings: React.FC = () => {
 
   const selectedWhisperModelId =
     settings.offlineWhisperModel || "onnx-community/whisper-base";
+  const selectedNativeWhisperModel =
+    settings.offlineWhisperNativeModel || "ggml-small.en-q5_1.bin";
   const selectedMoonshineModelId =
     settings.offlineMoonshineModel || "onnx-community/moonshine-base-ONNX";
 
@@ -670,6 +795,54 @@ const SmartVersesSettings: React.FC = () => {
     );
   };
 
+  const renderNativeDownloadStatus = (
+    status: NativeWhisperDownloadProgress | null
+  ) => {
+    if (!status && !nativeWhisperDownloadError) return null;
+
+    const progress = Math.max(0, Math.min(100, status?.progress || 0));
+    return (
+      <div
+        style={{
+          marginTop: "var(--spacing-2)",
+          padding: "var(--spacing-2)",
+          borderRadius: "8px",
+          border: "1px solid var(--app-border-color)",
+          backgroundColor: "var(--app-input-bg-color)",
+        }}
+      >
+        <div style={{ fontSize: "0.85rem", marginBottom: "var(--spacing-1)" }}>
+          {nativeWhisperDownloading
+            ? `Downloading native model... ${progress.toFixed(1)}%`
+            : "Native model download"}
+        </div>
+        <div
+          style={{
+            height: "6px",
+            backgroundColor: "var(--app-bg-color)",
+            borderRadius: "4px",
+            overflow: "hidden",
+          }}
+        >
+          <div
+            style={{
+              height: "100%",
+              width: `${progress}%`,
+              backgroundColor: "var(--app-primary-color)",
+              borderRadius: "4px",
+              transition: "width 0.3s ease",
+            }}
+          />
+        </div>
+        {nativeWhisperDownloadError && (
+          <p style={{ ...helpTextStyle, color: "var(--danger)" }}>
+            {nativeWhisperDownloadError}
+          </p>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div style={{ maxWidth: "800px" }}>
       <h2 style={{ marginBottom: "var(--spacing-4)" }}>SmartVerses Settings</h2>
@@ -707,8 +880,15 @@ const SmartVersesSettings: React.FC = () => {
               <option value="groq">Groq Whisper (Experimental)</option>
             </optgroup>
             <optgroup label="Offline (runs locally)">
-              <option value="offline-moonshine">Moonshine Offline (More Stable)</option>
-              <option value="offline-whisper">Whisper Offline (Experimental)</option>
+              <option value="offline-moonshine">Moonshine Offline (Experimental)</option>
+              {isMac && (
+                <option value="offline-whisper-native">
+                  Whisper Offline Mac (Recommended)
+                </option>
+              )}
+              {!isMac && (
+                <option value="offline-whisper">Whisper Offline (Recommended)</option>
+              )}
             </optgroup>
             <optgroup label="Coming Soon">
               <option value="elevenlabs" disabled>
@@ -724,6 +904,8 @@ const SmartVersesSettings: React.FC = () => {
               ? "AssemblyAI provides high-accuracy real-time transcription."
               : settings.transcriptionEngine === "groq"
               ? "Groq provides ultra-fast transcription using Whisper models. (Experimental)"
+              : settings.transcriptionEngine === "offline-whisper-native"
+              ? "Mac native Whisper runs in the Tauri backend with Metal acceleration for faster local transcription."
               : settings.transcriptionEngine === "offline-whisper"
               ? "Whisper Offline runs entirely on your device - no internet required after model download. (Experimental)"
               : settings.transcriptionEngine === "offline-moonshine"
@@ -734,6 +916,7 @@ const SmartVersesSettings: React.FC = () => {
 
         {/* Offline Model Settings */}
         {(settings.transcriptionEngine === "offline-whisper" ||
+          settings.transcriptionEngine === "offline-whisper-native" ||
           settings.transcriptionEngine === "offline-moonshine") && (
           <div
             style={{
@@ -755,19 +938,115 @@ const SmartVersesSettings: React.FC = () => {
               <h4 style={{ margin: 0, fontSize: "0.95rem" }}>
                 Offline Model Settings
               </h4>
-              <button
-                onClick={() => setShowModelManager(true)}
-                className="secondary btn-sm"
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "4px",
-                }}
-              >
-                <FaDatabase size={12} />
-                Manage Models
-              </button>
+              {(settings.transcriptionEngine === "offline-whisper" ||
+                settings.transcriptionEngine === "offline-whisper-native" ||
+                settings.transcriptionEngine === "offline-moonshine") && (
+                <button
+                  onClick={() => setShowModelManager(true)}
+                  className="secondary btn-sm"
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "4px",
+                  }}
+                >
+                  <FaDatabase size={12} />
+                  Manage Models
+                </button>
+              )}
             </div>
+
+            {settings.transcriptionEngine === "offline-whisper-native" && (
+              <>
+                <div style={fieldStyle}>
+                  <label style={labelStyle}>Native Whisper Model</label>
+                  <select
+                    value={selectedNativeWhisperModel}
+                    onChange={(e) =>
+                      handleChange("offlineWhisperNativeModel", e.target.value)
+                    }
+                    style={inputStyle}
+                  >
+                    {NATIVE_WHISPER_MODELS.map((model) => {
+                      const isDownloaded = !!nativeWhisperDownloaded[model.fileName];
+                      const isRecommended = model.tier === "medium";
+                      
+                      // Get description based on model tier
+                      let description = "";
+                      if (model.tier === "small") {
+                        description = " - Fastest, less accurate";
+                      } else if (model.tier === "medium") {
+                        description = " - Decent accuracy";
+                      } else if (model.tier === "large") {
+                        description = " - Most accurate, slower";
+                      }
+                      
+                      return (
+                        <option key={model.id} value={model.fileName}>
+                          {model.name}{description}
+                          {isRecommended ? " (Recommended)" : ""} ({model.size})
+                          {isDownloaded ? " ✓" : " - Not Downloaded"}
+                        </option>
+                      );
+                    })}
+                  </select>
+                  {!nativeWhisperDownloaded[selectedNativeWhisperModel] && (
+                    <p
+                      style={{
+                        ...helpTextStyle,
+                        color: "var(--warning)",
+                        marginTop: "var(--spacing-2)",
+                      }}
+                    >
+                      Selected native model is not downloaded. Use "Manage Models"
+                      or click Download below.
+                    </p>
+                  )}
+                  {renderNativeDownloadStatus(nativeWhisperDownload)}
+                  {!nativeWhisperDownloaded[selectedNativeWhisperModel] && (
+                    <div style={{ marginTop: "var(--spacing-2)" }}>
+                      <button
+                        onClick={() =>
+                          handleNativeWhisperDownload(selectedNativeWhisperModel)
+                        }
+                        className="primary btn-sm"
+                        disabled={nativeWhisperDownloading}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "6px",
+                        }}
+                      >
+                        {nativeWhisperDownloading ? (
+                          <>
+                            <FaSpinner
+                              size={12}
+                              style={{ animation: "spin 1s linear infinite" }}
+                            />
+                            Downloading...
+                          </>
+                        ) : (
+                          <>
+                            <FaDownload size={12} />
+                            Download
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                <div style={fieldStyle}>
+                  <label style={labelStyle}>Language</label>
+                  <select value="en" style={inputStyle} disabled>
+                    <option value="en">English</option>
+                  </select>
+                  <p style={helpTextStyle}>
+                    Native models are English-only for now.
+                  </p>
+                </div>
+              </>
+            )}
 
             {settings.transcriptionEngine === "offline-whisper" && (
               <>
@@ -785,9 +1064,20 @@ const SmartVersesSettings: React.FC = () => {
                         const isDownloaded = downloadedModelIds.includes(model.modelId);
                         const isRecommended =
                           model.modelId === "onnx-community/whisper-base";
+                        
+                        // Get description based on model ID
+                        let description = "";
+                        if (model.id === "whisper-small") {
+                          description = " - Most accurate";
+                        } else if (model.id === "whisper-base") {
+                          description = " - Average accuracy";
+                        } else if (model.id === "whisper-tiny-en") {
+                          description = " - Fastest, less accurate";
+                        }
+                        
                         return (
                           <option key={model.id} value={model.modelId}>
-                            {model.name}
+                            {model.name}{description}
                             {isRecommended ? " (Recommended)" : ""} ({model.size})
                             {isDownloaded ? " ✓" : " - Not Downloaded"}
                           </option>
@@ -856,9 +1146,18 @@ const SmartVersesSettings: React.FC = () => {
                   {AVAILABLE_OFFLINE_MODELS.filter((m) => m.type === "moonshine").map(
                     (model) => {
                       const isDownloaded = downloadedModelIds.includes(model.modelId);
+                      
+                      // Get description based on model ID
+                      let description = "";
+                      if (model.id === "moonshine-base") {
+                        description = " - More accurate, slower";
+                      } else if (model.id === "moonshine-tiny") {
+                        description = " - Fastest, less accurate";
+                      }
+                      
                       return (
                         <option key={model.id} value={model.modelId}>
-                          {model.name} ({model.size})
+                          {model.name}{description} ({model.size})
                           {isDownloaded ? " ✓" : " - Not Downloaded"}
                         </option>
                       );
@@ -983,15 +1282,30 @@ const SmartVersesSettings: React.FC = () => {
             style={inputStyle}
             disabled={settings.remoteTranscriptionEnabled}
           >
-            <option value="webrtc">WebView (WebRTC) — simplest</option>
             <option value="native">
-              Native (CoreAudio/WASAPI) — recommended
+              Core Audio (Recommended)
             </option>
+            <option value="webrtc">WebRTC</option>
           </select>
           <p style={helpTextStyle}>
-            Native capture helps when macOS WKWebView doesn't expose some
-            virtual devices (Teams/Zoom/etc).
+            Choose what audio engine to use. Core Audio is recommended, unless
+            you have a good reason to switch this.
           </p>
+        </div>
+
+        <div style={fieldStyle}>
+          <label style={labelStyle}>Transcript Filters</label>
+          <p style={helpTextStyle}>
+            Hide noisy placeholder captions like [BLANK_AUDIO] or [INAUDIBLE] from
+            the transcript display. One phrase per line.
+          </p>
+          <button
+            onClick={openTranscriptFilterDialog}
+            className="secondary btn-sm"
+            style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}
+          >
+            Edit transcript filters
+          </button>
         </div>
 
         <div style={fieldStyle}>
@@ -1976,12 +2290,83 @@ const SmartVersesSettings: React.FC = () => {
         onModelDownloaded={() => {
           // Refresh downloaded models list
           setDownloadedModelIds(getDownloadedModelIds());
+          refreshNativeWhisperDownloaded();
         }}
         onModelDeleted={() => {
           // Refresh downloaded models list
           setDownloadedModelIds(getDownloadedModelIds());
+          refreshNativeWhisperDownloaded();
         }}
       />
+
+      {showTranscriptFilterDialog && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          style={{
+            position: "fixed",
+            inset: 0,
+            backgroundColor: "rgba(0, 0, 0, 0.6)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1200,
+          }}
+          onClick={(e) => e.target === e.currentTarget && setShowTranscriptFilterDialog(false)}
+        >
+          <div
+            style={{
+              width: "90%",
+              maxWidth: "520px",
+              backgroundColor: "var(--app-bg-color)",
+              borderRadius: "12px",
+              border: "1px solid var(--app-border-color)",
+              padding: "var(--spacing-4)",
+              display: "grid",
+              gap: "var(--spacing-3)",
+            }}
+          >
+            <div style={{ fontWeight: 700, fontSize: "1rem" }}>
+              Transcript Filters
+            </div>
+            <div style={{ fontSize: "0.85rem", color: "var(--app-text-color-secondary)" }}>
+              Enter one phrase per line. Matching transcript-only lines will be
+              hidden from the display.
+            </div>
+            <textarea
+              value={transcriptFilterDraft}
+              onChange={(e) => setTranscriptFilterDraft(e.target.value)}
+              rows={8}
+              style={{
+                width: "100%",
+                resize: "vertical",
+                padding: "10px 12px",
+                borderRadius: "8px",
+                border: "1px solid var(--app-border-color)",
+                backgroundColor: "var(--app-input-bg-color)",
+                color: "var(--app-input-text-color)",
+                fontSize: "0.9rem",
+              }}
+            />
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px" }}>
+              <button
+                onClick={() => setShowTranscriptFilterDialog(false)}
+                className="secondary"
+                style={{ padding: "8px 12px" }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveTranscriptFilters}
+                className="primary"
+                style={{ padding: "8px 12px" }}
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

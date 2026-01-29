@@ -15,7 +15,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { invoke } from "@tauri-apps/api/core";
-import { FaMicrophone, FaStop, FaPaperPlane, FaRobot, FaPlay, FaSearch, FaChevronDown, FaChevronUp, FaTrash, FaStopCircle, FaExternalLinkAlt, FaEllipsisH, FaDownload, FaSpinner, FaCog } from "react-icons/fa";
+import { FaMicrophone, FaStop, FaPaperPlane, FaRobot, FaPlay, FaSearch, FaChevronDown, FaChevronUp, FaTrash, FaStopCircle, FaExternalLinkAlt, FaDownload, FaSpinner, FaCog } from "react-icons/fa";
 import {
   SmartVersesSettings,
   SmartVersesChatMessage,
@@ -43,6 +43,7 @@ import {
   ITranscriptionService,
 } from "../services/transcriptionService";
 import { isModelDownloaded } from "../services/offlineModelService";
+import { isNativeWhisperModelDownloaded } from "../services/nativeWhisperModelService";
 import { getOfflineModelPreloadStatus } from "../services/offlineModelPreloadService";
 import {
   analyzeTranscriptChunk,
@@ -60,6 +61,9 @@ import { broadcastTranscriptionStreamMessage } from "../services/transcriptionBr
 import { LiveSlidesWebSocket, getLiveSlidesServerInfo } from "../services/liveSlideService";
 import { getAssemblyAITemporaryToken } from "../services/assemblyaiTokenService";
 import { WsTranscriptionStream } from "../types/liveSlides";
+import { mapAudioLevel } from "../utils/audioMeter";
+import { saveTranscriptFile } from "../utils/transcriptDownload";
+import TranscriptOptionsMenu from "../components/transcription/TranscriptOptionsMenu";
 import "../App.css";
 
 // =============================================================================
@@ -114,6 +118,15 @@ const DEFAULT_TRANSCRIPT_DISPLAY_OPTIONS: TranscriptDisplayOptions = {
   showScriptureRefs: true,
   showKeyPoints: false,
 };
+
+const normalizeTranscriptMarker = (value: string): string =>
+  value
+    .trim()
+    .toLowerCase()
+    .replace(/^[\[(]+/, "")
+    .replace(/[\])]+$/, "")
+    .replace(/\s+/g, " ")
+    .trim();
 
 function loadTranscriptDisplayOptions(): TranscriptDisplayOptions {
   try {
@@ -249,6 +262,7 @@ function renderHighlightedVerseText(
 // MAIN COMPONENT
 // =============================================================================
 
+
 const SmartVersesPage: React.FC = () => {
   // Settings
   const [settings, setSettings] = useState<SmartVersesSettings>(DEFAULT_SMART_VERSES_SETTINGS);
@@ -268,6 +282,7 @@ const SmartVersesPage: React.FC = () => {
   const [detectedReferences, setDetectedReferences] = useState<DetectedBibleReference[]>([]);
   const [transcriptKeyPoints, setTranscriptKeyPoints] = useState<Record<string, KeyPoint[]>>({});
   const [audioLevel, setAudioLevel] = useState(0);
+  const audioLevelRef = useRef(0);
   const [transcriptionElapsedMs, setTranscriptionElapsedMs] = useState(0);
   const [showTranscriptionLimitPrompt, setShowTranscriptionLimitPrompt] = useState(false);
   const transcriptionServiceRef = useRef<ITranscriptionService | null>(null);
@@ -289,6 +304,8 @@ const SmartVersesPage: React.FC = () => {
   const lastInterimParseAtRef = useRef<number>(0);
   const interimParseInFlightRef = useRef<boolean>(false);
   const lastInterimWordCountRef = useRef<number>(0);
+  const pendingInterimUiTextRef = useRef<string>("");
+  const interimUiTimerRef = useRef<number | null>(null);
 
   // Compact detected references UI state
   const [detectedPanelCollapsed, setDetectedPanelCollapsed] = useState(false);
@@ -537,6 +554,46 @@ const SmartVersesPage: React.FC = () => {
     [getInterimTailForParsing, shouldAttemptDirectParse]
   );
 
+  const queueInterimUiUpdate = useCallback(
+    (text: string) => {
+      pendingInterimUiTextRef.current = text;
+      if (interimUiTimerRef.current) return;
+
+      interimUiTimerRef.current = window.setTimeout(() => {
+        interimUiTimerRef.current = null;
+        const latest = pendingInterimUiTextRef.current;
+        setInterimTranscript(latest);
+
+        emitTranscriptionStream({
+          type: "transcription_stream",
+          kind: "interim",
+          timestamp: Date.now(),
+          engine: settings.transcriptionEngine,
+          text: latest,
+          audio_level: audioLevelRef.current,
+        });
+
+        if (settings.streamTranscriptionsToWebSocket) {
+          broadcastTranscriptionStreamMessage({
+            type: "transcription_stream",
+            kind: "interim",
+            timestamp: Date.now(),
+            engine: settings.transcriptionEngine,
+            text: latest,
+            audio_level: audioLevelRef.current,
+          }).catch(() => {
+            // If Live Slides server isn't running, silently ignore.
+          });
+        }
+      }, 250);
+    },
+    [
+      emitTranscriptionStream,
+      settings.streamTranscriptionsToWebSocket,
+      settings.transcriptionEngine,
+    ]
+  );
+
   // Scroll to bottom of chat
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -595,72 +652,147 @@ const SmartVersesPage: React.FC = () => {
     setTranscriptMenuOpen(false);
   }, [navigate]);
 
+  const transcriptFilterPhrases = useMemo(() => {
+    if (settings.transcriptFilterPhrases && settings.transcriptFilterPhrases.length > 0) {
+      return settings.transcriptFilterPhrases;
+    }
+    return ["[BLANK_AUDIO]", "[INAUDIBLE]"];
+  }, [settings.transcriptFilterPhrases]);
+
+  const transcriptFilterSet = useMemo(() => {
+    return new Set(
+      transcriptFilterPhrases.map((phrase) => normalizeTranscriptMarker(phrase))
+    );
+  }, [transcriptFilterPhrases]);
+
+  const isMusicMarker = useCallback((text: string): boolean => {
+    const trimmed = text.trim();
+    if (!trimmed) return false;
+    const isBracketed = /^\s*[\[(].*[\])]\s*\.?\s*$/.test(trimmed);
+    if (!isBracketed) return false;
+    return normalizeTranscriptMarker(trimmed).includes("music");
+  }, []);
+
+  const shouldHideTranscriptText = useCallback(
+    (text: string): boolean => {
+      if (!text.trim()) return false;
+      const normalized = normalizeTranscriptMarker(text);
+      return transcriptFilterSet.has(normalized);
+    },
+    [transcriptFilterSet]
+  );
+
   const filteredTranscriptHistory = useMemo(() => {
     const query = transcriptSearchQuery.trim().toLowerCase();
-    if (!query) return transcriptHistory;
-    return transcriptHistory.filter((segment) =>
-      segment.text.toLowerCase().includes(query)
-    );
-  }, [transcriptHistory, transcriptSearchQuery]);
+    const results: TranscriptionSegment[] = [];
+    let lastWasMusic = false;
+
+    for (const segment of transcriptHistory) {
+      const text = segment.text || "";
+      if (shouldHideTranscriptText(text)) {
+        continue;
+      }
+
+      const isMusic = isMusicMarker(text);
+      if (isMusic && lastWasMusic) {
+        continue;
+      }
+      lastWasMusic = isMusic;
+
+      if (query && !text.toLowerCase().includes(query)) {
+        continue;
+      }
+      results.push(segment);
+    }
+
+    return results;
+  }, [
+    transcriptHistory,
+    transcriptSearchQuery,
+    shouldHideTranscriptText,
+    isMusicMarker,
+  ]);
 
   const matchesInterimSearch = useMemo(() => {
     const query = transcriptSearchQuery.trim().toLowerCase();
-    if (!query) return !!interimTranscript;
+    if (!interimTranscript) return false;
+    if (shouldHideTranscriptText(interimTranscript)) return false;
+    if (
+      isMusicMarker(interimTranscript) &&
+      filteredTranscriptHistory.length > 0 &&
+      isMusicMarker(filteredTranscriptHistory[filteredTranscriptHistory.length - 1].text)
+    ) {
+      return false;
+    }
+    if (!query) return true;
     return interimTranscript.toLowerCase().includes(query);
-  }, [interimTranscript, transcriptSearchQuery]);
+  }, [
+    interimTranscript,
+    transcriptSearchQuery,
+    filteredTranscriptHistory,
+    shouldHideTranscriptText,
+    isMusicMarker,
+  ]);
 
   const handleDownloadTranscript = useCallback(
-    (format: "text" | "json") => {
+    async (format: "text" | "json") => {
       const combined = [
         ...transcriptHistory.map((s) => s.text),
         ...(interimTranscript ? [interimTranscript] : []),
       ].filter(Boolean);
 
+      const defaultBaseName = `transcript-${new Date().toISOString().slice(0, 19).replace(/:/g, "-")}`;
+
       if (format === "text") {
         const content = combined.join("\n\n");
-        const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `transcript-${new Date().toISOString().slice(0, 19)}.txt`;
-        a.click();
-        URL.revokeObjectURL(url);
-      } else {
-        const directReferences = detectedReferences.filter(
-          (ref) => ref.source === "direct"
-        );
-        const paraphraseReferences = detectedReferences.filter(
-          (ref) => ref.source === "paraphrase"
-        );
-        const segments = transcriptHistory.map((segment) => {
-          const segmentRefs = detectedReferences.filter(
-            (ref) => ref.transcriptText === segment.text
-          );
-          const keyPoints = transcriptKeyPoints[segment.id];
-          return {
-            ...segment,
-            references: segmentRefs.length ? segmentRefs : undefined,
-            keyPoints: keyPoints?.length ? keyPoints : undefined,
-          };
+        const result = await saveTranscriptFile({
+          content,
+          defaultBaseName,
+          extension: "txt",
+          mimeType: "text/plain;charset=utf-8",
+          filterName: "Text",
         });
-        const payload = {
-          generatedAt: new Date().toISOString(),
-          segments,
-          interim: interimTranscript || null,
-          references: {
-            direct: directReferences,
-            paraphrase: paraphraseReferences,
-          },
+        if (result.status === "failed") {
+          alert(`Could not save transcript: ${result.error}`);
+        }
+        return;
+      }
+
+      const directReferences = detectedReferences.filter(
+        (ref) => ref.source === "direct"
+      );
+      const paraphraseReferences = detectedReferences.filter(
+        (ref) => ref.source === "paraphrase"
+      );
+      const segments = transcriptHistory.map((segment) => {
+        const segmentRefs = detectedReferences.filter(
+          (ref) => ref.transcriptText === segment.text
+        );
+        const keyPoints = transcriptKeyPoints[segment.id];
+        return {
+          ...segment,
+          references: segmentRefs.length ? segmentRefs : undefined,
+          keyPoints: keyPoints?.length ? keyPoints : undefined,
         };
-        const blob = new Blob([JSON.stringify(payload, null, 2)], {
-          type: "application/json;charset=utf-8",
-        });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `transcript-${new Date().toISOString().slice(0, 19)}.json`;
-        a.click();
-        URL.revokeObjectURL(url);
+      });
+      const payload = {
+        generatedAt: new Date().toISOString(),
+        segments,
+        interim: interimTranscript || null,
+        references: {
+          direct: directReferences,
+          paraphrase: paraphraseReferences,
+        },
+      };
+      const result = await saveTranscriptFile({
+        content: JSON.stringify(payload, null, 2),
+        defaultBaseName,
+        extension: "json",
+        mimeType: "application/json;charset=utf-8",
+        filterName: "JSON",
+      });
+      if (result.status === "failed") {
+        alert(`Could not save transcript: ${result.error}`);
       }
     },
     [transcriptHistory, interimTranscript, detectedReferences, transcriptKeyPoints]
@@ -1424,6 +1556,7 @@ const SmartVersesPage: React.FC = () => {
                 timestamp: m.timestamp || Date.now(),
                 engine: m.engine || settings.transcriptionEngine,
                 text: m.text,
+                audio_level: m.audio_level ?? audioLevelRef.current,
                 segment: m.segment as TranscriptionSegment | undefined,
                 scripture_references: scriptureReferences.length ? scriptureReferences : undefined,
                 key_points: wsKeyPoints,
@@ -1501,6 +1634,18 @@ const SmartVersesPage: React.FC = () => {
       }
     }
 
+    if (settings.transcriptionEngine === "offline-whisper-native") {
+      const fileName =
+        settings.offlineWhisperNativeModel || "ggml-small.en-q5_1.bin";
+      const isDownloaded = await isNativeWhisperModelDownloaded(fileName);
+      if (!isDownloaded) {
+        alert(
+          "The selected native Whisper model is not downloaded yet. Go to Settings > SmartVerses and download it first."
+        );
+        return;
+      }
+    }
+
     if (settings.transcriptionEngine === "offline-moonshine") {
       const modelId =
         settings.offlineMoonshineModel || "onnx-community/moonshine-base-ONNX";
@@ -1551,9 +1696,20 @@ const SmartVersesPage: React.FC = () => {
         settings,
         {
           onInterimTranscript: (text) => {
-            setInterimTranscript(text);
+            const isLocalEngine =
+              settings.transcriptionEngine === "offline-whisper-native" ||
+              settings.transcriptionEngine === "offline-whisper" ||
+              settings.transcriptionEngine === "offline-moonshine";
+
             // Fast local parsing for direct references (no AI) so refs can appear sooner.
             scheduleInterimDirectParse(text);
+
+            if (isLocalEngine) {
+              queueInterimUiUpdate(text);
+              return;
+            }
+
+            setInterimTranscript(text);
 
             emitTranscriptionStream({
               type: "transcription_stream",
@@ -1561,6 +1717,7 @@ const SmartVersesPage: React.FC = () => {
               timestamp: Date.now(),
               engine: settings.transcriptionEngine,
               text,
+              audio_level: audioLevelRef.current,
             });
 
             if (settings.streamTranscriptionsToWebSocket) {
@@ -1570,6 +1727,7 @@ const SmartVersesPage: React.FC = () => {
                 timestamp: Date.now(),
                 engine: settings.transcriptionEngine,
                 text,
+                audio_level: audioLevelRef.current,
               }).catch(() => {
                 // If Live Slides server isn't running, silently ignore.
               });
@@ -1703,6 +1861,7 @@ const SmartVersesPage: React.FC = () => {
               timestamp: Date.now(),
               engine: settings.transcriptionEngine,
               text,
+              audio_level: audioLevelRef.current,
               segment,
               scripture_references: scriptureReferences.length
                 ? scriptureReferences
@@ -1720,6 +1879,7 @@ const SmartVersesPage: React.FC = () => {
                 timestamp: Date.now(),
                 engine: settings.transcriptionEngine,
                 text,
+                audio_level: audioLevelRef.current,
                 segment,
                 scripture_references: scriptureReferences.length ? scriptureReferences : undefined,
                 key_points: keyPoints.length ? keyPoints : undefined,
@@ -1746,7 +1906,9 @@ const SmartVersesPage: React.FC = () => {
             setAudioLevel(0);
           },
           onAudioLevel: (level) => {
-            setAudioLevel((prev) => prev * 0.65 + level * 0.35);
+            const mapped = mapAudioLevel(level);
+            audioLevelRef.current = mapped;
+            setAudioLevel((prev) => prev * 0.65 + mapped * 0.35);
           },
         }
       );
@@ -1768,7 +1930,14 @@ const SmartVersesPage: React.FC = () => {
       setTranscriptionStatus("error");
       alert(`Failed to start transcription: ${error instanceof Error ? error.message : "Unknown error"}`);
     }
-  }, [settings, appSettings, handleGoLive, emitTranscriptionStream]);
+  }, [
+    settings,
+    appSettings,
+    handleGoLive,
+    emitTranscriptionStream,
+    queueInterimUiUpdate,
+    scheduleInterimDirectParse,
+  ]);
 
   const handleStopTranscription = useCallback(async () => {
     setIsStopping(true);
@@ -1784,9 +1953,14 @@ const SmartVersesPage: React.FC = () => {
       disconnectBrowserTranscriptionWs();
     disconnectRemoteTranscriptionWs();
       latestInterimTextRef.current = "";
+      pendingInterimUiTextRef.current = "";
       lastInterimDirectSignatureRef.current = "";
       lastInterimParseAtRef.current = 0;
       lastInterimWordCountRef.current = 0;
+      if (interimUiTimerRef.current) {
+        clearTimeout(interimUiTimerRef.current);
+        interimUiTimerRef.current = null;
+      }
       setTranscriptionStatus("idle");
       setInterimTranscript("");
     } finally {
@@ -3035,145 +3209,76 @@ const SmartVersesPage: React.FC = () => {
                 )}
               </button>
             )}
-            <button
-              onClick={() => setTranscriptMenuOpen((v) => !v)}
-              className="icon-button"
-              title="Transcript options"
-              style={{ padding: "6px" }}
-            >
-              <FaEllipsisH size={12} />
-            </button>
-            {transcriptMenuOpen && (
-              <div
-                ref={transcriptMenuRef}
-                style={{
-                  position: "absolute",
-                  top: "36px",
-                  right: 0,
-                  minWidth: "240px",
-                  backgroundColor: "var(--app-header-bg)",
-                  border: "1px solid var(--app-border-color)",
-                  borderRadius: "8px",
-                  padding: "10px",
-                  boxShadow: "0 8px 24px rgba(0,0,0,0.3)",
-                  zIndex: 20,
-                }}
-              >
-                <div style={{ marginBottom: "8px" }}>
-                  <label style={{ fontSize: "0.75rem", color: "var(--app-text-color-secondary)" }}>
-                    Search transcript
-                  </label>
-                  <input
-                    type="text"
-                    value={transcriptSearchQuery}
-                    onChange={(e) => setTranscriptSearchQuery(e.target.value)}
-                    placeholder="Type to filter..."
-                    style={{
-                      width: "100%",
-                      marginTop: "6px",
-                      padding: "8px 10px",
-                      borderRadius: "6px",
-                      border: "1px solid var(--app-border-color)",
-                      backgroundColor: "var(--app-bg-color)",
-                      color: "var(--app-text-color)",
-                      fontSize: "0.85rem",
-                    }}
-                  />
-                  {transcriptSearchQuery.trim() && (
-                    <button
-                      onClick={() => setTranscriptSearchQuery("")}
-                      className="secondary"
-                      style={{
-                        marginTop: "6px",
-                        width: "100%",
-                        padding: "6px 10px",
-                        fontSize: "0.8rem",
-                      }}
-                    >
-                      Clear search
-                    </button>
-                  )}
-                </div>
-                <div style={{ marginBottom: "10px" }}>
-                  <div style={{ fontSize: "0.75rem", color: "var(--app-text-color-secondary)" }}>
-                    Display options
-                  </div>
-                  <div style={{ display: "grid", gap: "6px", marginTop: "6px" }}>
-                    <label style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer", fontSize: "0.85rem" }}>
-                      <input
-                        type="checkbox"
-                        checked={transcriptDisplayOptions.showTranscript}
-                        onChange={() => handleToggleTranscriptOption("showTranscript")}
-                        style={{ cursor: "pointer", accentColor: "var(--accent)" }}
-                      />
-                      Transcript
-                    </label>
-                    <label style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer", fontSize: "0.85rem" }}>
-                      <input
-                        type="checkbox"
-                        checked={transcriptDisplayOptions.showScriptureRefs}
-                        onChange={() => handleToggleTranscriptOption("showScriptureRefs")}
-                        style={{ cursor: "pointer", accentColor: "var(--accent)" }}
-                      />
-                      Scripture refs
-                    </label>
-                    <label style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer", fontSize: "0.85rem" }}>
-                      <input
-                        type="checkbox"
-                        checked={transcriptDisplayOptions.showKeyPoints}
-                        onChange={() => handleToggleTranscriptOption("showKeyPoints")}
-                        style={{ cursor: "pointer", accentColor: "var(--accent)" }}
-                      />
-                      Key points
-                    </label>
-                  </div>
-                </div>
-                <div style={{ display: "grid", gap: "6px" }}>
-                  <button
-                    onClick={() => {
-                      handleClearTranscript();
-                      setTranscriptMenuOpen(false);
-                    }}
-                    className="secondary"
-                    style={{ display: "flex", alignItems: "center", gap: "8px", padding: "8px 10px" }}
-                  >
-                    <FaTrash size={12} />
-                    Delete transcript
-                  </button>
-                  <button
-                    onClick={() => {
-                      handleDownloadTranscript("text");
-                      setTranscriptMenuOpen(false);
-                    }}
-                    className="secondary"
-                    style={{ display: "flex", alignItems: "center", gap: "8px", padding: "8px 10px" }}
-                  >
-                    <FaDownload size={12} />
-                    Download as text
-                  </button>
-                  <button
-                    onClick={() => {
-                      handleDownloadTranscript("json");
-                      setTranscriptMenuOpen(false);
-                    }}
-                    className="secondary"
-                    style={{ display: "flex", alignItems: "center", gap: "8px", padding: "8px 10px" }}
-                  >
-                    <FaDownload size={12} />
-                    Download as JSON
-                  </button>
-                  <div style={{ height: "1px", backgroundColor: "var(--app-border-color)" }} />
-                  <button
-                    onClick={handleOpenSmartVersesSettings}
-                    className="secondary"
-                    style={{ display: "flex", alignItems: "center", gap: "8px", padding: "8px 10px" }}
-                  >
-                    <FaCog size={12} />
-                    SmartVerses settings
-                  </button>
-                </div>
-              </div>
-            )}
+            <TranscriptOptionsMenu
+              isOpen={transcriptMenuOpen}
+              onToggle={() => setTranscriptMenuOpen((v) => !v)}
+              menuRef={transcriptMenuRef}
+              searchQuery={transcriptSearchQuery}
+              onSearchChange={setTranscriptSearchQuery}
+              onClearSearch={() => setTranscriptSearchQuery("")}
+              options={[
+                {
+                  id: "show-transcript",
+                  label: "Transcript",
+                  checked: transcriptDisplayOptions.showTranscript,
+                  onToggle: () => handleToggleTranscriptOption("showTranscript"),
+                },
+                {
+                  id: "show-scripture",
+                  label: "Scripture refs",
+                  checked: transcriptDisplayOptions.showScriptureRefs,
+                  onToggle: () => handleToggleTranscriptOption("showScriptureRefs"),
+                },
+                {
+                  id: "show-key-points",
+                  label: "Key points",
+                  checked: transcriptDisplayOptions.showKeyPoints,
+                  onToggle: () => handleToggleTranscriptOption("showKeyPoints"),
+                },
+              ]}
+              actions={[
+                {
+                  id: "delete",
+                  label: "Delete transcript",
+                  icon: <FaTrash size={12} />,
+                  onClick: () => {
+                    handleClearTranscript();
+                    setTranscriptMenuOpen(false);
+                  },
+                },
+                {
+                  id: "download-text",
+                  label: "Download as text",
+                  icon: <FaDownload size={12} />,
+                  onClick: () => {
+                    handleDownloadTranscript("text");
+                    setTranscriptMenuOpen(false);
+                  },
+                },
+                {
+                  id: "download-json",
+                  label: "Download as JSON",
+                  icon: <FaDownload size={12} />,
+                  onClick: () => {
+                    handleDownloadTranscript("json");
+                    setTranscriptMenuOpen(false);
+                  },
+                },
+                { id: "divider", kind: "separator" },
+                {
+                  id: "settings",
+                  label: "SmartVerses settings",
+                  icon: <FaCog size={12} />,
+                  onClick: () => {
+                    handleOpenSmartVersesSettings();
+                    setTranscriptMenuOpen(false);
+                  },
+                },
+              ]}
+              triggerClassName="icon-button"
+              triggerStyle={{ padding: "6px" }}
+              showSearch={false}
+            />
           </div>
         </div>
 
@@ -3189,14 +3294,32 @@ const SmartVersesPage: React.FC = () => {
             width: `${Math.max(2, Math.round((transcriptionStatus === "recording" ? audioLevel : 0) * 100))}%`,
             backgroundColor:
               transcriptionStatus === "recording"
-                ? audioLevel > 0.7
+                ? audioLevel > 0.85
                   ? "rgb(220, 38, 38)"
-                  : audioLevel > 0.4
+                  : audioLevel > 0.7
                   ? "rgb(234, 179, 8)"
                   : "rgb(34, 197, 94)"
                 : "rgba(148, 163, 184, 0.5)",
             transition: "width 80ms linear, background-color 150ms ease",
           }} />
+        </div>
+
+        <div style={{ padding: "var(--spacing-2) var(--spacing-4)", borderBottom: "1px solid var(--app-border-color)" }}>
+          <input
+            type="text"
+            value={transcriptSearchQuery}
+            onChange={(e) => setTranscriptSearchQuery(e.target.value)}
+            placeholder="Search transcript..."
+            style={{
+              width: "100%",
+              padding: "8px 10px",
+              borderRadius: "6px",
+              border: "1px solid var(--app-border-color)",
+              background: "var(--app-input-bg-color)",
+              color: "var(--app-input-text-color)",
+              fontSize: "0.85rem",
+            }}
+          />
         </div>
 
         {/* Transcript Display */}
@@ -3243,7 +3366,7 @@ const SmartVersesPage: React.FC = () => {
                   No transcript matches "{transcriptSearchQuery}"
                 </div>
               ) : null}
-              {filteredTranscriptHistory.map((segment) => {
+              {filteredTranscriptHistory.map((segment, index) => {
                 // Check if this segment contains any detected references
                 const segmentRefs = detectedReferences.filter(
                   ref => ref.transcriptText === segment.text
@@ -3265,7 +3388,7 @@ const SmartVersesPage: React.FC = () => {
                 
                 return (
                   <div
-                    key={segment.id}
+                    key={`${segment.id}-${segment.timestamp}-${index}`}
                     style={{
                       marginBottom: "var(--spacing-3)",
                       padding: "var(--spacing-3)",
