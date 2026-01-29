@@ -271,13 +271,6 @@ const getNotepadStyles = (isDark: boolean) => {
       fontWeight: 600,
       color: text,
     },
-    transcriptionMeter: {
-      height: "8px",
-      backgroundColor: bg,
-      border: `1px solid ${border}`,
-      borderRadius: "999px",
-      overflow: "hidden",
-    },
     transcriptionFilters: {
       display: "flex",
       gap: "10px",
