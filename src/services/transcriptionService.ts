@@ -1130,6 +1130,8 @@ export class MacNativeWhisperTranscriptionService implements ITranscriptionServi
   private isPolling: boolean = false;
   private lastInterimText: string = "";
   private segmentCounter: number = 0;
+  private lastFinalText: string = "";
+  private lastFinalEndMs: number = 0;
 
   private modelFileName: string;
   private language: string;
@@ -1218,6 +1220,88 @@ export class MacNativeWhisperTranscriptionService implements ITranscriptionServi
       sumSquares += s * s;
     }
     return Math.sqrt(sumSquares / samples.length);
+  }
+
+  private normalizeOverlapText(text: string): string {
+    return text
+      .toLowerCase()
+      .replace(/[^a-z0-9'\s]/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  private extractNewNativeText(newText: string): string {
+    if (!this.lastFinalText) {
+      return newText;
+    }
+
+    const lastTrimmed = this.lastFinalText.trim();
+    const newTrimmed = newText.trim();
+
+    if (!lastTrimmed || !newTrimmed) {
+      return newText;
+    }
+
+    const lastNormalized = this.normalizeOverlapText(lastTrimmed);
+    const newNormalized = this.normalizeOverlapText(newTrimmed);
+
+    if (!lastNormalized || !newNormalized) {
+      return newText;
+    }
+
+    const lastWords = lastNormalized.split(/\s+/);
+    const newWords = newNormalized.split(/\s+/);
+
+    let maxOverlapWords = 0;
+    const minOverlapWords = 2;
+
+    for (let i = Math.min(lastWords.length, newWords.length); i >= minOverlapWords; i--) {
+      const lastSuffix = lastWords.slice(-i).join(" ");
+      const newPrefix = newWords.slice(0, i).join(" ");
+      if (lastSuffix === newPrefix) {
+        maxOverlapWords = i;
+        break;
+      }
+    }
+
+    if (maxOverlapWords > 0) {
+      const originalWords = newTrimmed.split(/\s+/);
+      const remainingWords = originalWords.slice(maxOverlapWords);
+      return remainingWords.join(" ").trim();
+    }
+
+    let maxOverlapLength = 0;
+    const minOverlapLength = 20;
+
+    for (let i = Math.min(lastNormalized.length, newNormalized.length); i >= minOverlapLength; i--) {
+      const lastSuffix = lastNormalized.slice(-i);
+      const newPrefix = newNormalized.slice(0, i);
+      if (lastSuffix === newPrefix) {
+        maxOverlapLength = i;
+        break;
+      }
+    }
+
+    if (maxOverlapLength > 0) {
+      const words = newTrimmed.split(/\s+/);
+      let charCount = 0;
+      let wordIndex = 0;
+
+      for (let i = 0; i < words.length; i++) {
+        const normalizedWord = this.normalizeOverlapText(words[i]);
+        const wordLength = normalizedWord.length + 1; // +1 for space
+        if (charCount + wordLength > maxOverlapLength) {
+          wordIndex = i;
+          break;
+        }
+        charCount += wordLength;
+      }
+
+      const remainingWords = words.slice(wordIndex);
+      return remainingWords.join(" ").trim();
+    }
+
+    return newText;
   }
 
   private async cleanupAudioResources(): Promise<void> {
@@ -1376,13 +1460,29 @@ export class MacNativeWhisperTranscriptionService implements ITranscriptionServi
         for (const segment of result.new_segments) {
           const text = segment.text?.trim();
           if (!text) continue;
+          const startMs = typeof segment.start_ms === "number" ? segment.start_ms : 0;
+          const endMs = typeof segment.end_ms === "number" ? segment.end_ms : 0;
+
+          let emitText = text;
+          if (this.lastFinalText && startMs < this.lastFinalEndMs) {
+            emitText = this.extractNewNativeText(text);
+          }
+
+          if (!emitText.trim()) {
+            this.lastFinalText = text;
+            this.lastFinalEndMs = Math.max(this.lastFinalEndMs, endMs);
+            continue;
+          }
+
           const transcriptionSegment: TranscriptionSegment = {
             id: `segment-${++this.segmentCounter}`,
-            text,
+            text: emitText,
             timestamp: Date.now(),
             isFinal: true,
           };
-          this.callbacks.onFinalTranscript?.(text, transcriptionSegment);
+          this.callbacks.onFinalTranscript?.(emitText, transcriptionSegment);
+          this.lastFinalText = text;
+          this.lastFinalEndMs = Math.max(this.lastFinalEndMs, endMs);
         }
       }
     } finally {
@@ -1397,6 +1497,9 @@ export class MacNativeWhisperTranscriptionService implements ITranscriptionServi
     }
 
     this.callbacks.onStatusChange?.("connecting");
+    this.lastInterimText = "";
+    this.lastFinalText = "";
+    this.lastFinalEndMs = 0;
 
     const modelFileName = this.modelFileName || "ggml-small.en-q5_1.bin";
     const isDownloaded = await isNativeWhisperModelDownloaded(modelFileName);
