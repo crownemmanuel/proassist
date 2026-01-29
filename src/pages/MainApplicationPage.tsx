@@ -32,10 +32,13 @@ import {
   FaExternalLinkAlt,
   FaStop,
   FaSpinner,
+  FaDownload,
 } from "react-icons/fa";
 import "../App.css"; // Ensure global styles are applied
 import { invoke } from "@tauri-apps/api/core"; // Tauri v2 core invoke
 import { formatSlidesForClipboard } from "../utils/slideUtils"; // Added import
+import TranscriptOptionsMenu from "../components/transcription/TranscriptOptionsMenu";
+import { saveTranscriptFile } from "../utils/transcriptDownload";
 import {
   createLiveSlideSession,
   getLiveSlidesServerInfo,
@@ -129,14 +132,17 @@ const MainApplicationPage: React.FC = () => {
     WsTranscriptionStream[]
   >([]);
   const [liveInterimTranscript, setLiveInterimTranscript] = useState("");
+  const [audioLevel, setAudioLevel] = useState(0);
   const [transcriptSearchQuery, setTranscriptSearchQuery] = useState("");
   const [filterTranscript, setFilterTranscript] = useState(true);
   const [filterReferences, setFilterReferences] = useState(true);
   const [filterKeyPoints, setFilterKeyPoints] = useState(true);
+  const [transcriptMenuOpen, setTranscriptMenuOpen] = useState(false);
   const [autoScrollTranscript, setAutoScrollTranscript] = useState(true);
   const [autoScrollPaused, setAutoScrollPaused] = useState(false);
   const transcriptScrollRef = useRef<HTMLDivElement | null>(null);
   const transcriptEndRef = useRef<HTMLDivElement | null>(null);
+  const transcriptMenuRef = useRef<HTMLDivElement | null>(null);
   // Load templates from localStorage and keep them in sync
   const [templates, setTemplates] = useState<Template[]>(() => {
     try {
@@ -1092,6 +1098,58 @@ const MainApplicationPage: React.FC = () => {
     }
   }, [autoScrollTranscript, autoScrollPaused]);
 
+  const handleDownloadTranscript = useCallback(
+    async (format: "text" | "json") => {
+      const combined = [
+        ...liveTranscriptChunks.map((m) => m.segment?.text || m.text),
+        ...(liveInterimTranscript ? [liveInterimTranscript] : []),
+      ].filter(Boolean);
+      const defaultBaseName = `transcript-${new Date().toISOString().slice(0, 19).replace(/:/g, "-")}`;
+
+      if (format === "text") {
+        const content = combined.join("\n\n");
+        const result = await saveTranscriptFile({
+          content,
+          defaultBaseName,
+          extension: "txt",
+          mimeType: "text/plain;charset=utf-8",
+          filterName: "Text",
+        });
+        if (result.status === "failed") {
+          alert(`Could not save transcript: ${result.error}`);
+        }
+        return;
+      }
+
+      const segments = liveTranscriptChunks.map((chunk) => ({
+        id: chunk.segment?.id ?? `${chunk.timestamp}-${chunk.kind}`,
+        text: chunk.segment?.text || chunk.text,
+        timestamp: chunk.timestamp,
+        kind: chunk.kind,
+        engine: chunk.engine,
+        scripture_references: chunk.scripture_references,
+        key_points: chunk.key_points,
+        paraphrased_verses: chunk.paraphrased_verses,
+      }));
+      const payload = {
+        generatedAt: new Date().toISOString(),
+        segments,
+        interim: liveInterimTranscript || null,
+      };
+      const result = await saveTranscriptFile({
+        content: JSON.stringify(payload, null, 2),
+        defaultBaseName,
+        extension: "json",
+        mimeType: "application/json;charset=utf-8",
+        filterName: "JSON",
+      });
+      if (result.status === "failed") {
+        alert(`Could not save transcript: ${result.error}`);
+      }
+    },
+    [liveTranscriptChunks, liveInterimTranscript]
+  );
+
   const handleStartTranscriptionRequest = useCallback(() => {
     window.dispatchEvent(new CustomEvent("transcription-start-request"));
   }, []);
@@ -2013,15 +2071,40 @@ const MainApplicationPage: React.FC = () => {
   }, [isMoreMenuOpen]);
 
   useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        transcriptMenuRef.current &&
+        !transcriptMenuRef.current.contains(event.target as Node)
+      ) {
+        setTranscriptMenuOpen(false);
+      }
+    };
+
+    if (transcriptMenuOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+      return () => {
+        document.removeEventListener("mousedown", handleClickOutside);
+      };
+    }
+  }, [transcriptMenuOpen]);
+
+  useEffect(() => {
     const handleStatusChange = (
       event: CustomEvent<{ status: TranscriptionStatus; isStopping: boolean }>
     ) => {
       setTranscriptionStatus(event.detail.status);
       setIsTranscriptionStopping(event.detail.isStopping);
+      if (event.detail.status !== "recording") {
+        setAudioLevel(0);
+      }
     };
     const handleStream = (event: CustomEvent<WsTranscriptionStream>) => {
       const message = event.detail;
       if (!message) return;
+      if (typeof message.audio_level === "number") {
+        const level = Math.max(0, Math.min(1, message.audio_level));
+        setAudioLevel((prev) => prev * 0.65 + level * 0.35);
+      }
       if (message.kind === "interim") {
         setLiveInterimTranscript(message.text || "");
         return;
@@ -2860,88 +2943,108 @@ const MainApplicationPage: React.FC = () => {
                     )}
                   </button>
                 )}
+                <div style={{ position: "relative" }}>
+                  <TranscriptOptionsMenu
+                    isOpen={transcriptMenuOpen}
+                    onToggle={() => setTranscriptMenuOpen((v) => !v)}
+                    menuRef={transcriptMenuRef}
+                    searchQuery={transcriptSearchQuery}
+                    onSearchChange={setTranscriptSearchQuery}
+                    onClearSearch={() => setTranscriptSearchQuery("")}
+                    options={[
+                      {
+                        id: "show-transcript",
+                        label: "Transcript",
+                        checked: filterTranscript,
+                        onToggle: () => setFilterTranscript((v) => !v),
+                      },
+                      {
+                        id: "show-scripture",
+                        label: "Scripture refs",
+                        checked: filterReferences,
+                        onToggle: () => setFilterReferences((v) => !v),
+                      },
+                      {
+                        id: "show-key-points",
+                        label: "Key points",
+                        checked: filterKeyPoints,
+                        onToggle: () => setFilterKeyPoints((v) => !v),
+                      },
+                    ]}
+                    actions={[
+                      {
+                        id: "download-text",
+                        label: "Download as text",
+                        icon: <FaDownload size={12} />,
+                        onClick: () => {
+                          handleDownloadTranscript("text");
+                          setTranscriptMenuOpen(false);
+                        },
+                      },
+                      {
+                        id: "download-json",
+                        label: "Download as JSON",
+                        icon: <FaDownload size={12} />,
+                        onClick: () => {
+                          handleDownloadTranscript("json");
+                          setTranscriptMenuOpen(false);
+                        },
+                      },
+                    ]}
+                    triggerClassName="icon-button"
+                    triggerStyle={{ padding: "6px" }}
+                    showSearch={false}
+                  />
+                </div>
               </div>
             </div>
-            <div>
-              <input
-                type="text"
-                value={transcriptSearchQuery}
-                onChange={(e) => setTranscriptSearchQuery(e.target.value)}
-                placeholder="Search transcript..."
-                style={{
-                  width: "100%",
-                  padding: "6px 10px",
-                  borderRadius: "6px",
-                  border: "1px solid var(--app-border-color)",
-                  background: "var(--app-input-bg-color)",
-                  color: "var(--app-input-text-color)",
-                  fontSize: "0.8rem",
-                }}
-              />
-            </div>
+          </div>
+          <div
+            style={{
+              height: "8px",
+              backgroundColor: "var(--app-bg-color)",
+              borderBottom: "1px solid var(--app-border-color)",
+              position: "relative",
+              overflow: "hidden",
+            }}
+          >
             <div
               style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: "var(--spacing-3)",
-                flexWrap: "nowrap",
-                color: "var(--app-text-color-secondary)",
-                fontSize: "0.85rem",
+                height: "100%",
+                width: `${Math.max(2, Math.round(audioLevel * 100))}%`,
+                backgroundColor:
+                  transcriptionStatus === "recording"
+                    ? audioLevel > 0.85
+                      ? "rgb(220, 38, 38)"
+                      : audioLevel > 0.7
+                      ? "rgb(234, 179, 8)"
+                      : "rgb(34, 197, 94)"
+                    : "rgba(148, 163, 184, 0.5)",
+                transition: "width 80ms linear, background-color 150ms ease",
               }}
-            >
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "var(--spacing-3)",
-                  flexWrap: "nowrap",
-                }}
-              >
-                <label
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "6px",
-                  }}
-                >
-                  <input
-                    type="checkbox"
-                    checked={filterTranscript}
-                    onChange={(e) => setFilterTranscript(e.target.checked)}
-                  />
-                  Transcript
-                </label>
-                <label
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "6px",
-                  }}
-                >
-                  <input
-                    type="checkbox"
-                    checked={filterReferences}
-                    onChange={(e) => setFilterReferences(e.target.checked)}
-                  />
-                  Scripture refs
-                </label>
-                <label
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "6px",
-                  }}
-                >
-                  <input
-                    type="checkbox"
-                    checked={filterKeyPoints}
-                    onChange={(e) => setFilterKeyPoints(e.target.checked)}
-                  />
-                  Key points
-                </label>
-              </div>
-            </div>
+            />
+          </div>
+          <div
+            style={{
+              padding: "var(--spacing-2) var(--spacing-4)",
+              borderBottom: "1px solid var(--app-border-color)",
+            }}
+          >
+            <input
+              type="text"
+              value={transcriptSearchQuery}
+              onChange={(e) => setTranscriptSearchQuery(e.target.value)}
+              placeholder="Search transcript..."
+              style={{
+                width: "100%",
+                padding: "6px 10px",
+                borderRadius: "6px",
+                border: "1px solid var(--app-border-color)",
+                background: "var(--app-input-bg-color)",
+                color: "var(--app-input-text-color)",
+                fontSize: "0.8rem",
+              }}
+            />
           </div>
           <div
             style={{

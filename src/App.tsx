@@ -686,6 +686,8 @@ function App() {
 
     if (settings.transcriptionEngine === "offline-whisper") {
       modelId = settings.offlineWhisperModel || "onnx-community/whisper-base";
+    } else if (settings.transcriptionEngine === "offline-whisper-native") {
+      modelId = null;
     } else if (settings.transcriptionEngine === "offline-moonshine") {
       modelId =
         settings.offlineMoonshineModel || "onnx-community/moonshine-base-ONNX";

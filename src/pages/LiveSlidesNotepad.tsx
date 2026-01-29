@@ -6,13 +6,15 @@ import React, {
   useMemo,
 } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
-import { FaSun, FaMoon, FaQuestionCircle, FaMicrophone, FaPlus, FaListUl, FaGripLines } from "react-icons/fa";
+import { FaSun, FaMoon, FaQuestionCircle, FaMicrophone, FaPlus, FaListUl, FaGripLines, FaDownload } from "react-icons/fa";
 import { LiveSlidesWebSocket } from "../services/liveSlideService";
 import {
   calculateSlideBoundaries,
   SlideBoundary,
 } from "../utils/liveSlideParser";
 import { LiveSlide, WsTranscriptionStream } from "../types/liveSlides";
+import TranscriptOptionsMenu from "../components/transcription/TranscriptOptionsMenu";
+import { saveTranscriptFile } from "../utils/transcriptDownload";
 import "../App.css";
 
 // Bullet point character for visual display (stripped when importing)
@@ -255,6 +257,11 @@ const getNotepadStyles = (isDark: boolean) => {
       justifyContent: "space-between",
       gap: "10px",
     },
+    transcriptionHeaderActions: {
+      display: "flex",
+      alignItems: "center",
+      gap: "8px",
+    },
     transcriptionTitle: {
       display: "flex",
       alignItems: "center",
@@ -262,6 +269,13 @@ const getNotepadStyles = (isDark: boolean) => {
       fontSize: "0.9rem",
       fontWeight: 600,
       color: text,
+    },
+    transcriptionMeter: {
+      height: "8px",
+      backgroundColor: bg,
+      border: `1px solid ${border}`,
+      borderRadius: "999px",
+      overflow: "hidden",
     },
     transcriptionFilters: {
       display: "flex",
@@ -459,10 +473,12 @@ const LiveSlidesNotepad: React.FC = () => {
   const [showLiveTranscription, setShowLiveTranscription] = useState(false);
   const [liveInterimTranscript, setLiveInterimTranscript] = useState("");
   const [liveTranscriptChunks, setLiveTranscriptChunks] = useState<WsTranscriptionStream[]>([]);
+  const [audioLevel, setAudioLevel] = useState(0);
   const [filterTranscript, setFilterTranscript] = useState(true);
   const [filterReferences, setFilterReferences] = useState(true);
   const [filterKeyPoints, setFilterKeyPoints] = useState(true);
   const [transcriptSearchQuery, setTranscriptSearchQuery] = useState("");
+  const [transcriptMenuOpen, setTranscriptMenuOpen] = useState(false);
   const [autoScrollTranscript, setAutoScrollTranscript] = useState(true);
   const [autoScrollPaused, setAutoScrollPaused] = useState(false);
   const [cursorLineIndex, setCursorLineIndex] = useState(0);
@@ -475,6 +491,7 @@ const LiveSlidesNotepad: React.FC = () => {
   const wsRef = useRef<LiveSlidesWebSocket | null>(null);
   const transcriptScrollRef = useRef<HTMLDivElement>(null);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
+  const transcriptMenuRef = useRef<HTMLDivElement>(null);
   // Avoid stale closures in WS handlers (we intentionally do NOT re-bind on every keystroke).
   const textRef = useRef<string>("");
   const lastLocalEditAtRef = useRef<number>(0);
@@ -503,6 +520,19 @@ const LiveSlidesNotepad: React.FC = () => {
       transcriptEndRef.current.scrollIntoView({ behavior: "smooth" });
     }
   }, [liveTranscriptChunks, liveInterimTranscript, autoScrollTranscript, autoScrollPaused]);
+
+  // Close transcript menu on outside click
+  useEffect(() => {
+    if (!transcriptMenuOpen) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      if (!transcriptMenuRef.current) return;
+      if (!transcriptMenuRef.current.contains(event.target as Node)) {
+        setTranscriptMenuOpen(false);
+      }
+    };
+    window.addEventListener("mousedown", handleClickOutside);
+    return () => window.removeEventListener("mousedown", handleClickOutside);
+  }, [transcriptMenuOpen]);
 
   // Handle scroll in transcript panel - pause auto-scroll if user scrolls up
   const handleTranscriptPanelScroll = useCallback(() => {
@@ -533,6 +563,58 @@ const LiveSlidesNotepad: React.FC = () => {
       });
     }
   }, []);
+
+  const handleDownloadTranscript = useCallback(
+    async (format: "text" | "json") => {
+      const combined = [
+        ...liveTranscriptChunks.map((m) => m.segment?.text || m.text),
+        ...(liveInterimTranscript ? [liveInterimTranscript] : []),
+      ].filter(Boolean);
+      const defaultBaseName = `transcript-${new Date().toISOString().slice(0, 19).replace(/:/g, "-")}`;
+
+      if (format === "text") {
+        const content = combined.join("\n\n");
+        const result = await saveTranscriptFile({
+          content,
+          defaultBaseName,
+          extension: "txt",
+          mimeType: "text/plain;charset=utf-8",
+          filterName: "Text",
+        });
+        if (result.status === "failed") {
+          alert(`Could not save transcript: ${result.error}`);
+        }
+        return;
+      }
+
+      const segments = liveTranscriptChunks.map((chunk) => ({
+        id: chunk.segment?.id ?? `${chunk.timestamp}-${chunk.kind}`,
+        text: chunk.segment?.text || chunk.text,
+        timestamp: chunk.timestamp,
+        kind: chunk.kind,
+        engine: chunk.engine,
+        scripture_references: chunk.scripture_references,
+        key_points: chunk.key_points,
+        paraphrased_verses: chunk.paraphrased_verses,
+      }));
+      const payload = {
+        generatedAt: new Date().toISOString(),
+        segments,
+        interim: liveInterimTranscript || null,
+      };
+      const result = await saveTranscriptFile({
+        content: JSON.stringify(payload, null, 2),
+        defaultBaseName,
+        extension: "json",
+        mimeType: "application/json;charset=utf-8",
+        filterName: "JSON",
+      });
+      if (result.status === "failed") {
+        alert(`Could not save transcript: ${result.error}`);
+      }
+    },
+    [liveTranscriptChunks, liveInterimTranscript]
+  );
 
   // Toggle theme
   const toggleTheme = useCallback(() => {
@@ -599,6 +681,10 @@ const LiveSlidesNotepad: React.FC = () => {
       if (message.type !== "transcription_stream") return;
 
       const m = message as WsTranscriptionStream;
+      if (typeof m.audio_level === "number") {
+        const level = Math.max(0, Math.min(1, m.audio_level));
+        setAudioLevel((prev) => prev * 0.65 + level * 0.35);
+      }
       if (m.kind === "interim") {
         setLiveInterimTranscript(m.text || "");
         return;
@@ -1400,62 +1486,85 @@ Result: Slide 1 = Title, Slide 2 = Title + Sub-item 1, Slide 3 = Title + Sub-ite
                   <FaMicrophone />
                   Live Transcriptions
                 </div>
-                <div style={{ fontSize: "0.75rem", color: notepadStyles.footer.color }}>
-                  {isConnected ? "WS connected" : "WS disconnected"}
+                <div style={notepadStyles.transcriptionHeaderActions}>
+                  <div style={{ fontSize: "0.75rem", color: notepadStyles.footer.color }}>
+                    {isConnected ? "WS connected" : "WS disconnected"}
+                  </div>
+                  <TranscriptOptionsMenu
+                    isOpen={transcriptMenuOpen}
+                    onToggle={() => setTranscriptMenuOpen((v) => !v)}
+                    menuRef={transcriptMenuRef}
+                    searchQuery={transcriptSearchQuery}
+                    onSearchChange={setTranscriptSearchQuery}
+                    onClearSearch={() => setTranscriptSearchQuery("")}
+                    options={[
+                      {
+                        id: "show-transcript",
+                        label: "Transcript",
+                        checked: filterTranscript,
+                        onToggle: () => setFilterTranscript((v) => !v),
+                      },
+                      {
+                        id: "show-scripture",
+                        label: "Scripture refs",
+                        checked: filterReferences,
+                        onToggle: () => setFilterReferences((v) => !v),
+                      },
+                      {
+                        id: "show-key-points",
+                        label: "Key points",
+                        checked: filterKeyPoints,
+                        onToggle: () => setFilterKeyPoints((v) => !v),
+                      },
+                    ]}
+                    actions={[
+                      {
+                        id: "download-text",
+                        label: "Download as text",
+                        icon: <FaDownload size={12} />,
+                        onClick: () => {
+                          handleDownloadTranscript("text");
+                          setTranscriptMenuOpen(false);
+                        },
+                      },
+                      {
+                        id: "download-json",
+                        label: "Download as JSON",
+                        icon: <FaDownload size={12} />,
+                        onClick: () => {
+                          handleDownloadTranscript("json");
+                          setTranscriptMenuOpen(false);
+                        },
+                      },
+                    ]}
+                    triggerClassName="icon-button"
+                    triggerStyle={{ padding: "6px" }}
+                    theme={{
+                      menuBg: notepadStyles.transcriptionPanel.backgroundColor,
+                      menuBorder: notepadStyles.border,
+                      text: notepadStyles.transcriptionTitle.color,
+                      textSecondary: notepadStyles.footer.color,
+                      inputBg: notepadStyles.input.background,
+                      inputBorder: notepadStyles.border,
+                    }}
+                  />
                 </div>
               </div>
 
-              <div>
-                <input
-                  type="text"
-                  value={transcriptSearchQuery}
-                  onChange={(e) => setTranscriptSearchQuery(e.target.value)}
-                  placeholder="Search transcript..."
+              <div style={notepadStyles.transcriptionMeter}>
+                <div
                   style={{
-                    width: "100%",
-                    padding: "6px 10px",
-                    borderRadius: "6px",
-                    border: `1px solid ${notepadStyles.border}`,
-                    background: notepadStyles.input.background,
-                    color: notepadStyles.input.color,
-                    fontSize: "0.8rem",
+                    height: "100%",
+                    width: `${Math.max(2, Math.round(audioLevel * 100))}%`,
+                    backgroundColor:
+                      audioLevel > 0.85
+                        ? "rgb(220, 38, 38)"
+                        : audioLevel > 0.7
+                        ? "rgb(234, 179, 8)"
+                        : "rgb(34, 197, 94)",
+                    transition: "width 80ms linear, background-color 150ms ease",
                   }}
                 />
-              </div>
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "10px",
-                  flexWrap: "nowrap",
-                  fontSize: "0.8rem",
-                  color: notepadStyles.footer.color,
-                }}
-              >
-                <label style={notepadStyles.transcriptionFilterLabel}>
-                  <input
-                    type="checkbox"
-                    checked={filterTranscript}
-                    onChange={(e) => setFilterTranscript(e.target.checked)}
-                  />
-                  Transcript
-                </label>
-                <label style={notepadStyles.transcriptionFilterLabel}>
-                  <input
-                    type="checkbox"
-                    checked={filterReferences}
-                    onChange={(e) => setFilterReferences(e.target.checked)}
-                  />
-                  Scripture refs
-                </label>
-                <label style={notepadStyles.transcriptionFilterLabel}>
-                  <input
-                    type="checkbox"
-                    checked={filterKeyPoints}
-                    onChange={(e) => setFilterKeyPoints(e.target.checked)}
-                  />
-                  Key points
-                </label>
               </div>
             </div>
 
