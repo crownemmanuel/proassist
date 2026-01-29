@@ -1514,6 +1514,18 @@ const MainApplicationPage: React.FC = () => {
       alert("Cannot change slide layout: No playlist or item selected.");
       return;
     }
+    if (!currentPlaylistItem) return;
+    const updatedSlides = currentPlaylistItem.slides.map((s) =>
+      s.id === slideIdToChange ? { ...s, layout: newLayout } : s
+    );
+    const isLiveSlidesItem =
+      !!currentPlaylistItem.liveSlidesSessionId &&
+      (currentPlaylistItem.liveSlidesLinked ?? true);
+    const liveSessionId = currentPlaylistItem.liveSlidesSessionId;
+    const nextRaw = isLiveSlidesItem
+      ? buildRawTextFromSlides(updatedSlides)
+      : undefined;
+
     setPlaylists((prevPlaylists) =>
       prevPlaylists.map((p) => {
         if (p.id === selectedPlaylistId) {
@@ -1523,9 +1535,10 @@ const MainApplicationPage: React.FC = () => {
               if (item.id === selectedItemId) {
                 return {
                   ...item,
-                  slides: item.slides.map((s) =>
-                    s.id === slideIdToChange ? { ...s, layout: newLayout } : s
-                  ),
+                  slides: updatedSlides,
+                  liveSlidesCachedRawText: isLiveSlidesItem
+                    ? nextRaw
+                    : item.liveSlidesCachedRawText,
                 };
               }
               return item;
@@ -1535,9 +1548,9 @@ const MainApplicationPage: React.FC = () => {
         return p;
       })
     );
-    // After changing layout, if the user edits, SlideDisplayArea's handleEdit will pick up the new layout
-    // and adjust the number of editing fields. Text truncation/addition if lines change is implicitly handled by
-    // how text is split and joined during edit; more sophisticated handling could be added if needed.
+    if (isLiveSlidesItem && liveSessionId && nextRaw !== undefined) {
+      syncLiveSlidesSession(liveSessionId, updatedSlides, nextRaw);
+    }
   };
 
   const handleChangeTimerSession = (
