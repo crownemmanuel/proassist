@@ -700,16 +700,32 @@ async fn run_combined_server(port: u16, app: tauri::AppHandle) -> Result<(), Str
             }
         });
 
-    // API: Remote transcription pin
-    let transcription_pin_state = state.clone();
-    let transcription_pin_route = warp::path("api")
+    // API: Remote transcription pin — GET list pinned clients, POST pin a client
+    let transcription_pin_list_state = state.clone();
+    let transcription_pin_list_route = warp::path("api")
+        .and(warp::path("transcription"))
+        .and(warp::path("pin"))
+        .and(warp::path::end())
+        .and(warp::get())
+        .and_then(move || {
+            let state_clone = transcription_pin_list_state.clone();
+            async move {
+                let pinned_clients = state_clone.pinned_transcription_clients.read().await;
+                let list: Vec<&PinnedTranscriptionClient> = pinned_clients.values().collect();
+                let response = serde_json::json!({ "pinned": list });
+                Ok::<_, warp::Rejection>(warp::reply::json(&response))
+            }
+        });
+
+    let transcription_pin_post_state = state.clone();
+    let transcription_pin_post_route = warp::path("api")
         .and(warp::path("transcription"))
         .and(warp::path("pin"))
         .and(warp::path::end())
         .and(warp::post())
         .and(warp::body::json())
         .and_then(move |body: ApiTranscriptionPinRequest| {
-            let state_clone = transcription_pin_state.clone();
+            let state_clone = transcription_pin_post_state.clone();
             async move {
                 let client_id = body.client_id.trim().to_string();
                 if client_id.is_empty() {
@@ -745,6 +761,8 @@ async fn run_combined_server(port: u16, app: tauri::AppHandle) -> Result<(), Str
                 ))
             }
         });
+
+    let transcription_pin_route = transcription_pin_list_route.or(transcription_pin_post_route);
 
     // API v1: Scripture go-live
     let api_app = app.clone();
