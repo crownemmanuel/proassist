@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import type { Monitor } from "@tauri-apps/api/window";
 import { useDebouncedEffect } from "../hooks/useDebouncedEffect";
@@ -20,6 +21,7 @@ import {
 } from "../types/display";
 import DisplayLayoutEditorModal from "./DisplayLayoutEditorModal";
 import SlidesLayoutEditorModal from "./SlidesLayoutEditorModal";
+import MonitorSelectDropdown from "./MonitorSelectDropdown";
 import { sectionStyle, sectionHeaderStyle } from "../utils/settingsSectionStyles";
 import {
   getLiveSlidesServerInfo,
@@ -112,17 +114,10 @@ const DisplaySettings: React.FC = () => {
 
   const loadMonitors = async () => {
     const list = await getAvailableMonitors();
+    console.log(`[Display] Loaded ${list.length} monitors`);
     setMonitors(list);
-    if (list.length > 0) {
-      setSettings((prev) => {
-        const monitorIndex =
-          prev.monitorIndex != null && prev.monitorIndex < list.length
-            ? prev.monitorIndex
-            : 0;
-        if (monitorIndex === prev.monitorIndex) return prev;
-        return { ...prev, monitorIndex };
-      });
-    }
+    // Note: Don't auto-reset monitorIndex to 0 here - let the auto-start effect handle validation
+    // This prevents race conditions where monitors are detected in different order at startup
   };
 
   useEffect(() => {
@@ -177,17 +172,48 @@ const DisplaySettings: React.FC = () => {
     { delayMs: 400, enabled: settingsLoaded, skipFirstRun: true }
   );
 
+  // Track if we've attempted initial monitor detection
+  const [monitorsInitialized, setMonitorsInitialized] = useState(false);
+
+  // Retry monitor detection if we don't have enough monitors for the saved index
   useEffect(() => {
-    if (!settingsLoaded) return;
+    if (!settingsLoaded || monitors.length === 0) return;
+
+    const savedIndex = settings.monitorIndex;
+    const needsMoreMonitors = savedIndex !== null && savedIndex >= monitors.length;
+
+    if (needsMoreMonitors && !monitorsInitialized) {
+      // Wait a bit and retry monitor detection - secondary monitors might take longer
+      console.log(`[Display] Saved monitor index ${savedIndex} but only ${monitors.length} monitors detected, retrying...`);
+      const timer = setTimeout(() => {
+        void loadMonitors().then(() => setMonitorsInitialized(true));
+      }, 500);
+      return () => clearTimeout(timer);
+    } else {
+      setMonitorsInitialized(true);
+    }
+  }, [settingsLoaded, monitors.length, settings.monitorIndex, monitorsInitialized]);
+
+  useEffect(() => {
+    if (!settingsLoaded || !monitorsInitialized) return;
     if (settings.enabled) {
-      // Check if a monitor is selected
-      if (settings.monitorIndex === null && monitors.length > 0) {
+      // Wait for monitors to be detected before opening window
+      if (monitors.length === 0) {
+        console.log("[Display] Waiting for monitors to be detected...");
+        return;
+      }
+
+      // Check if monitor index is valid
+      const currentIndex = settings.monitorIndex;
+      if (currentIndex === null || currentIndex >= monitors.length) {
         // Auto-select first secondary monitor or primary if only one monitor
         const defaultIndex = monitors.length > 1 ? 1 : 0;
+        console.log(`[Display] Invalid monitor index ${currentIndex} (have ${monitors.length} monitors), auto-selecting ${defaultIndex}`);
         setSettings((prev) => ({ ...prev, monitorIndex: defaultIndex }));
-        return; // Will retry on next render with monitorIndex set
+        return; // Will retry on next render with valid monitorIndex
       }
-      
+
+      console.log(`[Display] Opening audience window on monitor ${currentIndex}`);
       openDisplayWindow(settings)
         .then(() => {
           setErrorMessage("");
@@ -205,7 +231,34 @@ const DisplaySettings: React.FC = () => {
       });
       setErrorMessage("");
     }
-  }, [settings.enabled, settings.monitorIndex, settingsLoaded, monitors.length]);
+  }, [settings.enabled, settings.monitorIndex, settingsLoaded, monitors.length, monitorsInitialized]);
+
+  // Listen for display window closed event (when user clicks close button on audience screen)
+  useEffect(() => {
+    const setupListener = async () => {
+      const unlisten = await listen<{ isDialogWindow: boolean; windowLabel: string }>(
+        "display:window-closed",
+        (event) => {
+          console.log("[Display] Window closed by user:", event.payload);
+          const { isDialogWindow } = event.payload;
+
+          if (isDialogWindow) {
+            // Windows uses dialog windows - uncheck windowAudienceScreen
+            setSettings((prev) => ({ ...prev, windowAudienceScreen: false }));
+          } else {
+            // Mac uses regular display window - uncheck enabled
+            setSettings((prev) => ({ ...prev, enabled: false }));
+          }
+        }
+      );
+      return unlisten;
+    };
+
+    const unlistenPromise = setupListener();
+    return () => {
+      unlistenPromise.then((unlisten) => unlisten()).catch(console.warn);
+    };
+  }, []);
 
   // Load background image asynchronously
   useEffect(() => {
@@ -333,20 +386,28 @@ const DisplaySettings: React.FC = () => {
   };
 
   useEffect(() => {
-    if (!settingsLoaded) return;
+    if (!settingsLoaded || !monitorsInitialized) return;
 
     const manageAudienceWindow = async () => {
       if (settings.windowAudienceScreen) {
+        // Wait for monitors to be detected before opening window
+        if (monitors.length === 0) {
+          console.log("[Display] Windows: Waiting for monitors to be detected...");
+          return;
+        }
+
         try {
-          // If a monitor is not selected, try to select one automatically
+          // Check if monitor index is valid
           let currentMonitorIndex = settings.monitorIndex;
-          if (currentMonitorIndex === null && monitors.length > 0) {
+          if (currentMonitorIndex === null || currentMonitorIndex >= monitors.length) {
             const defaultIndex = monitors.length > 1 ? 1 : 0;
+            console.log(`[Display] Windows: Invalid monitor index ${currentMonitorIndex} (have ${monitors.length} monitors), auto-selecting ${defaultIndex}`);
             currentMonitorIndex = defaultIndex;
-            // Update settings silently so it persists
+            // Update settings so it persists
             setSettings((prev) => ({ ...prev, monitorIndex: defaultIndex }));
           }
 
+          console.log(`[Display] Windows: Opening audience window on monitor ${currentMonitorIndex}`);
           setTestWindowStatus("Opening audience window...");
           await invoke("open_dialog", {
             dialogWindow: "audience-test",
@@ -378,7 +439,7 @@ const DisplaySettings: React.FC = () => {
     };
 
     void manageAudienceWindow();
-  }, [settings.windowAudienceScreen, settingsLoaded, monitors.length]); // Intentionally omitting monitorIndex to avoid re-opening on change for now
+  }, [settings.windowAudienceScreen, settingsLoaded, monitors.length, monitorsInitialized]); // Intentionally omitting monitorIndex to avoid re-opening on change for now
 
   const rectStyle = (rect: { x: number; y: number; width: number; height: number }): React.CSSProperties => ({
     position: "absolute",
@@ -867,44 +928,17 @@ const DisplaySettings: React.FC = () => {
 
           <div className="form-group">
             <label htmlFor="display-monitor">Display Monitor</label>
-          <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-            <select
-              id="display-monitor"
-              value={settings.monitorIndex ?? ""}
-              onChange={(event) =>
-                setSettings((prev) => ({
-                  ...prev,
-                  monitorIndex: event.target.value
-                    ? parseInt(event.target.value, 10)
-                    : null,
-                }))
+            <MonitorSelectDropdown
+              monitors={monitors}
+              selectedIndex={settings.monitorIndex}
+              onSelect={(index) =>
+                setSettings((prev) => ({ ...prev, monitorIndex: index }))
               }
-              className="select-css"
-              style={{ flex: 1 }}
-            >
-              <option value="" disabled>
-                Select a monitor
-              </option>
-              {monitors.map((monitor, index) => {
-                const width = monitor.size?.width ?? 0;
-                const height = monitor.size?.height ?? 0;
-                const isPrimary = monitor.position?.x === 0 && monitor.position?.y === 0;
-                const primaryLabel = isPrimary ? " - Primary" : "";
-                return (
-                  <option key={`${monitor.name || "monitor"}-${index}`} value={index}>
-                    Monitor {index + 1} ({width}x{height})
-                    {primaryLabel}
-                  </option>
-                );
-              })}
-            </select>
-            <button className="secondary" onClick={() => void loadMonitors()}>
-              Refresh
-            </button>
-          </div>
-          {monitors.length === 0 && (
-            <p className="instruction-text">No additional monitors detected.</p>
-          )}
+              onRefresh={() => void loadMonitors()}
+            />
+            {monitors.length === 0 && (
+              <p className="instruction-text">No additional monitors detected.</p>
+            )}
           </div>
         </div>
       </div>

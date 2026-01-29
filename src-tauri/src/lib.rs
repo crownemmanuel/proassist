@@ -1467,6 +1467,115 @@ fn open_audience_display_window(
 }
 
 // ============================================================================
+// Monitor Identify Window (for identifying monitors in settings)
+// ============================================================================
+
+#[tauri::command]
+fn show_monitor_identify_window(
+    app_handle: tauri::AppHandle,
+    monitor_index: usize,
+) -> Result<(), String> {
+    use tauri::{Manager, WebviewWindowBuilder};
+
+    const WINDOW_LABEL: &str = "monitor-identify";
+
+    // Close existing identify window if it exists (prevents duplicates)
+    if let Some(existing_window) = app_handle.get_webview_window(WINDOW_LABEL) {
+        let _ = existing_window.close();
+        // Small delay to ensure window is fully closed before creating new one
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+
+    // Get the target monitor
+    let monitors = app_handle
+        .available_monitors()
+        .map_err(|e| format!("Failed to get monitors: {:?}", e))?;
+
+    let monitor = monitors
+        .get(monitor_index)
+        .ok_or_else(|| format!("Monitor index {} not found", monitor_index))?;
+
+    let pos = monitor.position();
+    let size = monitor.size();
+    let scale = monitor.scale_factor();
+
+    println!(
+        "[Identify] Opening on monitor {}: pos=({},{}), size={}x{}, scale={}",
+        monitor_index, pos.x, pos.y, size.width, size.height, scale
+    );
+
+    // Calculate position and size - platform-specific coordinate handling
+    #[cfg(target_os = "windows")]
+    let (x, y, width, height) = (
+        pos.x as f64,
+        pos.y as f64,
+        size.width as f64,
+        size.height as f64,
+    );
+
+    #[cfg(not(target_os = "windows"))]
+    let (x, y, width, height) = (
+        pos.x as f64 / scale,
+        pos.y as f64 / scale,
+        size.width as f64 / scale,
+        size.height as f64 / scale,
+    );
+
+    // Build the identify window
+    #[allow(unused_variables)]
+    let window = WebviewWindowBuilder::new(
+        &app_handle,
+        WINDOW_LABEL,
+        tauri::WebviewUrl::App("/monitor-identify".into()),
+    )
+    .title("Monitor Identify")
+    .decorations(false)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .resizable(false)
+    .inner_size(width, height)
+    .position(x, y)
+    .visible(true)
+    .focused(false) // Don't steal focus from main window
+    .build()
+    .map_err(|e| format!("Failed to create identify window: {:?}", e))?;
+
+    // Ensure fullscreen coverage on the monitor (Windows needs explicit repositioning)
+    #[cfg(target_os = "windows")]
+    {
+        if let Err(e) = window.set_position(tauri::Position::Physical(
+            tauri::PhysicalPosition::new(pos.x, pos.y),
+        )) {
+            eprintln!("[Identify] Failed to set window position: {:?}", e);
+        }
+        if let Err(e) = window.set_size(tauri::Size::Physical(tauri::PhysicalSize::new(
+            size.width,
+            size.height,
+        ))) {
+            eprintln!("[Identify] Failed to set window size: {:?}", e);
+        }
+    }
+
+    println!("[Identify] Window shown on monitor {}", monitor_index);
+    Ok(())
+}
+
+#[tauri::command]
+fn hide_monitor_identify_window(app_handle: tauri::AppHandle) -> Result<(), String> {
+    use tauri::Manager;
+
+    const WINDOW_LABEL: &str = "monitor-identify";
+
+    if let Some(window) = app_handle.get_webview_window(WINDOW_LABEL) {
+        window
+            .close()
+            .map_err(|e| format!("Failed to close identify window: {:?}", e))?;
+        println!("[Identify] Window hidden");
+    }
+    Ok(())
+}
+
+// ============================================================================
 // Audience Display Test Window (Fresh Flow)
 // ============================================================================
 
@@ -3808,6 +3917,8 @@ pub fn run() {
             toggle_devtools,
             get_available_monitors_safe,
             open_audience_display_window,
+            show_monitor_identify_window,
+            hide_monitor_identify_window,
             open_dialog,
             close_dialog,
             get_available_system_fonts,
