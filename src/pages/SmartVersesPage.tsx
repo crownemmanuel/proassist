@@ -39,6 +39,7 @@ import {
 } from "../services/smartVersesBibleService";
 import {
   loadSmartVersesSettings,
+  saveSmartVersesSettings,
   createTranscriptionService,
   ITranscriptionService,
 } from "../services/transcriptionService";
@@ -267,6 +268,9 @@ const SmartVersesPage: React.FC = () => {
   // Settings
   const [settings, setSettings] = useState<SmartVersesSettings>(DEFAULT_SMART_VERSES_SETTINGS);
   const [appSettings, setAppSettings] = useState<AppSettings>({ theme: "dark" });
+  const autoTriggerOnDetectionRef = useRef<boolean>(
+    DEFAULT_SMART_VERSES_SETTINGS.autoTriggerOnDetection
+  );
 
   // Chat state
   const [chatHistory, setChatHistory] = useState<SmartVersesChatMessage[]>([]);
@@ -277,6 +281,7 @@ const SmartVersesPage: React.FC = () => {
   // Transcription state
   const [transcriptionStatus, setTranscriptionStatus] = useState<TranscriptionStatus>("idle");
   const [isStopping, setIsStopping] = useState(false);
+  const [transcriptionErrorMessage, setTranscriptionErrorMessage] = useState<string | null>(null);
   const [interimTranscript, setInterimTranscript] = useState("");
   const [transcriptHistory, setTranscriptHistory] = useState<TranscriptionSegment[]>([]);
   const [detectedReferences, setDetectedReferences] = useState<DetectedBibleReference[]>([]);
@@ -292,10 +297,12 @@ const SmartVersesPage: React.FC = () => {
   const transcriptionPromptTimeoutRef = useRef<number | null>(null);
   const transcriptionPromptReasonRef = useRef<"limit" | "snooze" | null>(null);
   const transcriptionStatusRef = useRef<TranscriptionStatus>("idle");
+  const isStoppingRef = useRef(false);
   
   // Browser transcription WebSocket
   const browserTranscriptionWsRef = useRef<LiveSlidesWebSocket | null>(null);
   const remoteTranscriptionWsRef = useRef<LiveSlidesWebSocket | null>(null);
+  const remoteTranscriptionStatusUnsubRef = useRef<(() => void) | null>(null);
   const remoteRebroadcastAllowedRef = useRef<boolean>(true);
   
   // Interim direct-reference parsing (fast local parser; avoids AI)
@@ -453,6 +460,13 @@ const SmartVersesPage: React.FC = () => {
       if (browserTranscriptionWsRef.current) {
         browserTranscriptionWsRef.current.disconnect();
       }
+      if (remoteTranscriptionWsRef.current) {
+        remoteTranscriptionWsRef.current.disconnect();
+      }
+      if (remoteTranscriptionStatusUnsubRef.current) {
+        remoteTranscriptionStatusUnsubRef.current();
+        remoteTranscriptionStatusUnsubRef.current = null;
+      }
     };
   }, [reloadSettings]);
 
@@ -472,6 +486,14 @@ const SmartVersesPage: React.FC = () => {
   useEffect(() => {
     transcriptionStatusRef.current = transcriptionStatus;
   }, [transcriptionStatus]);
+
+  useEffect(() => {
+    autoTriggerOnDetectionRef.current = settings.autoTriggerOnDetection;
+  }, [settings.autoTriggerOnDetection]);
+
+  useEffect(() => {
+    isStoppingRef.current = isStopping;
+  }, [isStopping]);
 
   const shouldAttemptDirectParse = useCallback((text: string): boolean => {
     const t = text.trim();
@@ -1364,7 +1386,7 @@ const SmartVersesPage: React.FC = () => {
               }
 
               // Auto-trigger if enabled
-              if (settings.autoTriggerOnDetection && directRefs.length > 0) {
+              if (autoTriggerOnDetectionRef.current && directRefs.length > 0) {
                 handleGoLive(directRefs[0]);
               }
             }
@@ -1379,22 +1401,65 @@ const SmartVersesPage: React.FC = () => {
     handleGoLive,
     scheduleInterimDirectParse,
     settings.autoAddDetectedToHistory,
-    settings.autoTriggerOnDetection,
     settings.transcriptionEngine,
   ]);
+
+  const disconnectRemoteTranscriptionWs = useCallback(() => {
+    if (remoteTranscriptionWsRef.current) {
+      remoteTranscriptionWsRef.current.disconnect();
+      remoteTranscriptionWsRef.current = null;
+    }
+    if (remoteTranscriptionStatusUnsubRef.current) {
+      remoteTranscriptionStatusUnsubRef.current();
+      remoteTranscriptionStatusUnsubRef.current = null;
+    }
+  }, []);
 
   const connectToRemoteTranscriptionWs = useCallback(async () => {
     const host = (settings.remoteTranscriptionHost || "").trim();
     const port = settings.remoteTranscriptionPort || 9876;
     if (!host) {
-      alert("Please configure the remote host in Settings > SmartVerses");
+      setTranscriptionStatus("error");
+      setTranscriptionErrorMessage(
+        "Remote transcription host is missing. Configure it in Settings → Transcription."
+      );
       return;
     }
 
     try {
+      setTranscriptionErrorMessage(null);
+      disconnectRemoteTranscriptionWs();
       const wsUrl = `ws://${host}:${port}/ws`;
       const ws = new LiveSlidesWebSocket(wsUrl, "remote-transcription", "viewer");
       remoteTranscriptionWsRef.current = ws;
+      if (remoteTranscriptionStatusUnsubRef.current) {
+        remoteTranscriptionStatusUnsubRef.current();
+        remoteTranscriptionStatusUnsubRef.current = null;
+      }
+      remoteTranscriptionStatusUnsubRef.current = ws.onStatus((status) => {
+        if (status.status === "connected") {
+          setTranscriptionErrorMessage(null);
+          if (transcriptionStatusRef.current === "error") {
+            setTranscriptionStatus("connecting");
+          }
+          return;
+        }
+        if (status.status === "error" || status.status === "disconnected") {
+          if (isStoppingRef.current || transcriptionStatusRef.current === "idle") {
+            return;
+          }
+          const detail =
+            status.status === "disconnected" && status.reason
+              ? ` (${status.reason})`
+              : "";
+          setTranscriptionStatus("error");
+          setTranscriptionErrorMessage(
+            `Remote transcription connection ${
+              status.status === "error" ? "failed" : "closed"
+            }${detail}.`
+          );
+        }
+      });
 
       // Check if we should rebroadcast to local Live Slides server (avoid loops).
       try {
@@ -1491,7 +1556,7 @@ const SmartVersesPage: React.FC = () => {
                   ]);
                 }
 
-                if (settings.autoTriggerOnDetection) {
+                if (autoTriggerOnDetectionRef.current) {
                   handleGoLive(resolvedDirect[0]);
                 }
               }
@@ -1533,7 +1598,7 @@ const SmartVersesPage: React.FC = () => {
                   }
                 }
 
-                if (settings.autoTriggerOnDetection) {
+                if (autoTriggerOnDetectionRef.current) {
                   if (deduped.length > 0) {
                     handleGoLive(deduped[0]);
                   }
@@ -1569,25 +1634,23 @@ const SmartVersesPage: React.FC = () => {
     } catch (error) {
       console.error("[SmartVerses] Failed to connect to remote transcription WS:", error);
       setTranscriptionStatus("error");
+      setTranscriptionErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "Failed to connect to remote transcription source."
+      );
     }
   }, [
+    disconnectRemoteTranscriptionWs,
     emitTranscriptionStream,
     settings.remoteTranscriptionHost,
     settings.remoteTranscriptionPort,
     settings.transcriptionEngine,
     settings.streamTranscriptionsToWebSocket,
     settings.autoAddDetectedToHistory,
-    settings.autoTriggerOnDetection,
     handleGoLive,
     scheduleInterimDirectParse,
   ]);
-
-  const disconnectRemoteTranscriptionWs = useCallback(() => {
-    if (remoteTranscriptionWsRef.current) {
-      remoteTranscriptionWsRef.current.disconnect();
-      remoteTranscriptionWsRef.current = null;
-    }
-  }, []);
 
   // Disconnect browser transcription WebSocket
   const disconnectBrowserTranscriptionWs = useCallback(() => {
@@ -1598,14 +1661,28 @@ const SmartVersesPage: React.FC = () => {
   }, []);
 
   const handleStartTranscription = useCallback(async () => {
+    setTranscriptionErrorMessage(null);
+    // Reset interim parse state for a fresh session
+    latestInterimTextRef.current = "";
+    lastInterimDirectSignatureRef.current = "";
+    lastInterimParseAtRef.current = 0;
+    lastInterimWordCountRef.current = 0;
+
+    // Remote transcription uses an external source - skip local engine validation.
+    if (settings.remoteTranscriptionEnabled) {
+      setTranscriptionStatus("connecting");
+      await connectToRemoteTranscriptionWs();
+      return;
+    }
+
     // Validate API keys based on selected engine
     if (settings.transcriptionEngine === "assemblyai" && !settings.assemblyAIApiKey) {
-      alert("Please configure your AssemblyAI API key in Settings > SmartVerses");
+      alert("Please configure your AssemblyAI API key in Settings → Transcription");
       return;
     }
 
     if (settings.transcriptionEngine === "groq" && !settings.groqApiKey) {
-      alert("Please configure your Groq API key in Settings > SmartVerses");
+      alert("Please configure your Groq API key in Settings → Transcription");
       return;
     }
 
@@ -1627,7 +1704,7 @@ const SmartVersesPage: React.FC = () => {
           );
         } else {
           alert(
-            "The selected Whisper model is not downloaded yet. Go to Settings > SmartVerses and select it to start the download."
+            "The selected Whisper model is not downloaded yet. Go to Settings → Transcription and select it to start the download."
           );
         }
         return;
@@ -1640,7 +1717,7 @@ const SmartVersesPage: React.FC = () => {
       const isDownloaded = await isNativeWhisperModelDownloaded(fileName);
       if (!isDownloaded) {
         alert(
-          "The selected native Whisper model is not downloaded yet. Go to Settings > SmartVerses and download it first."
+          "The selected native Whisper model is not downloaded yet. Go to Settings → Transcription and download it first."
         );
         return;
       }
@@ -1662,23 +1739,11 @@ const SmartVersesPage: React.FC = () => {
           );
         } else {
           alert(
-            "The selected Moonshine model is not downloaded yet. Go to Settings > SmartVerses and select it to start the download."
+            "The selected Moonshine model is not downloaded yet. Go to Settings → Transcription and select it to start the download."
           );
         }
         return;
       }
-    }
-
-    // Reset interim parse state for a fresh session
-    latestInterimTextRef.current = "";
-    lastInterimDirectSignatureRef.current = "";
-    lastInterimParseAtRef.current = 0;
-    lastInterimWordCountRef.current = 0;
-
-    if (settings.remoteTranscriptionEnabled) {
-      setTranscriptionStatus("connecting");
-      await connectToRemoteTranscriptionWs();
-      return;
     }
 
     // If browser transcription mode is enabled, open browser and wait for transcriptions
@@ -1763,7 +1828,7 @@ const SmartVersesPage: React.FC = () => {
               }
 
               // Auto-trigger if enabled
-              if (settings.autoTriggerOnDetection && directRefs.length > 0) {
+              if (autoTriggerOnDetectionRef.current && directRefs.length > 0) {
                 handleGoLive(directRefs[0]);
               }
             } else if (settings.enableParaphraseDetection || settings.enableKeyPointExtraction) {
@@ -1843,6 +1908,10 @@ const SmartVersesPage: React.FC = () => {
                       }]);
                     }
                   }
+
+                  if (autoTriggerOnDetectionRef.current && deduped.length > 0) {
+                    handleGoLive(deduped[0]);
+                  }
                 }
               }
             }
@@ -1894,9 +1963,15 @@ const SmartVersesPage: React.FC = () => {
           onError: (error) => {
             console.error("Transcription error:", error);
             setTranscriptionStatus("error");
+            setTranscriptionErrorMessage(
+              error instanceof Error ? error.message : "Transcription error."
+            );
           },
           onStatusChange: (status) => {
             setTranscriptionStatus(status);
+            if (status === "recording") {
+              setTranscriptionErrorMessage(null);
+            }
             if (status !== "recording") {
               setAudioLevel(0);
             }
@@ -1928,11 +2003,17 @@ const SmartVersesPage: React.FC = () => {
     } catch (error) {
       console.error("Failed to start transcription:", error);
       setTranscriptionStatus("error");
-      alert(`Failed to start transcription: ${error instanceof Error ? error.message : "Unknown error"}`);
+      setTranscriptionErrorMessage(
+        error instanceof Error ? error.message : "Failed to start transcription."
+      );
+      alert(
+        `Failed to start transcription: ${error instanceof Error ? error.message : "Unknown error"}`
+      );
     }
   }, [
     settings,
     appSettings,
+    connectToRemoteTranscriptionWs,
     handleGoLive,
     emitTranscriptionStream,
     queueInterimUiUpdate,
@@ -1941,6 +2022,7 @@ const SmartVersesPage: React.FC = () => {
 
   const handleStopTranscription = useCallback(async () => {
     setIsStopping(true);
+    isStoppingRef.current = true;
     try {
       if (transcriptionServiceRef.current) {
         await transcriptionServiceRef.current.stopTranscription();
@@ -1963,8 +2045,10 @@ const SmartVersesPage: React.FC = () => {
       }
       setTranscriptionStatus("idle");
       setInterimTranscript("");
+      setTranscriptionErrorMessage(null);
     } finally {
       setIsStopping(false);
+      isStoppingRef.current = false;
     }
   }, [disconnectBrowserTranscriptionWs, disconnectRemoteTranscriptionWs]);
 
@@ -1999,6 +2083,8 @@ const SmartVersesPage: React.FC = () => {
     () => formatElapsedTime(transcriptionElapsedMs),
     [formatElapsedTime, transcriptionElapsedMs]
   );
+  const canStartTranscription =
+    transcriptionStatus === "idle" || transcriptionStatus === "error";
   const transcriptionLimitLabel = useMemo(
     () => formatSnoozeLabel(transcriptionTimeLimitMinutes),
     [formatSnoozeLabel, transcriptionTimeLimitMinutes]
@@ -2137,6 +2223,17 @@ const SmartVersesPage: React.FC = () => {
     setTranscriptKeyPoints({});
     setInterimTranscript("");
   };
+
+  const handleAutoTriggerToggle = useCallback((enabled: boolean) => {
+    setSettings((prev) => {
+      const next = { ...prev, autoTriggerOnDetection: enabled };
+      saveSmartVersesSettings(next);
+      window.dispatchEvent(
+        new CustomEvent("smartverses-settings-changed", { detail: next })
+      );
+      return next;
+    });
+  }, []);
 
   const toggleDetectedExpanded = useCallback((id: string) => {
     setExpandedDetectedIds((prev) => {
@@ -3098,28 +3195,6 @@ const SmartVersesPage: React.FC = () => {
             )}
           </h3>
           <div style={{ display: "flex", alignItems: "center", gap: "var(--spacing-2)" }}>
-            <label
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "6px",
-                fontSize: "0.85rem",
-                color: "var(--app-text-color-secondary)",
-                userSelect: "none",
-                marginRight: "6px",
-              }}
-              title="When enabled, the transcript will stay scrolled to the latest line. Scrolling up pauses it."
-            >
-              <input
-                type="checkbox"
-                checked={autoScrollTranscript}
-                onChange={(e) => setAutoScrollFromCheckbox(e.target.checked)}
-              />
-              Auto-scroll
-              {autoScrollTranscript && autoScrollPaused && (
-                <span style={{ color: "var(--warning)", fontWeight: 700 }}>(paused)</span>
-              )}
-            </label>
             <div
               style={{
                 display: "flex",
@@ -3140,7 +3215,7 @@ const SmartVersesPage: React.FC = () => {
             >
               {formattedElapsedTime}
             </div>
-            {transcriptionStatus === "idle" ? (
+            {canStartTranscription ? (
               <button
                 onClick={handleStartTranscription}
                 className="primary"
@@ -3151,7 +3226,7 @@ const SmartVersesPage: React.FC = () => {
                 }}
               >
                 <FaMicrophone />
-                Start
+                {transcriptionStatus === "error" ? "Retry" : "Start"}
                 {settings.runTranscriptionInBrowser && (
                   <FaExternalLinkAlt style={{ fontSize: "0.75rem" }} />
                 )}
@@ -3282,6 +3357,23 @@ const SmartVersesPage: React.FC = () => {
           </div>
         </div>
 
+        {transcriptionErrorMessage && (
+          <div
+            role="alert"
+            style={{
+              margin: "var(--spacing-2) var(--spacing-4) 0",
+              padding: "8px 12px",
+              borderRadius: "8px",
+              border: "1px solid rgba(239, 68, 68, 0.45)",
+              backgroundColor: "rgba(239, 68, 68, 0.08)",
+              color: "var(--error)",
+              fontSize: "0.85rem",
+            }}
+          >
+            {transcriptionErrorMessage}
+          </div>
+        )}
+
         <div style={{
           height: "8px",
           backgroundColor: "var(--app-bg-color)",
@@ -3318,8 +3410,53 @@ const SmartVersesPage: React.FC = () => {
               background: "var(--app-input-bg-color)",
               color: "var(--app-input-text-color)",
               fontSize: "0.85rem",
+              marginBottom: "var(--spacing-2)",
             }}
           />
+          <div style={{ display: "flex", alignItems: "center", gap: "var(--spacing-3)" }}>
+            <label
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "6px",
+                fontSize: "0.85rem",
+                color: "var(--app-text-color-secondary)",
+                userSelect: "none",
+                cursor: "pointer",
+              }}
+              title="When enabled, the transcript will stay scrolled to the latest line. Scrolling up pauses it."
+            >
+              <input
+                type="checkbox"
+                checked={autoScrollTranscript}
+                onChange={(e) => setAutoScrollFromCheckbox(e.target.checked)}
+              />
+              Auto-scroll
+              {autoScrollTranscript && autoScrollPaused && (
+                <span style={{ color: "var(--warning)", fontWeight: 700, marginLeft: "4px" }}>(paused)</span>
+              )}
+            </label>
+            <label
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "6px",
+                fontSize: "0.85rem",
+                color: "var(--app-text-color-secondary)",
+                userSelect: "none",
+                cursor: "pointer",
+                whiteSpace: "nowrap",
+              }}
+              title="When enabled, detected verses go live automatically."
+            >
+              <input
+                type="checkbox"
+                checked={settings.autoTriggerOnDetection}
+                onChange={(e) => handleAutoTriggerToggle(e.target.checked)}
+              />
+              Auto-trigger
+            </label>
+          </div>
         </div>
 
         {/* Transcript Display */}

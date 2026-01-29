@@ -370,7 +370,7 @@ const MicSetupScreen: React.FC<MicSetupScreenProps> = ({
           className="onboarding-body"
           style={{ fontSize: "0.9rem", marginTop: "1.5rem" }}
         >
-          You can change this later in Settings → SmartVerses → Microphone.
+          You can change this later in Settings → Transcription → Microphone.
         </p>
 
         <div className="onboarding-buttons">

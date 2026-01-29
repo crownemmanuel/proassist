@@ -52,6 +52,7 @@ import { setApiEnabled } from "./services/apiService";
 import UpdateNotification from "./components/UpdateNotification";
 import OfflineModelLoadingToast from "./components/OfflineModelLoadingToast";
 import { preloadOfflineModel } from "./services/offlineModelPreloadService";
+import { isModelDownloaded } from "./services/offlineModelService";
 import { loadSmartVersesSettings } from "./services/transcriptionService";
 
 // Global Chat Assistant imports
@@ -736,13 +737,9 @@ function App() {
         settings.offlineMoonshineModel || "onnx-community/moonshine-base-ONNX";
     }
 
-    if (!modelId) return;
+    if (!modelId || !isModelDownloaded(modelId)) return;
 
-    preloadOfflineModel({
-      modelId,
-      source: "startup",
-      force: true,
-    }).catch((error) => {
+    preloadOfflineModel({ modelId, source: "startup" }).catch((error) => {
       console.warn("[OfflineModel] Startup preload failed:", error);
     });
   }, [isMainWindow]);

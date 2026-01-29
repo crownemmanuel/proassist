@@ -68,6 +68,7 @@ const OfflineModelManager: React.FC<OfflineModelManagerProps> = ({
   const [nativeModels, setNativeModels] = useState<NativeModelWithStatus[]>([]);
   const [downloadProgress, setDownloadProgress] = useState<Record<string, number>>({});
   const [downloadingModels, setDownloadingModels] = useState<Set<string>>(new Set());
+  const [deletingModels, setDeletingModels] = useState<Set<string>>(new Set());
   const [currentFile, setCurrentFile] = useState<Record<string, string>>({});
   const [nativeDownloadProgress, setNativeDownloadProgress] = useState<
     Record<string, number>
@@ -75,6 +76,7 @@ const OfflineModelManager: React.FC<OfflineModelManagerProps> = ({
   const [nativeDownloadingModels, setNativeDownloadingModels] = useState<Set<string>>(
     new Set()
   );
+  const [nativeDeletingModels, setNativeDeletingModels] = useState<Set<string>>(new Set());
   const [nativeCurrentFile, setNativeCurrentFile] = useState<Record<string, string>>(
     {}
   );
@@ -264,6 +266,7 @@ const OfflineModelManager: React.FC<OfflineModelManagerProps> = ({
       }
 
       setError(null);
+      setDeletingModels((prev) => new Set(prev).add(model.modelId));
 
       try {
         await deleteModel(model.modelId);
@@ -279,6 +282,12 @@ const OfflineModelManager: React.FC<OfflineModelManagerProps> = ({
             err instanceof Error ? err.message : "Unknown error"
           }`
         );
+      } finally {
+        setDeletingModels((prev) => {
+          const next = new Set(prev);
+          next.delete(model.modelId);
+          return next;
+        });
       }
     },
     [refreshModels, onModelDeleted]
@@ -295,6 +304,7 @@ const OfflineModelManager: React.FC<OfflineModelManagerProps> = ({
       }
 
       setError(null);
+      setNativeDeletingModels((prev) => new Set(prev).add(model.fileName));
 
       try {
         await deleteNativeWhisperModel(model.fileName);
@@ -306,6 +316,12 @@ const OfflineModelManager: React.FC<OfflineModelManagerProps> = ({
             err instanceof Error ? err.message : "Unknown error"
           }`
         );
+      } finally {
+        setNativeDeletingModels((prev) => {
+          const next = new Set(prev);
+          next.delete(model.fileName);
+          return next;
+        });
       }
     },
     [refreshNativeModels, onModelDeleted]
@@ -506,6 +522,7 @@ const OfflineModelManager: React.FC<OfflineModelManagerProps> = ({
                       key={model.id}
                       model={model}
                       isDownloading={nativeDownloadingModels.has(model.fileName)}
+                      isDeleting={nativeDeletingModels.has(model.fileName)}
                       progress={nativeDownloadProgress[model.fileName]}
                       currentFile={nativeCurrentFile[model.fileName]}
                       onDownload={() => handleNativeDownload(model)}
@@ -517,6 +534,7 @@ const OfflineModelManager: React.FC<OfflineModelManagerProps> = ({
                       key={model.id}
                       model={model}
                       isDownloading={downloadingModels.has(model.modelId)}
+                      isDeleting={deletingModels.has(model.modelId)}
                       progress={downloadProgress[model.modelId]}
                       currentFile={currentFile[model.modelId]}
                       onDownload={() => handleDownload(model)}
@@ -553,6 +571,7 @@ const OfflineModelManager: React.FC<OfflineModelManagerProps> = ({
                   key={model.id}
                   model={model}
                   isDownloading={downloadingModels.has(model.modelId)}
+                  isDeleting={deletingModels.has(model.modelId)}
                   progress={downloadProgress[model.modelId]}
                   currentFile={currentFile[model.modelId]}
                   onDownload={() => handleDownload(model)}
@@ -590,6 +609,7 @@ const OfflineModelManager: React.FC<OfflineModelManagerProps> = ({
 interface ModelCardProps {
   model: ManagedModel;
   isDownloading: boolean;
+  isDeleting: boolean;
   progress?: number;
   currentFile?: string;
   onDownload: () => void;
@@ -599,6 +619,7 @@ interface ModelCardProps {
 const ModelCard: React.FC<ModelCardProps> = ({
   model,
   isDownloading,
+  isDeleting,
   progress,
   currentFile,
   onDownload,
@@ -644,7 +665,7 @@ const ModelCard: React.FC<ModelCardProps> = ({
             >
               {model.size}
             </span>
-            {model.isDownloaded && (
+            {model.isDownloaded && !isDeleting && (
               <span
                 style={{
                   display: "flex",
@@ -656,6 +677,20 @@ const ModelCard: React.FC<ModelCardProps> = ({
               >
                 <FaCheck size={10} />
                 Downloaded
+              </span>
+            )}
+            {isDeleting && (
+              <span
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "4px",
+                  fontSize: "0.75em",
+                  color: "var(--warning)",
+                }}
+              >
+                <FaSpinner size={10} style={{ animation: "spin 1s linear infinite" }} />
+                Removing...
               </span>
             )}
           </div>
@@ -670,7 +705,21 @@ const ModelCard: React.FC<ModelCardProps> = ({
         </div>
 
         <div style={{ display: "flex", gap: "var(--spacing-2)" }}>
-          {model.isDownloaded ? (
+          {isDeleting ? (
+            <button
+              className="secondary btn-sm"
+              disabled
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "4px",
+                color: "var(--warning)",
+              }}
+            >
+              <FaSpinner size={12} style={{ animation: "spin 1s linear infinite" }} />
+              Removing...
+            </button>
+          ) : model.isDownloaded ? (
             <button
               onClick={onDelete}
               className="secondary btn-sm"

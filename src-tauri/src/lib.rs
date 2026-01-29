@@ -123,6 +123,22 @@ pub struct ApiTimerStartRequest {
     pub minutes: Option<f64>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApiTranscriptionPinRequest {
+    #[serde(rename = "clientId")]
+    pub client_id: String,
+    pub label: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PinnedTranscriptionClient {
+    #[serde(rename = "clientId")]
+    pub client_id: String,
+    pub label: Option<String>,
+    #[serde(rename = "pinnedAt")]
+    pub pinned_at: u64,
+}
+
 // ============================================================================
 // Types for Network Sync
 // ============================================================================
@@ -258,6 +274,7 @@ struct ServerState {
     schedule: RwLock<ScheduleState>,
     timer_state: RwLock<TimerState>,
     display_state: RwLock<DisplayState>,
+    pinned_transcription_clients: RwLock<HashMap<String, PinnedTranscriptionClient>>,
     broadcast_tx: broadcast::Sender<String>,
     running: RwLock<bool>,
     port: RwLock<u16>,
@@ -302,6 +319,7 @@ lazy_static::lazy_static! {
             slides: Vec::new(),
             settings: serde_json::json!({}),
         }),
+        pinned_transcription_clients: RwLock::new(HashMap::new()),
         broadcast_tx: broadcast::channel(100).0,
         running: RwLock::new(false),
         port: RwLock::new(9876),
@@ -682,6 +700,52 @@ async fn run_combined_server(port: u16, app: tauri::AppHandle) -> Result<(), Str
             }
         });
 
+    // API: Remote transcription pin
+    let transcription_pin_state = state.clone();
+    let transcription_pin_route = warp::path("api")
+        .and(warp::path("transcription"))
+        .and(warp::path("pin"))
+        .and(warp::path::end())
+        .and(warp::post())
+        .and(warp::body::json())
+        .and_then(move |body: ApiTranscriptionPinRequest| {
+            let state_clone = transcription_pin_state.clone();
+            async move {
+                let client_id = body.client_id.trim().to_string();
+                if client_id.is_empty() {
+                    return Ok::<_, warp::Rejection>(json_response(
+                        serde_json::json!({ "error": "client_id_required" }),
+                        StatusCode::BAD_REQUEST,
+                    ));
+                }
+
+                let pinned_at = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_millis() as u64;
+                let pinned = PinnedTranscriptionClient {
+                    client_id: client_id.clone(),
+                    label: body.label.clone(),
+                    pinned_at,
+                };
+
+                {
+                    let mut pinned_clients = state_clone.pinned_transcription_clients.write().await;
+                    pinned_clients.insert(client_id.clone(), pinned.clone());
+                }
+
+                Ok::<_, warp::Rejection>(json_response(
+                    serde_json::json!({
+                        "status": "pinned",
+                        "clientId": pinned.client_id,
+                        "label": pinned.label,
+                        "pinnedAt": pinned.pinned_at,
+                    }),
+                    StatusCode::OK,
+                ))
+            }
+        });
+
     // API v1: Scripture go-live
     let api_app = app.clone();
     let api_scripture_state = state.clone();
@@ -969,6 +1033,7 @@ async fn run_combined_server(port: u16, app: tauri::AppHandle) -> Result<(), Str
     let routes = ws_route
         .or(schedule_api_route)
         .or(live_slides_api_route)
+        .or(transcription_pin_route)
         .or(api_scripture_route)
         .or(api_timer_route)
         .or(api_docs_route)
@@ -3252,6 +3317,59 @@ async fn create_live_slide_session(name: String) -> Result<LiveSlideSession, Str
 }
 
 #[tauri::command]
+async fn upsert_live_slide_session(
+    session_id: String,
+    name: String,
+    raw_text: String,
+) -> Result<LiveSlideSession, String> {
+    let state = SERVER_STATE.clone();
+
+    let slides = parse_notepad_text(&raw_text);
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+
+    let mut sessions = state.sessions.write().await;
+    let created_at = sessions
+        .get(&session_id)
+        .map(|s| s.created_at)
+        .unwrap_or(now);
+    let is_new = !sessions.contains_key(&session_id);
+
+    let session = LiveSlideSession {
+        id: session_id.clone(),
+        name,
+        slides: slides.clone(),
+        raw_text: raw_text.clone(),
+        created_at,
+    };
+
+    sessions.insert(session_id.clone(), session.clone());
+    drop(sessions);
+
+    if is_new {
+        let msg = WsMessage::SessionCreated {
+            session: session.clone(),
+        };
+        if let Ok(json) = serde_json::to_string(&msg) {
+            let _ = state.broadcast_tx.send(json);
+        }
+    }
+
+    let update = WsMessage::SlidesUpdate {
+        session_id,
+        slides,
+        raw_text,
+    };
+    if let Ok(json) = serde_json::to_string(&update) {
+        let _ = state.broadcast_tx.send(json);
+    }
+
+    Ok(session)
+}
+
+#[tauri::command]
 async fn delete_live_slide_session(session_id: String) -> Result<(), String> {
     let state = SERVER_STATE.clone();
     
@@ -3716,6 +3834,7 @@ pub fn run() {
             start_live_slides_server,
             stop_live_slides_server,
             create_live_slide_session,
+            upsert_live_slide_session,
             delete_live_slide_session,
             get_live_slide_sessions,
             get_live_slides_server_info,
