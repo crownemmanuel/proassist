@@ -20,6 +20,7 @@ import {
 } from "../types/display";
 import DisplayLayoutEditorModal from "./DisplayLayoutEditorModal";
 import SlidesLayoutEditorModal from "./SlidesLayoutEditorModal";
+import { sectionStyle, sectionHeaderStyle } from "../utils/settingsSectionStyles";
 import {
   getLiveSlidesServerInfo,
   loadLiveSlidesSettings,
@@ -567,23 +568,6 @@ const DisplaySettings: React.FC = () => {
 
   const getSlideLineFontFamily = (index: number) =>
     settings.slidesLineStyles?.[index]?.fontFamily || settings.textFont;
-
-  const sectionStyle: React.CSSProperties = {
-    marginBottom: "var(--spacing-6)",
-    padding: "var(--spacing-4)",
-    backgroundColor: "var(--app-header-bg)",
-    borderRadius: "12px",
-    border: "1px solid var(--app-border-color)",
-  };
-
-  const sectionHeaderStyle: React.CSSProperties = {
-    display: "flex",
-    alignItems: "center",
-    gap: "var(--spacing-2)",
-    marginBottom: "var(--spacing-4)",
-    paddingBottom: "var(--spacing-3)",
-    borderBottom: "1px solid var(--app-border-color)",
-  };
 
   return (
     <div style={{ maxWidth: "900px" }}>

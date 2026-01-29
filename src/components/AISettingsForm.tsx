@@ -19,6 +19,7 @@ import {
 } from "../services/propresenterService";
 import { ProPresenterConnection } from "../types/propresenter";
 import { useDebouncedEffect } from "../hooks/useDebouncedEffect";
+import { sectionStyle, sectionHeaderStyle } from "../utils/settingsSectionStyles";
 
 interface AISettingsFormProps {
   // Props if any, e.g., onSettingsChange callback if SettingsPage needs to react
@@ -515,23 +516,6 @@ const AISettingsForm: React.FC<AISettingsFormProps> = () => {
       setFetchingFromPP(false);
     }
   }, [enabledConnections, selectedConnectionId]);
-
-  const sectionStyle: React.CSSProperties = {
-    marginBottom: "var(--spacing-6)",
-    padding: "var(--spacing-4)",
-    backgroundColor: "var(--app-header-bg)",
-    borderRadius: "12px",
-    border: "1px solid var(--app-border-color)",
-  };
-
-  const sectionHeaderStyle: React.CSSProperties = {
-    display: "flex",
-    alignItems: "center",
-    gap: "var(--spacing-2)",
-    marginBottom: "var(--spacing-4)",
-    paddingBottom: "var(--spacing-3)",
-    borderBottom: "1px solid var(--app-border-color)",
-  };
 
   return (
     <div>
