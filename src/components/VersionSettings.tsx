@@ -145,7 +145,7 @@ const VersionSettings: React.FC = () => {
       <div style={styles.section}>
         <h2 style={styles.title}>Updates</h2>
         <p style={styles.description}>
-          Check for updates to ensure you're running the latest version of ProAssist.
+          Check for updates to ensure you're running the latest version of SmartVerses.
         </p>
 
         <div style={styles.buttonContainer}>
