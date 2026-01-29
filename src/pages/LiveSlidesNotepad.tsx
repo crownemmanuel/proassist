@@ -271,13 +271,6 @@ const getNotepadStyles = (isDark: boolean) => {
       fontWeight: 600,
       color: text,
     },
-    transcriptionMeter: {
-      height: "8px",
-      backgroundColor: bg,
-      border: `1px solid ${border}`,
-      borderRadius: "999px",
-      overflow: "hidden",
-    },
     transcriptionFilters: {
       display: "flex",
       gap: "10px",
@@ -474,7 +467,6 @@ const LiveSlidesNotepad: React.FC = () => {
   const [showLiveTranscription, setShowLiveTranscription] = useState(false);
   const [liveInterimTranscript, setLiveInterimTranscript] = useState("");
   const [liveTranscriptChunks, setLiveTranscriptChunks] = useState<WsTranscriptionStream[]>([]);
-  const [audioLevel, setAudioLevel] = useState(0);
   const [filterTranscript, setFilterTranscript] = useState(true);
   const [filterReferences, setFilterReferences] = useState(true);
   const [filterKeyPoints, setFilterKeyPoints] = useState(true);
@@ -717,10 +709,7 @@ const LiveSlidesNotepad: React.FC = () => {
       if (message.type !== "transcription_stream") return;
 
       const m = message as WsTranscriptionStream;
-      if (typeof m.audio_level === "number") {
-        const level = Math.max(0, Math.min(1, m.audio_level));
-        setAudioLevel((prev) => prev * 0.65 + level * 0.35);
-      }
+      // Audio level meter removed; ignore audio_level for now.
       if (m.kind === "interim") {
         setLiveInterimTranscript(m.text || "");
         return;
@@ -1771,6 +1760,7 @@ Result: Slide 1 = Title, Slide 2 = Title + Sub-item 1, Slide 3 = Title + Sub-ite
                     searchQuery={transcriptSearchQuery}
                     onSearchChange={setTranscriptSearchQuery}
                     onClearSearch={() => setTranscriptSearchQuery("")}
+                    showSearch={false}
                     options={[
                       {
                         id: "show-transcript",
@@ -1825,20 +1815,43 @@ Result: Slide 1 = Title, Slide 2 = Title + Sub-item 1, Slide 3 = Title + Sub-ite
                 </div>
               </div>
 
-              <div style={notepadStyles.transcriptionMeter}>
-                <div
+              <div style={{ marginTop: "10px" }}>
+                <label
                   style={{
-                    height: "100%",
-                    width: `${Math.max(2, Math.round(audioLevel * 100))}%`,
-                    backgroundColor:
-                      audioLevel > 0.85
-                        ? "rgb(220, 38, 38)"
-                        : audioLevel > 0.7
-                        ? "rgb(234, 179, 8)"
-                        : "rgb(34, 197, 94)",
-                    transition: "width 80ms linear, background-color 150ms ease",
+                    fontSize: "0.75rem",
+                    color: notepadStyles.footer.color,
+                    display: "block",
+                    marginBottom: "6px",
                   }}
-                />
+                >
+                  Search transcript
+                </label>
+                <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+                  <input
+                    type="text"
+                    value={transcriptSearchQuery}
+                    onChange={(e) => setTranscriptSearchQuery(e.target.value)}
+                    placeholder="Type to filter..."
+                    style={{
+                      flex: 1,
+                      padding: "8px 10px",
+                      borderRadius: "6px",
+                      border: `1px solid ${notepadStyles.border}`,
+                      backgroundColor: notepadStyles.input.background,
+                      color: notepadStyles.input.color,
+                      fontSize: "0.85rem",
+                    }}
+                  />
+                  {transcriptSearchQuery.trim() && (
+                    <button
+                      onClick={() => setTranscriptSearchQuery("")}
+                      className="secondary"
+                      style={{ padding: "6px 10px", fontSize: "0.8rem" }}
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -1884,7 +1897,7 @@ Result: Slide 1 = Title, Slide 2 = Title + Sub-item 1, Slide 3 = Title + Sub-ite
                 <div style={{ color: notepadStyles.footer.color, fontSize: "0.85rem", padding: "8px 12px" }}>
                   Waiting for transcription stream…
                   <div style={{ marginTop: "6px", fontSize: "0.78rem", opacity: 0.9 }}>
-                    Enable streaming in SmartVerses Settings → Transcription Settings.
+                    Enable streaming in Settings → Transcription.
                   </div>
                 </div>
               ) : (

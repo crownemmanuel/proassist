@@ -40,11 +40,11 @@ import { formatSlidesForClipboard } from "../utils/slideUtils"; // Added import
 import TranscriptOptionsMenu from "../components/transcription/TranscriptOptionsMenu";
 import { saveTranscriptFile } from "../utils/transcriptDownload";
 import {
-  createLiveSlideSession,
   getLiveSlidesServerInfo,
   LiveSlidesWebSocket,
   loadLiveSlidesSettings,
   startLiveSlidesServer,
+  upsertLiveSlideSession,
   generateShareableNotepadUrl,
   generateWebSocketUrl,
 } from "../services/liveSlideService";
@@ -1921,19 +1921,18 @@ const MainApplicationPage: React.FC = () => {
         return;
       }
 
-      const existingSession = info.sessions?.[sessionId];
       const seedRaw = currentPlaylistItem.liveSlidesCachedRawText?.trim().length
         ? currentPlaylistItem.liveSlidesCachedRawText
         : buildRawTextFromSlides(currentPlaylistItem.slides);
 
-      let activeSessionId = sessionId;
-      if (!existingSession) {
-        // Create a fresh session when the server doesn't have this one.
-        const session = await createLiveSlideSession(currentPlaylistItem.title);
-        activeSessionId = session.id;
-      }
+      // Ensure the server has this session ID and seed it with our cached copy.
+      await upsertLiveSlideSession(
+        sessionId,
+        currentPlaylistItem.title,
+        seedRaw || ""
+      );
 
-      // Update item to point at the active session and cache our local copy.
+      // Update item to keep the original session ID and cache our local copy.
       setPlaylists((prev) =>
         prev.map((p) => {
           if (p.id !== currentPlaylist.id) return p;
@@ -1943,7 +1942,7 @@ const MainApplicationPage: React.FC = () => {
               if (it.id !== currentPlaylistItem.id) return it;
               return {
                 ...it,
-                liveSlidesSessionId: activeSessionId,
+                liveSlidesSessionId: sessionId,
                 liveSlidesLinked: true,
                 liveSlidesCachedRawText: seedRaw,
               };
@@ -1952,21 +1951,20 @@ const MainApplicationPage: React.FC = () => {
         })
       );
 
-      // Seed the server via WS - ensure text is sent before notepad connects.
+      // Ensure a WS client exists for live updates.
       const wsUrl = generateWebSocketUrl(info.local_ip, info.server_port);
-      let ws = liveSlidesWsMapRef.current.get(activeSessionId);
+      let ws = liveSlidesWsMapRef.current.get(sessionId);
       if (!ws) {
-        ws = new LiveSlidesWebSocket(wsUrl, activeSessionId, "viewer");
-        liveSlidesWsMapRef.current.set(activeSessionId, ws);
+        ws = new LiveSlidesWebSocket(wsUrl, sessionId, "viewer");
+        liveSlidesWsMapRef.current.set(sessionId, ws);
       }
       await ws.connect().catch(() => {});
 
-      // Always push our local copy so the notepad mirrors the app after refresh.
-      ws.sendTextUpdate(seedRaw || "");
       setLiveSlidesRawTextBySession((prev) => ({
         ...prev,
-        [activeSessionId]: seedRaw || "",
+        [sessionId]: seedRaw || "",
       }));
+      setLiveSlidesServerSessionIds((prev) => new Set(prev).add(sessionId));
 
       // Give the server a moment to process the update before showing the URL
       // This ensures the notepad will receive the pre-populated content when it connects
@@ -1976,17 +1974,12 @@ const MainApplicationPage: React.FC = () => {
       const typingUrl = generateShareableNotepadUrl(
         info.local_ip,
         info.server_port,
-        activeSessionId
+        sessionId
       );
       setLiveSlidesTypingUrls((prev) => ({
         ...prev,
-        [activeSessionId]: typingUrl,
+        [sessionId]: typingUrl,
       }));
-
-      // Update server session IDs to include the new session if we created one
-      if (activeSessionId !== sessionId) {
-        setLiveSlidesServerSessionIds((prev) => new Set(prev).add(activeSessionId));
-      }
 
       // Show typing URL modal
       setTypingUrlModal({ url: typingUrl });
@@ -2002,9 +1995,6 @@ const MainApplicationPage: React.FC = () => {
       setCreatingLiveSlidesSessions((prev) => {
         const next = new Set(prev);
         next.delete(sessionId);
-        if (activeSessionId !== sessionId) {
-          next.delete(activeSessionId);
-        }
         return next;
       });
     } catch (e) {
